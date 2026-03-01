@@ -1,0 +1,20 @@
+{
+  "name": "smart-upload-server",
+  "version": "1.0.0",
+  "description": "Sprint 2 - Smart Upload Backend with Auto-Tagging & Vault Routing",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node server.js"
+  },
+  "dependencies": {
+    "cors": "^2.8.5",
+    "express": "^4.18.2",
+    "mongoose": "^8.0.0",
+    "multer": "^1.4.5-lts.1",
+    "pdf-parse": "^1.1.1"
+  },
+  "devDependencies": {
+    "mongodb-memory-server": "^9.1.1"
+  }
+}
