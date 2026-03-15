@@ -1,8 +1,10 @@
+require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
-const path = require('path');
 const { connectDB } = require('./config/db');
+const authRoutes = require('./routes/auth');
 const documentRoutes = require('./routes/documents');
+const organizationRoutes = require('./routes/organizations');
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -16,7 +18,9 @@ app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
 // Routes
-app.use('/api', documentRoutes);
+app.use('/api/auth', authRoutes);
+app.use('/api/documents', documentRoutes);
+app.use('/api/orgs', organizationRoutes);
 
 // Health check
 app.get('/api/health', (req, res) => {
@@ -26,9 +30,6 @@ app.get('/api/health', (req, res) => {
 // Error handling middleware
 app.use((err, req, res, next) => {
   console.error('Server error:', err);
-  if (err.message === 'Only PDF files are allowed') {
-    return res.status(400).json({ error: err.message });
-  }
   res.status(500).json({ error: 'Internal server error' });
 });
 
@@ -37,12 +38,8 @@ async function start() {
   await connectDB();
 
   app.listen(PORT, () => {
-    console.log(`🚀 Smart Upload Server running on http://localhost:${PORT}`);
-    console.log(`📡 API endpoints:`);
-    console.log(`   POST /api/upload        - Upload & auto-tag a PDF`);
-    console.log(`   GET  /api/documents     - List all documents`);
-    console.log(`   GET  /api/documents/stats - Vault statistics`);
-    console.log(`   GET  /api/health        - Health check`);
+    console.log(`🚀 DMR Server running on http://localhost:${PORT}`);
+    console.log(`📡 Routes: /api/auth, /api/documents, /api/orgs, /api/health`);
   });
 }
 

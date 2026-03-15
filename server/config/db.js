@@ -1,15 +1,15 @@
 const mongoose = require('mongoose');
-const { MongoMemoryServer } = require('mongodb-memory-server');
-
-let mongoServer;
 
 async function connectDB() {
   try {
-    mongoServer = await MongoMemoryServer.create();
-    const uri = mongoServer.getUri();
+    const uri = process.env.MONGO_URI;
+    if (!uri) {
+      console.error('❌ MONGO_URI is not set in .env file');
+      process.exit(1);
+    }
 
     await mongoose.connect(uri);
-    console.log(`✅ MongoDB In-Memory connected: ${uri}`);
+    console.log(`✅ MongoDB connected: ${mongoose.connection.host}`);
   } catch (err) {
     console.error('❌ MongoDB connection error:', err.message);
     process.exit(1);
@@ -18,9 +18,6 @@ async function connectDB() {
 
 async function disconnectDB() {
   await mongoose.disconnect();
-  if (mongoServer) {
-    await mongoServer.stop();
-  }
 }
 
 module.exports = { connectDB, disconnectDB };
