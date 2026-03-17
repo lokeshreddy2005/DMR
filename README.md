@@ -1,8 +1,8 @@
 # Document Management Repository (DMR)
 
-A centralized, intelligent document management system that automatically classifies, tags, and routes documents using AI, while providing robust access control, organization management, and a premium, modern user interface.
+A centralized, intelligent document management system that automatically classifies, tags, and routes documents using AI, while providing robust access control, organization management, and a modern user interface.
 
-## 🚀 Key Features
+## Key Features
 
 - **AI-Powered Auto-Tagging**: Integrates with the Groq API (LLaMA 3) to automatically extract metadata from uploaded PDFs, including primary domain, sensitivity level, document type, and contextual keywords.
 - **Robust Access Control**:
@@ -12,9 +12,9 @@ A centralized, intelligent document management system that automatically classif
 - **Storage Quotas**: Enforced storage limits per space (500MB Public, 100MB Private per user, 200MB per Organization).
 - **Secure File Storage**: Documents are securely uploaded and retrieved using AWS S3.
 - **Advanced Search & Filtering**: Search across titles, descriptions, and AI-generated tags via an intuitive UI.
-- **Premium UI/UX**: Completely redesigned using Tailwind CSS, featuring a responsive layout, glassmorphism aesthetics, animated interactions, and a fully supported Dark/Light mode toggle.
+- **Responsive UI/UX**: Completely redesigned using Tailwind CSS, featuring a responsive layout, and a fully supported Dark/Light mode toggle.
 
-## 🛠 Tech Stack
+## Tech Stack
 
 - **Frontend**: React 18 + Vite, Tailwind CSS
 - **Backend**: Node.js + Express
@@ -23,7 +23,7 @@ A centralized, intelligent document management system that automatically classif
 - **AI Integration**: Groq API (LLaMA 3) for advanced text analysis and classification
 - **File Processing**: `pdf-parse` for text extraction, `multer` for multipart form handling
 
-## 📦 Project Structure
+## Project Structure
 
 ```
 DMR/
@@ -46,7 +46,7 @@ DMR/
 │   └── vite.config.js         # Vite config with backend proxy
 ```
 
-## 🚀 Getting Started
+## Getting Started
 
 ### Prerequisites
 
@@ -98,7 +98,7 @@ npm run dev
 
 Open **http://localhost:5173** in your browser.
 
-## 📡 Core API Structure
+## Core API Structure
 
 | Route Prefix | Description |
 |---|---|
@@ -107,15 +107,11 @@ Open **http://localhost:5173** in your browser.
 | `/api/orgs` | Creating organizations, managing members and access roles |
 | `/api/public` | Read-only endpoints for accessing public documents and global tags without authentication |
 
-## 👥 Team
+## Team
 
-- Ujwal
-- Madhava
-- Rakesh
-- Lokesh
-- Bhuvan
-- Mohit
-
-## 📄 License
-
-This project is for academic purposes.
+- Sri Ujwal Srinivas Varma Gunturi
+- Gullapalli Madhava Asrith Murthy 
+- Divvela Rakesh 
+- Bolla Lokesh Reddy
+- Kodavatikanti Bhuvan Chandra
+- Rongali Mohit Naidu 
