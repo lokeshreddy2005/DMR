@@ -8,6 +8,7 @@ const User = require('../models/User');
 const { authMiddleware } = require('../middleware/auth');
 const { uploadToS3, getDownloadUrl, deleteFromS3 } = require('../services/s3');
 const { checkQuota, getStorageSummary } = require('../services/storageQuota');
+const { autoTagDocument } = require('../services/autoTagger');
 
 const router = express.Router();
 
@@ -37,7 +38,6 @@ const upload = multer({
 /**
  * POST /api/documents/upload
  * Upload a document to a space (public, private, or organization).
- * Body fields: space, organizationId (optional), description (optional)
  */
 router.post('/upload', upload.single('document'), async (req, res) => {
   try {
@@ -52,7 +52,7 @@ router.post('/upload', upload.single('document'), async (req, res) => {
       return res.status(400).json({ error: 'Invalid space. Must be public, private, or organization.' });
     }
 
-    // Validate org membership for organization uploads
+    // Validate org membership
     if (space === 'organization') {
       if (!organizationId) {
         cleanupFile(req.file.path);
@@ -82,7 +82,7 @@ router.post('/upload', upload.single('document'), async (req, res) => {
       const usedMB = (quota.used / 1024 / 1024).toFixed(1);
       const limitMB = (quota.limit / 1024 / 1024).toFixed(0);
       return res.status(413).json({
-        error: `Storage quota exceeded. Used ${usedMB} MB of ${limitMB} MB. Free up space or contact admin.`,
+        error: `Storage quota exceeded. Used ${usedMB} MB of ${limitMB} MB.`,
       });
     }
 
@@ -96,7 +96,7 @@ router.post('/upload', upload.single('document'), async (req, res) => {
       organizationId
     );
 
-    // Create document metadata in MongoDB
+    // Create document metadata
     const doc = new Document({
       fileName: req.file.originalname,
       description: description?.trim() || '',
@@ -110,10 +110,23 @@ router.post('/upload', upload.single('document'), async (req, res) => {
       permissions: [{ user: req.user._id, level: 'owner' }],
     });
 
+    // Auto-tag if public
+    if (space === 'public') {
+      try {
+        console.log(`🏷️  Auto-tagging "${req.file.originalname}"...`);
+        const tagResult = await autoTagDocument(fileBuffer, req.file.mimetype, req.file.originalname);
+        doc.tags = tagResult.tags;
+        doc.metadata = tagResult.metadata;
+        doc.isTagged = true;
+        console.log(`✅ Tagged with ${tagResult.tags.length} keywords`);
+      } catch (tagErr) {
+        console.error('Auto-tag warning (non-blocking):', tagErr.message);
+      }
+    }
+
     await doc.save();
     await doc.populate('uploadedBy', 'name email avatarColor');
 
-    // Cleanup temp file
     cleanupFile(req.file.path);
 
     res.status(201).json({
@@ -124,6 +137,60 @@ router.post('/upload', upload.single('document'), async (req, res) => {
     if (req.file) cleanupFile(req.file.path);
     console.error('Upload error:', err);
     res.status(500).json({ error: err.message || 'Upload failed.' });
+  }
+});
+
+/**
+ * PUT /api/documents/:id/make-public
+ * Convert a private document to public, triggering auto-tagging.
+ */
+router.put('/:id/make-public', async (req, res) => {
+  try {
+    const doc = await Document.findById(req.params.id);
+    if (!doc) return res.status(404).json({ error: 'Document not found.' });
+
+    if (!doc.isOwner(req.user._id)) {
+      return res.status(403).json({ error: 'Only the owner can change document visibility.' });
+    }
+
+    if (doc.space === 'public') {
+      return res.status(400).json({ error: 'Document is already public.' });
+    }
+
+    // Check public quota
+    const quota = await checkQuota('public', req.user._id, null, doc.fileSize);
+    if (!quota.allowed) {
+      return res.status(413).json({ error: 'Public storage quota exceeded.' });
+    }
+
+    // Change space to public
+    doc.space = 'public';
+    doc.organization = null;
+
+    // Auto-tag the document
+    try {
+      console.log(`🏷️  Auto-tagging "${doc.fileName}" (private→public)...`);
+      const downloadUrl = await getDownloadUrl(doc.s3Key);
+      // Fetch the file from S3 for tagging
+      const response = await fetch(downloadUrl);
+      const fileBuffer = Buffer.from(await response.arrayBuffer());
+      const tagResult = await autoTagDocument(fileBuffer, doc.mimeType, doc.fileName);
+      doc.tags = tagResult.tags;
+      doc.metadata = tagResult.metadata;
+      doc.isTagged = true;
+      console.log(`✅ Tagged with ${tagResult.tags.length} keywords`);
+    } catch (tagErr) {
+      console.error('Auto-tag warning:', tagErr.message);
+      // Still make it public even if tagging fails
+    }
+
+    await doc.save();
+    await doc.populate('uploadedBy', 'name email avatarColor');
+
+    res.json({ message: 'Document is now public!', document: doc });
+  } catch (err) {
+    console.error('Make public error:', err);
+    res.status(500).json({ error: 'Failed to make document public.' });
   }
 });
 
@@ -140,7 +207,6 @@ router.get('/', async (req, res) => {
       query = { space: 'public' };
     } else if (space === 'private') {
       query = { space: 'private', uploadedBy: req.user._id };
-      // Also include docs shared with the user
     } else if (space === 'organization' && organizationId) {
       const org = await Organization.findById(organizationId);
       if (!org || !org.isMember(req.user._id)) {
@@ -148,17 +214,13 @@ router.get('/', async (req, res) => {
       }
       query = { space: 'organization', organization: organizationId };
     } else {
-      // Default: return all docs the user can see
       query = {
         $or: [
           { space: 'public' },
           { space: 'private', uploadedBy: req.user._id },
           { space: 'private', 'permissions.user': req.user._id },
-          { space: 'organization', 'permissions.user': req.user._id },
         ],
       };
-
-      // Also include org docs where user is a member
       const userOrgs = await Organization.find({ 'members.user': req.user._id }).select('_id');
       if (userOrgs.length > 0) {
         query.$or.push({ space: 'organization', organization: { $in: userOrgs.map((o) => o._id) } });
@@ -179,7 +241,6 @@ router.get('/', async (req, res) => {
 
 /**
  * GET /api/documents/stats
- * Get document counts by space.
  */
 router.get('/stats', async (req, res) => {
   try {
@@ -215,7 +276,6 @@ router.get('/stats', async (req, res) => {
 
 /**
  * GET /api/documents/storage
- * Get storage usage summary with quotas.
  */
 router.get('/storage', async (req, res) => {
   try {
@@ -229,7 +289,6 @@ router.get('/storage', async (req, res) => {
 
 /**
  * GET /api/documents/:id
- * Get single document details.
  */
 router.get('/:id', async (req, res) => {
   try {
@@ -240,7 +299,6 @@ router.get('/:id', async (req, res) => {
 
     if (!doc) return res.status(404).json({ error: 'Document not found.' });
 
-    // Check access
     if (!await checkDocAccess(doc, req.user._id)) {
       return res.status(403).json({ error: 'You do not have access to this document.' });
     }
@@ -254,7 +312,6 @@ router.get('/:id', async (req, res) => {
 
 /**
  * PUT /api/documents/:id
- * Update document metadata.
  */
 router.put('/:id', async (req, res) => {
   try {
@@ -281,7 +338,6 @@ router.put('/:id', async (req, res) => {
 
 /**
  * DELETE /api/documents/:id
- * Delete document from S3 and MongoDB.
  */
 router.delete('/:id', async (req, res) => {
   try {
@@ -292,10 +348,7 @@ router.delete('/:id', async (req, res) => {
       return res.status(403).json({ error: 'Only the owner can delete this document.' });
     }
 
-    // Delete from S3
-    try {
-      await deleteFromS3(doc.s3Key);
-    } catch (s3Err) {
+    try { await deleteFromS3(doc.s3Key); } catch (s3Err) {
       console.error('S3 delete warning:', s3Err.message);
     }
 
@@ -309,7 +362,6 @@ router.delete('/:id', async (req, res) => {
 
 /**
  * GET /api/documents/:id/download
- * Get a signed download URL.
  */
 router.get('/:id/download', async (req, res) => {
   try {
@@ -330,7 +382,6 @@ router.get('/:id/download', async (req, res) => {
 
 /**
  * POST /api/documents/:id/permissions
- * Grant access to a user. Body: { email, level }
  */
 router.post('/:id/permissions', async (req, res) => {
   try {
@@ -343,16 +394,12 @@ router.post('/:id/permissions', async (req, res) => {
 
     const { email, level } = req.body;
     if (!email) return res.status(400).json({ error: 'Email is required.' });
-    if (!['viewer', 'editor', 'owner'].includes(level || 'viewer')) {
-      return res.status(400).json({ error: 'Invalid permission level.' });
-    }
 
     const targetUser = await User.findOne({ email: email.toLowerCase() });
     if (!targetUser) {
       return res.status(404).json({ error: 'No user found with that email.' });
     }
 
-    // Check if already has permission
     const existingIdx = doc.permissions.findIndex(
       (p) => p.user.toString() === targetUser._id.toString()
     );
@@ -374,7 +421,6 @@ router.post('/:id/permissions', async (req, res) => {
 
 /**
  * DELETE /api/documents/:id/permissions/:userId
- * Revoke a user's access.
  */
 router.delete('/:id/permissions/:userId', async (req, res) => {
   try {
@@ -385,7 +431,6 @@ router.delete('/:id/permissions/:userId', async (req, res) => {
       return res.status(403).json({ error: 'Only the owner can manage permissions.' });
     }
 
-    // Cannot revoke own access
     if (req.params.userId === req.user._id.toString()) {
       return res.status(400).json({ error: 'Cannot revoke your own access.' });
     }
@@ -404,9 +449,8 @@ router.delete('/:id/permissions/:userId', async (req, res) => {
   }
 });
 
-/**
- * Helper: Check if user has access to a document.
- */
+// --- Helpers --- //
+
 async function checkDocAccess(doc, userId) {
   if (doc.space === 'public') return true;
   if (doc.uploadedBy.toString() === userId.toString() ||
@@ -415,20 +459,14 @@ async function checkDocAccess(doc, userId) {
     (p.user.toString() === userId.toString()) ||
     (p.user._id?.toString() === userId.toString())
   )) return true;
-
-  // Check org membership for org docs
   if (doc.space === 'organization' && doc.organization) {
     const orgId = doc.organization._id || doc.organization;
     const org = await Organization.findById(orgId);
     if (org && org.isMember(userId)) return true;
   }
-
   return false;
 }
 
-/**
- * Helper: Cleanup temp file.
- */
 function cleanupFile(filePath) {
   if (filePath && fs.existsSync(filePath)) {
     fs.unlink(filePath, (err) => {

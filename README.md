@@ -1,62 +1,49 @@
 # Document Management Repository (DMR)
 
-A centralized, intelligent document management system that automatically classifies and routes documents into organized vaults using keyword-based auto-tagging.
+A centralized, intelligent document management system that automatically classifies, tags, and routes documents using AI, while providing robust access control, organization management, and a premium, modern user interface.
 
-## 🚀 Sprint 2 — Smart Upload System
+## 🚀 Key Features
 
-The Smart Upload workflow accepts raw PDF documents, analyzes their content, and automatically stores them in the correct vault (Finance, HR, or Project) without manual sorting.
-
-### Deliverables
-
-| Feature | Description |
-|---|---|
-| **Smart Upload Interface** | React-based drag-and-drop zone for PDF uploads |
-| **Auto-Tagging Service** | Node.js utility using `pdf-parse` to scan files for keywords and classify them |
-| **Vault Router** | Backend logic that maps tags to MongoDB collections |
-| **Prototype Dashboard** | Dashboard showing documents grouped by their assigned vault categories |
-
-### Architecture
-
-```
-User uploads PDF
-       ↓
-  [Auto-Tagger]  ← pdf-parse extracts text → keyword matching
-       ↓
-  [Vault Router] ← maps tag → vault (Finance / HR / Project)
-       ↓
-  [MongoDB]      ← stores document metadata + classification
-       ↓
-  [Dashboard]    ← displays documents by vault
-```
+- **AI-Powered Auto-Tagging**: Integrates with the Groq API (LLaMA 3) to automatically extract metadata from uploaded PDFs, including primary domain, sensitivity level, document type, and contextual keywords.
+- **Robust Access Control**:
+  - **Public Space**: Open access for sharing institutional documents (read-only for non-authenticated users).
+  - **Private Space**: Personal repository for user-specific files.
+  - **Organizations**: Collaborative spaces with role-based access control (Admin, Member, Viewer).
+- **Storage Quotas**: Enforced storage limits per space (500MB Public, 100MB Private per user, 200MB per Organization).
+- **Secure File Storage**: Documents are securely uploaded and retrieved using AWS S3.
+- **Advanced Search & Filtering**: Search across titles, descriptions, and AI-generated tags via an intuitive UI.
+- **Premium UI/UX**: Completely redesigned using Tailwind CSS, featuring a responsive layout, glassmorphism aesthetics, animated interactions, and a fully supported Dark/Light mode toggle.
 
 ## 🛠 Tech Stack
 
-- **Frontend**: React 18 + Vite
+- **Frontend**: React 18 + Vite, Tailwind CSS
 - **Backend**: Node.js + Express
-- **Database**: MongoDB (in-memory via `mongodb-memory-server` for development)
-- **File Processing**: `pdf-parse` for text extraction
-- **File Upload**: `multer` for multipart form handling
+- **Database**: MongoDB (Mongoose)
+- **Storage**: AWS S3 (via `@aws-sdk/client-s3`)
+- **AI Integration**: Groq API (LLaMA 3) for advanced text analysis and classification
+- **File Processing**: `pdf-parse` for text extraction, `multer` for multipart form handling
 
 ## 📦 Project Structure
 
 ```
 DMR/
 ├── server/
-│   ├── server.js              # Express server (port 5000)
+│   ├── server.js              # Express app and route mounting
 │   ├── config/db.js           # MongoDB connection
-│   ├── models/Document.js     # Document schema
+│   ├── models/                # Mongoose models (User, Document, Organization)
+│   ├── routes/                # API endpoints (auth, documents, orgs, public)
 │   ├── services/
-│   │   ├── autoTagger.js      # PDF keyword scanner
-│   │   └── vaultRouter.js     # Tag-to-vault routing
-│   └── routes/documents.js    # API routes
+│   │   ├── s3Service.js       # AWS S3 upload/download/delete handlers
+│   │   ├── autoTagger.js      # Groq API integration for metadata extraction
+│   │   └── storageQuota.js    # Quota validation logic
 ├── client/
 │   ├── src/
-│   │   ├── App.jsx            # Main app with tab navigation
-│   │   └── components/
-│   │       ├── SmartUpload.jsx # Drag-and-drop upload
-│   │       └── Dashboard.jsx  # Vault dashboard
-│   └── vite.config.js         # Vite config with API proxy
-└── SWE___Sprint_0.pdf         # Sprint documentation
+│   │   ├── App.jsx            # Main app router & theme provider
+│   │   ├── context/           # Theme and Auth Context providers
+│   │   └── components/        # React components (Dashboard, Login, Signup, UploadModal)
+│   ├── index.css              # Tailwind global directives
+│   ├── tailwind.config.js     # Tailwind CSS configuration
+│   └── vite.config.js         # Vite config with backend proxy
 ```
 
 ## 🚀 Getting Started
@@ -64,7 +51,24 @@ DMR/
 ### Prerequisites
 
 - Node.js v18+ (recommended: v20)
-- npm
+- MongoDB instance (local or Atlas)
+- AWS Account (S3 Bucket credentials)
+- Groq API Key
+
+### Environment Variables
+
+Create a `.env` file in the `server/` directory:
+
+```env
+PORT=5000
+MONGODB_URI=your_mongodb_connection_string
+JWT_SECRET=your_jwt_secret
+AWS_ACCESS_KEY_ID=your_aws_access_key
+AWS_SECRET_ACCESS_KEY=your_aws_secret_key
+AWS_REGION=your_aws_region
+S3_BUCKET_NAME=your_s3_bucket_name
+GROQ_API_KEY=your_groq_api_key
+```
 
 ### Installation
 
@@ -83,7 +87,7 @@ npm install
 ```bash
 # Terminal 1 — Start server
 cd server
-npm start
+npm run dev
 # Server runs on http://localhost:5000
 
 # Terminal 2 — Start client
@@ -94,22 +98,14 @@ npm run dev
 
 Open **http://localhost:5173** in your browser.
 
-## 📡 API Endpoints
+## 📡 Core API Structure
 
-| Method | Endpoint | Description |
-|---|---|---|
-| `POST` | `/api/upload` | Upload a PDF — auto-tags and routes to vault |
-| `GET` | `/api/documents` | List all documents (filter with `?vault=finance`) |
-| `GET` | `/api/documents/stats` | Get document count per vault |
-| `GET` | `/api/health` | Health check |
-
-## 🏷 Auto-Tagging Keywords
-
-| Vault | Keywords |
+| Route Prefix | Description |
 |---|---|
-| **Finance** | invoice, receipt, budget, expense, revenue, payment, tax, financial, accounting, billing... |
-| **HR** | employee, salary, leave, hiring, resume, onboarding, payroll, benefits, recruitment... |
-| **Project** | project, milestone, deadline, deliverable, sprint, task, timeline, scope, requirement... |
+| `/api/auth` | User registration, login, profile updates, password changes |
+| `/api/documents` | Protected routes for uploading, retrieving, deleting, and making documents public |
+| `/api/orgs` | Creating organizations, managing members and access roles |
+| `/api/public` | Read-only endpoints for accessing public documents and global tags without authentication |
 
 ## 👥 Team
 

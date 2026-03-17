@@ -61,6 +61,23 @@ const documentSchema = new mongoose.Schema({
     type: Number,
     default: 0,
   },
+  // Auto-tagging
+  tags: {
+    type: [String],
+    default: [],
+  },
+  metadata: {
+    primaryDomain: { type: String, default: '' },
+    sensitivity: { type: String, default: '' },
+    vaultTarget: { type: String, default: '' },
+    typeTags: { type: [String], default: [] },
+    departmentOwner: { type: String, default: '' },
+    academicYear: { type: String, default: '' },
+  },
+  isTagged: {
+    type: Boolean,
+    default: false,
+  },
   // Permissions
   permissions: [permissionSchema],
   uploadDate: {
@@ -68,6 +85,10 @@ const documentSchema = new mongoose.Schema({
     default: Date.now,
   },
 });
+
+// Text index for tag search
+documentSchema.index({ tags: 1 });
+documentSchema.index({ fileName: 'text', tags: 'text' });
 
 // Virtual for formatted file size
 documentSchema.virtual('formattedSize').get(function () {
@@ -80,9 +101,6 @@ documentSchema.virtual('formattedSize').get(function () {
 
 documentSchema.set('toJSON', { virtuals: true });
 
-/**
- * Check if a user can view this document.
- */
 documentSchema.methods.canView = function (userId) {
   if (this.space === 'public') return true;
   if (this.uploadedBy.toString() === userId.toString()) return true;
@@ -91,9 +109,6 @@ documentSchema.methods.canView = function (userId) {
   );
 };
 
-/**
- * Check if a user can edit this document.
- */
 documentSchema.methods.canEdit = function (userId) {
   if (this.uploadedBy.toString() === userId.toString()) return true;
   return this.permissions.some(
@@ -101,9 +116,6 @@ documentSchema.methods.canEdit = function (userId) {
   );
 };
 
-/**
- * Check if a user is the owner (uploader or permission owner).
- */
 documentSchema.methods.isOwner = function (userId) {
   if (this.uploadedBy.toString() === userId.toString()) return true;
   return this.permissions.some(
