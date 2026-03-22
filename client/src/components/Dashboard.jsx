@@ -164,6 +164,16 @@ function Dashboard({ publicOnly = false }) {
         } catch (err) { showMsg('error', err.response?.data?.error || 'Failed'); }
     }
 
+    async function handleDeleteOrg(orgId) {
+        if (!confirm('Delete this organization permanently? All documents inside it will also be deleted.')) return;
+        try {
+            await axios.delete(`/api/orgs/${orgId}`);
+            if (selectedOrg?._id === orgId) setSelectedOrg(null);
+            showMsg('success', 'Organization deleted.');
+            fetchAll(); fetchDocs();
+        } catch (err) { showMsg('error', err.response?.data?.error || 'Failed'); }
+    }
+
     function handleSearch(e) {
         e.preventDefault();
         fetchDocs();
@@ -335,7 +345,7 @@ function Dashboard({ publicOnly = false }) {
                         {publicOnly ? 'Open access institutional documents and assets' : 'Manage your private, public, and team resources'}
                     </p>
                 </div>
-                {!publicOnly && activeSpace !== 'organization' && (
+                {!publicOnly && (
                     <button className="px-6 py-3 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white font-bold rounded-xl shadow-lg shadow-blue-500/30 transition-all transform hover:-translate-y-0.5 flex items-center justify-center gap-2 flex-shrink-0" onClick={() => setShowUpload(true)}>
                         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
                         Upload Document
@@ -364,7 +374,7 @@ function Dashboard({ publicOnly = false }) {
 
             {/* Storage Summary (auth only) */}
             {!publicOnly && storage && (
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
                     <div className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700/80 rounded-3xl p-6 shadow-sm hover:shadow-md transition-shadow relative overflow-hidden">
                         <div className="absolute top-0 left-0 w-full h-1 bg-emerald-500"></div>
                         <div className="flex justify-between items-center mb-4">
@@ -388,20 +398,6 @@ function Dashboard({ publicOnly = false }) {
                         </div>
                         <p className="text-xs text-gray-500 dark:text-gray-400 font-medium tracking-wide">USED: <span className="font-bold text-gray-700 dark:text-gray-300">{formatSize(storage.private.used)}</span> / {formatSize(storage.private.limit)}</p>
                     </div>
-
-                    {storage.organizations?.slice(0, 1).map((org) => (
-                        <div className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700/80 rounded-3xl p-6 shadow-sm hover:shadow-md transition-shadow relative overflow-hidden" key={org.orgId}>
-                            <div className="absolute top-0 left-0 w-full h-1 bg-indigo-500"></div>
-                            <div className="flex justify-between items-center mb-4">
-                                <span className="font-bold text-gray-700 dark:text-gray-200 flex items-center gap-2 truncate pr-2"><span>🏢</span> {org.orgName}</span>
-                                <span className="text-xs font-black text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-500/10 px-2.5 py-1 rounded-lg tracking-wide">{org.percentage}%</span>
-                            </div>
-                            <div className="h-2.5 w-full bg-gray-100 dark:bg-gray-700/50 rounded-full overflow-hidden mb-3">
-                                <div className="h-full bg-indigo-500 rounded-full transition-all duration-1000" style={{ width: `${org.percentage}%` }} />
-                            </div>
-                            <p className="text-xs text-gray-500 dark:text-gray-400 font-medium tracking-wide">USED: <span className="font-bold text-gray-700 dark:text-gray-300">{formatSize(org.used)}</span> / {formatSize(org.limit)}</p>
-                        </div>
-                    ))}
                 </div>
             )}
 
@@ -411,7 +407,7 @@ function Dashboard({ publicOnly = false }) {
                     {[
                         { key: 'public', icon: '🌐', label: 'Public', count: stats.public?.count || 0 },
                         { key: 'private', icon: '🔒', label: 'Private', count: stats.private?.count || 0 },
-                        { key: 'organization', icon: '🏢', label: 'Organizations', count: stats.organization?.count || 0 },
+                        { key: 'organization', icon: '🏢', label: 'Organizations', count: orgs.length },
                     ].map((s) => (
                         <button key={s.key}
                             className={`flex-1 sm:flex-none flex items-center justify-center gap-2.5 px-6 py-3 rounded-xl font-bold text-sm transition-all duration-300 ${activeSpace === s.key
@@ -456,9 +452,9 @@ function Dashboard({ publicOnly = false }) {
                         {orgs.length > 0 ? (
                             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
                                 {orgs.map((org) => (
-                                    <button
+                                    <div
                                         key={org._id}
-                                        className={`group flex items-center justify-between p-4 rounded-2xl border transition-all duration-300 text-left ${selectedOrg?._id === org._id
+                                        className={`group relative flex items-center justify-between p-4 rounded-2xl border transition-all duration-300 text-left cursor-pointer ${selectedOrg?._id === org._id
                                                 ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/20 shadow-sm ring-1 ring-blue-500'
                                                 : 'border-gray-200 dark:border-gray-700 bg-gray-50/50 dark:bg-gray-800/30 hover:border-blue-300 hover:bg-white dark:hover:bg-gray-800 hover:shadow-sm'
                                             }`}
@@ -476,7 +472,14 @@ function Dashboard({ publicOnly = false }) {
                                                 </p>
                                             </div>
                                         </div>
-                                    </button>
+                                        <button
+                                            className="opacity-0 group-hover:opacity-100 focus:opacity-100 w-9 h-9 flex items-center justify-center rounded-full bg-red-50 hover:bg-red-100 dark:bg-red-900/30 dark:hover:bg-red-800/50 text-red-500 transition-all flex-shrink-0"
+                                            title="Delete Organization"
+                                            onClick={(e) => { e.stopPropagation(); handleDeleteOrg(org._id); }}
+                                        >
+                                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M3 6h18"></path><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"></path><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"></path></svg>
+                                        </button>
+                                    </div>
                                 ))}
                             </div>
                         ) : (
