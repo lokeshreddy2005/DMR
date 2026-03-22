@@ -110,6 +110,7 @@ router.put('/:id', async (req, res) => {
 /**
  * DELETE /api/orgs/:id
  * Delete organization (admin only).
+ * Also deletes all documents belonging to this organization.
  */
 router.delete('/:id', async (req, res) => {
     try {
@@ -119,8 +120,24 @@ router.delete('/:id', async (req, res) => {
             return res.status(403).json({ error: 'Only admins can delete organizations.' });
         }
 
+        // Delete all documents belonging to this organization
+        const Document = require('../models/Document');
+        const { deleteFromS3 } = require('../services/s3');
+        const orgDocs = await Document.find({ space: 'organization', organization: req.params.id });
+
+        for (const doc of orgDocs) {
+            try { await deleteFromS3(doc.s3Key); } catch (s3Err) {
+                console.error(`S3 delete warning for ${doc.fileName}:`, s3Err.message);
+            }
+        }
+
+        if (orgDocs.length > 0) {
+            await Document.deleteMany({ space: 'organization', organization: req.params.id });
+            console.log(`🗑️  Deleted ${orgDocs.length} org documents for "${org.name}".`);
+        }
+
         await Organization.findByIdAndDelete(req.params.id);
-        res.json({ message: 'Organization deleted.' });
+        res.json({ message: `Organization "${org.name}" and ${orgDocs.length} document(s) deleted.` });
     } catch (err) {
         console.error('Delete org error:', err);
         res.status(500).json({ error: 'Failed to delete organization.' });
