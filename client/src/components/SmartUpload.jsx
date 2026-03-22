@@ -9,13 +9,87 @@ const VAULT_COLORS = {
     uncategorized: { gradient: 'var(--gradient-primary)', icon: '📄', label: 'Uncategorized' },
 };
 
+// Statuses for individual file items
+const STATUS = {
+    PENDING: 'pending',
+    UPLOADING: 'uploading',
+    SUCCESS: 'success',
+    ERROR: 'error',
+};
+
 function SmartUpload({ onUploadSuccess }) {
     const [isDragging, setIsDragging] = useState(false);
-    const [uploading, setUploading] = useState(false);
-    const [progress, setProgress] = useState(0);
-    const [result, setResult] = useState(null);
-    const [error, setError] = useState(null);
+    // fileItems: [{ id, file, status, progress, result, error }]
+    const [fileItems, setFileItems] = useState([]);
     const fileInputRef = useRef(null);
+
+    /** Update a specific file item by id */
+    const updateFileItem = useCallback((id, patch) => {
+        setFileItems(prev =>
+            prev.map(item => (item.id === id ? { ...item, ...patch } : item))
+        );
+    }, []);
+
+    /** Upload a single file and update its state */
+    const uploadFile = useCallback(async (id, file) => {
+        if (!file || file.type !== 'application/pdf') {
+            updateFileItem(id, { status: STATUS.ERROR, error: 'Only PDF files are supported.' });
+            return;
+        }
+
+        updateFileItem(id, { status: STATUS.UPLOADING, progress: 0, error: null });
+
+        const formData = new FormData();
+        formData.append('document', file);
+
+        try {
+            const response = await axios.post('/api/upload', formData, {
+                headers: { 'Content-Type': 'multipart/form-data' },
+                onUploadProgress: (progressEvent) => {
+                    const percent = Math.round((progressEvent.loaded * 100) / progressEvent.total);
+                    updateFileItem(id, { progress: percent });
+                },
+            });
+            updateFileItem(id, { status: STATUS.SUCCESS, result: response.data });
+            onUploadSuccess?.();
+        } catch (err) {
+            const msg = err.response?.data?.error || 'Upload failed. Please try again.';
+            updateFileItem(id, { status: STATUS.ERROR, error: msg });
+        }
+    }, [updateFileItem, onUploadSuccess]);
+
+    /** Add files to queue and start uploads */
+    const processFiles = useCallback((files) => {
+        const pdfs = Array.from(files).filter(f => f.type === 'application/pdf');
+        const nonPdfs = Array.from(files).filter(f => f.type !== 'application/pdf');
+
+        const newItems = [
+            ...pdfs.map(file => ({
+                id: `${file.name}-${Date.now()}-${Math.random()}`,
+                file,
+                status: STATUS.PENDING,
+                progress: 0,
+                result: null,
+                error: null,
+            })),
+            ...nonPdfs.map(file => ({
+                id: `${file.name}-${Date.now()}-${Math.random()}`,
+                file,
+                status: STATUS.ERROR,
+                progress: 0,
+                result: null,
+                error: 'Only PDF files are supported.',
+            })),
+        ];
+
+        setFileItems(prev => [...prev, ...newItems]);
+
+        // Start all PDF uploads concurrently
+        pdfs.forEach((file, i) => {
+            const item = newItems[i];
+            uploadFile(item.id, file);
+        });
+    }, [uploadFile]);
 
     const handleDragOver = useCallback((e) => {
         e.preventDefault();
@@ -29,181 +103,146 @@ function SmartUpload({ onUploadSuccess }) {
         setIsDragging(false);
     }, []);
 
-    const uploadFile = useCallback(async (file) => {
-        if (!file || file.type !== 'application/pdf') {
-            setError('Please upload a PDF file.');
-            return;
-        }
-
-        setUploading(true);
-        setProgress(0);
-        setError(null);
-        setResult(null);
-
-        const formData = new FormData();
-        formData.append('document', file);
-
-        try {
-            const response = await axios.post('/api/upload', formData, {
-                headers: { 'Content-Type': 'multipart/form-data' },
-                onUploadProgress: (progressEvent) => {
-                    const percent = Math.round((progressEvent.loaded * 100) / progressEvent.total);
-                    setProgress(percent);
-                },
-            });
-
-            setResult(response.data);
-            onUploadSuccess?.();
-        } catch (err) {
-            const msg = err.response?.data?.error || 'Upload failed. Please try again.';
-            setError(msg);
-        } finally {
-            setUploading(false);
-        }
-    }, [onUploadSuccess]);
-
     const handleDrop = useCallback((e) => {
         e.preventDefault();
         e.stopPropagation();
         setIsDragging(false);
-
         const files = e.dataTransfer?.files;
-        if (files && files.length > 0) {
-            uploadFile(files[0]);
-        }
-    }, [uploadFile]);
+        if (files && files.length > 0) processFiles(files);
+    }, [processFiles]);
 
     const handleClick = () => {
         fileInputRef.current?.click();
     };
 
     const handleFileChange = (e) => {
-        const file = e.target.files?.[0];
-        if (file) {
-            uploadFile(file);
+        const files = e.target.files;
+        if (files && files.length > 0) {
+            processFiles(files);
             e.target.value = '';
         }
     };
 
-    const resetUpload = () => {
-        setResult(null);
-        setError(null);
-        setProgress(0);
+    const removeItem = (id) => {
+        setFileItems(prev => prev.filter(item => item.id !== id));
     };
 
-    const vaultInfo = result ? VAULT_COLORS[result.document?.vault] || VAULT_COLORS.uncategorized : null;
+    const clearAll = () => setFileItems([]);
+
+    const anyUploading = fileItems.some(i => i.status === STATUS.UPLOADING || i.status === STATUS.PENDING);
 
     return (
         <div className="smart-upload">
             <div className="upload-header">
-                <h2>Upload Document</h2>
-                <p>Drop a PDF file and our AI will automatically classify it into the right vault</p>
+                <h2>Upload Documents</h2>
+                <p>Drop one or more PDF files — our AI will automatically classify each into the right vault</p>
             </div>
 
             {/* Drop Zone */}
             <div
-                className={`drop-zone ${isDragging ? 'dragging' : ''} ${uploading ? 'uploading' : ''}`}
+                className={`drop-zone ${isDragging ? 'dragging' : ''} ${anyUploading ? 'uploading' : ''}`}
                 onDragOver={handleDragOver}
                 onDragLeave={handleDragLeave}
                 onDrop={handleDrop}
-                onClick={!uploading ? handleClick : undefined}
+                onClick={!anyUploading ? handleClick : undefined}
             >
                 <input
                     ref={fileInputRef}
                     type="file"
                     accept="application/pdf"
+                    multiple
                     onChange={handleFileChange}
                     className="file-input"
                 />
 
-                {uploading ? (
-                    <div className="upload-progress">
-                        <div className="spinner" />
-                        <p className="progress-text">
-                            {progress < 100 ? 'Uploading...' : 'Analyzing document...'}
-                        </p>
-                        <div className="progress-bar-track">
-                            <div className="progress-bar-fill" style={{ width: `${progress}%` }} />
-                        </div>
-                        <span className="progress-percent">{progress}%</span>
+                <div className="drop-content">
+                    <div className={`drop-icon ${isDragging ? 'bounce' : ''}`}>
+                        <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                            <polyline points="17 8 12 3 7 8" />
+                            <line x1="12" y1="3" x2="12" y2="15" />
+                        </svg>
                     </div>
-                ) : (
-                    <div className="drop-content">
-                        <div className={`drop-icon ${isDragging ? 'bounce' : ''}`}>
-                            <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-                                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-                                <polyline points="17 8 12 3 7 8" />
-                                <line x1="12" y1="3" x2="12" y2="15" />
-                            </svg>
-                        </div>
-                        <p className="drop-title">
-                            {isDragging ? 'Drop your PDF here!' : 'Drag & drop your PDF here'}
-                        </p>
-                        <p className="drop-subtitle">or click to browse · PDF files only · Max 10 MB</p>
-                    </div>
-                )}
+                    <p className="drop-title">
+                        {isDragging ? 'Drop your PDFs here!' : 'Drag & drop your PDFs here'}
+                    </p>
+                    <p className="drop-subtitle">or click to browse · Multiple PDFs supported · Max 10 MB each</p>
+                </div>
             </div>
 
-            {/* Error */}
-            {error && (
-                <div className="upload-error">
-                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                        <circle cx="12" cy="12" r="10" />
-                        <line x1="15" y1="9" x2="9" y2="15" />
-                        <line x1="9" y1="9" x2="15" y2="15" />
-                    </svg>
-                    <span>{error}</span>
-                    <button onClick={resetUpload} className="dismiss-btn">Dismiss</button>
-                </div>
-            )}
-
-            {/* Result Card */}
-            {result && (
-                <div className="result-card">
-                    <div className="result-header">
-                        <div className="result-icon" style={{ background: vaultInfo.gradient }}>
-                            <span>{vaultInfo.icon}</span>
-                        </div>
-                        <div>
-                            <h3>Document Classified!</h3>
-                            <p className="result-vault">{vaultInfo.label}</p>
-                        </div>
-                        <span className="result-badge" style={{ background: vaultInfo.gradient }}>
-                            Auto-tagged
+            {/* File Upload Queue */}
+            {fileItems.length > 0 && (
+                <div className="file-queue">
+                    <div className="file-queue-header">
+                        <span className="file-queue-title">
+                            {fileItems.length} file{fileItems.length !== 1 ? 's' : ''}
                         </span>
+                        {!anyUploading && (
+                            <button className="dismiss-btn" onClick={clearAll}>Clear All</button>
+                        )}
                     </div>
 
-                    <div className="result-details">
-                        <div className="detail-row">
-                            <span className="detail-label">File</span>
-                            <span className="detail-value">{result.document?.fileName}</span>
-                        </div>
-                        <div className="detail-row">
-                            <span className="detail-label">Vault</span>
-                            <span className="detail-value vault-tag" style={{ background: vaultInfo.gradient }}>
-                                {vaultInfo.icon} {vaultInfo.label}
-                            </span>
-                        </div>
-                        <div className="detail-row">
-                            <span className="detail-label">Tags Found</span>
-                            <div className="tags-list">
-                                {result.document?.tags?.length > 0
-                                    ? result.document.tags.map((tag) => (
-                                        <span key={tag} className="tag-chip">{tag}</span>
-                                    ))
-                                    : <span className="no-tags">No keywords matched</span>
-                                }
+                    {fileItems.map((item) => {
+                        const vaultInfo = item.result
+                            ? VAULT_COLORS[item.result.document?.vault] || VAULT_COLORS.uncategorized
+                            : null;
+
+                        return (
+                            <div key={item.id} className={`file-item file-item--${item.status}`}>
+                                {/* File name & remove */}
+                                <div className="file-item-top">
+                                    <div className="file-item-icon">
+                                        {item.status === STATUS.SUCCESS && <span>✅</span>}
+                                        {item.status === STATUS.ERROR && <span>❌</span>}
+                                        {(item.status === STATUS.UPLOADING || item.status === STATUS.PENDING) && (
+                                            <div className="spinner-sm" />
+                                        )}
+                                    </div>
+                                    <span className="file-item-name">{item.file.name}</span>
+                                    {item.status !== STATUS.UPLOADING && (
+                                        <button
+                                            className="dismiss-btn"
+                                            onClick={() => removeItem(item.id)}
+                                            title="Remove"
+                                        >✕</button>
+                                    )}
+                                </div>
+
+                                {/* Progress bar while uploading */}
+                                {item.status === STATUS.UPLOADING && (
+                                    <div className="file-item-progress">
+                                        <div className="progress-bar-track">
+                                            <div className="progress-bar-fill" style={{ width: `${item.progress}%` }} />
+                                        </div>
+                                        <span className="progress-percent">
+                                            {item.progress < 100 ? `${item.progress}%` : 'Analyzing…'}
+                                        </span>
+                                    </div>
+                                )}
+
+                                {/* Error message */}
+                                {item.status === STATUS.ERROR && (
+                                    <p className="file-item-error">{item.error}</p>
+                                )}
+
+                                {/* Success result */}
+                                {item.status === STATUS.SUCCESS && vaultInfo && (
+                                    <div className="file-item-result">
+                                        <span className="result-badge" style={{ background: vaultInfo.gradient }}>
+                                            {vaultInfo.icon} {vaultInfo.label}
+                                        </span>
+                                        {item.result.document?.tags?.length > 0 && (
+                                            <div className="tags-list">
+                                                {item.result.document.tags.map(tag => (
+                                                    <span key={tag} className="tag-chip">{tag}</span>
+                                                ))}
+                                            </div>
+                                        )}
+                                    </div>
+                                )}
                             </div>
-                        </div>
-                    </div>
-
-                    <button className="upload-another-btn" onClick={resetUpload}>
-                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                            <line x1="12" y1="5" x2="12" y2="19" />
-                            <line x1="5" y1="12" x2="19" y2="12" />
-                        </svg>
-                        Upload Another
-                    </button>
+                        );
+                    })}
                 </div>
             )}
 
@@ -214,7 +253,7 @@ function SmartUpload({ onUploadSuccess }) {
                     <div className="step-card">
                         <div className="step-number">1</div>
                         <h4>Upload</h4>
-                        <p>Drop or select a PDF document</p>
+                        <p>Drop or select one or more PDF documents</p>
                     </div>
                     <div className="step-arrow">→</div>
                     <div className="step-card">
