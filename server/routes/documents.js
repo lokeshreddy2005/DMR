@@ -206,7 +206,7 @@ router.get('/', async (req, res) => {
     if (space === 'public') {
       query = { space: 'public' };
     } else if (space === 'private') {
-      query = { space: 'private', uploadedBy: req.user._id };
+      query = { space: 'private', $or: [{ uploadedBy: req.user._id }, { 'permissions.user': req.user._id }] };
     } else if (space === 'organization' && organizationId) {
       const org = await Organization.findById(organizationId);
       if (!org || !org.isMember(req.user._id)) {
