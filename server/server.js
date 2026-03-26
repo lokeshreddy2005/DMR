@@ -10,11 +10,29 @@ const publicRoutes = require('./routes/public');
 const app = express();
 const PORT = process.env.PORT || 5000;
 
+// CORS configuration
+const allowedOrigins = [
+  'http://localhost:5173',      // Local dev
+  'http://localhost:3000',       // Local dev
+  'https://document-management-repository.vercel.app', // Production Vercel
+];
+
 // Middleware
 app.use(cors({
-  origin: ['http://localhost:5173', 'http://localhost:3000'],
+  origin: allowedOrigins,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   credentials: true,
+  allowedHeaders: ['Content-Type', 'Authorization'],
 }));
+
+// Preflight request handler
+app.options('*', cors({
+  origin: allowedOrigins,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  credentials: true,
+  allowedHeaders: ['Content-Type', 'Authorization'],
+}));
+
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
