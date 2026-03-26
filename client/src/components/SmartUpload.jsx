@@ -1,5 +1,6 @@
 import { useState, useRef, useCallback } from 'react';
 import axios from 'axios';
+import API_URL from '../config/api';
 import './SmartUpload.css';
 
 const VAULT_COLORS = {
@@ -43,7 +44,7 @@ function SmartUpload({ onUploadSuccess }) {
         formData.append('document', file);
 
         try {
-            const response = await axios.post('/api/upload', formData, {
+            const response = await axios.post(`${API_URL}/api/upload`, formData, {
                 headers: { 'Content-Type': 'multipart/form-data' },
                 onUploadProgress: (progressEvent) => {
                     const percent = Math.round((progressEvent.loaded * 100) / progressEvent.total);

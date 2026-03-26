@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { useAuth } from '../context/AuthContext';
 import axios from 'axios';
+import API_URL from '../config/api';
 
 function UploadModal({ isOpen, onClose, onUploadSuccess, defaultSpace, defaultOrgId }) {
     const { token } = useAuth();
@@ -29,7 +30,7 @@ function UploadModal({ isOpen, onClose, onUploadSuccess, defaultSpace, defaultOr
 
     async function fetchOrgs() {
         try {
-            const res = await axios.get('/api/orgs');
+            const res = await axios.get(`${API_URL}/api/orgs`);
             setOrgs(res.data.organizations || []);
         } catch { /* ignore */ }
     }
@@ -93,7 +94,7 @@ function UploadModal({ isOpen, onClose, onUploadSuccess, defaultSpace, defaultOr
         if (description) formData.append('description', description);
 
         try {
-            await axios.post('/api/documents/upload', formData, {
+            await axios.post(`${API_URL}/api/documents/upload`, formData, {
                 headers: { 'Content-Type': 'multipart/form-data' },
                 onUploadProgress: (e) => {
                     const pct = Math.round((e.loaded * 100) / e.total);

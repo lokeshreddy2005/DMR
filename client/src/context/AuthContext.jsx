@@ -1,5 +1,6 @@
 import { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import axios from 'axios';
+import API_URL from '../config/api';
 
 const AuthContext = createContext(null);
 
@@ -34,7 +35,7 @@ export function AuthProvider({ children }) {
 
     async function fetchUser() {
         try {
-            const res = await axios.get('/api/auth/me');
+            const res = await axios.get(`${API_URL}/api/auth/me`);
             setUser(res.data.user);
         } catch {
             // Token invalid — clear it
@@ -47,7 +48,7 @@ export function AuthProvider({ children }) {
     }
 
     const signup = useCallback(async (name, email, password) => {
-        const res = await axios.post('/api/auth/signup', { name, email, password });
+        const res = await axios.post(`${API_URL}/api/auth/signup`, { name, email, password });
         const { token: newToken, user: newUser } = res.data;
         localStorage.setItem('dmr_token', newToken);
         setToken(newToken);
@@ -56,7 +57,7 @@ export function AuthProvider({ children }) {
     }, []);
 
     const login = useCallback(async (email, password) => {
-        const res = await axios.post('/api/auth/login', { email, password });
+        const res = await axios.post(`${API_URL}/api/auth/login`, { email, password });
         const { token: newToken, user: newUser } = res.data;
         localStorage.setItem('dmr_token', newToken);
         setToken(newToken);
@@ -72,13 +73,13 @@ export function AuthProvider({ children }) {
     }, []);
 
     const updateProfile = useCallback(async (data) => {
-        const res = await axios.put('/api/auth/profile', data);
+        const res = await axios.put(`${API_URL}/api/auth/profile`, data);
         setUser(res.data.user);
         return res.data;
     }, []);
 
     const changePassword = useCallback(async (currentPassword, newPassword) => {
-        const res = await axios.put('/api/auth/password', { currentPassword, newPassword });
+        const res = await axios.put(`${API_URL}/api/auth/password`, { currentPassword, newPassword });
         return res.data;
     }, []);
 

@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import axios from 'axios';
+import API_URL from '../config/api';
 import UploadModal from './UploadModal';
 
 
@@ -31,7 +32,7 @@ function Dashboard({ publicOnly = false }) {
             setLoading(true);
             try {
                 const [docsRes] = await Promise.all([
-                    axios.get('/api/public/documents'),
+                    axios.get(`${API_URL}/api/public/documents`),
                 ]);
                 setDocuments(docsRes.data.documents || []);
             } catch (err) { console.error(err); }
@@ -41,9 +42,9 @@ function Dashboard({ publicOnly = false }) {
         setLoading(true);
         try {
             const [statsRes, storageRes, orgsRes] = await Promise.all([
-                axios.get('/api/documents/stats'),
-                axios.get('/api/documents/storage'),
-                axios.get('/api/orgs'),
+                axios.get(`${API_URL}/api/documents/stats`),
+                axios.get(`${API_URL}/api/documents/storage`),
+                axios.get(`${API_URL}/api/orgs`),
             ]);
             setStats(statsRes.data.stats || {});
             setStorage(storageRes.data.storage || null);
@@ -85,7 +86,7 @@ function Dashboard({ publicOnly = false }) {
     async function handleCreateOrg() {
         if (!newOrgName.trim()) return;
         try {
-            await axios.post('/api/orgs', { name: newOrgName, description: newOrgDesc });
+            await axios.post(`${API_URL}/api/orgs`, { name: newOrgName, description: newOrgDesc });
             setNewOrgName(''); setNewOrgDesc(''); setShowOrgForm(false);
             showMsg('success', 'Organization created!');
             fetchAll();
@@ -95,7 +96,7 @@ function Dashboard({ publicOnly = false }) {
     async function handleAddMember() {
         if (!memberEmail.trim() || !selectedOrg) return;
         try {
-            await axios.post(`/api/orgs/${selectedOrg._id}/members`, { email: memberEmail, role: memberRole });
+            await axios.post(`${API_URL}/api/orgs/${selectedOrg._id}/members`, { email: memberEmail, role: memberRole });
             setMemberEmail(''); setShowAddMember(false);
             showMsg('success', 'Member added!');
             fetchAll();
@@ -105,7 +106,7 @@ function Dashboard({ publicOnly = false }) {
     async function handleDeleteDoc(docId) {
         if (!confirm('Delete this document permanently?')) return;
         try {
-            await axios.delete(`/api/documents/${docId}`);
+            await axios.delete(`${API_URL}/api/documents/${docId}`);
             showMsg('success', 'Document deleted.');
             fetchDocs(); fetchAll();
         } catch (err) { showMsg('error', err.response?.data?.error || 'Failed'); }
@@ -129,7 +130,7 @@ function Dashboard({ publicOnly = false }) {
 
     async function handleMakePublic(docId) {
         try {
-            const res = await axios.put(`/api/documents/${docId}/make-public`);
+            const res = await axios.put(`${API_URL}/api/documents/${docId}/make-public`);
             showMsg('success', 'Document is now public with auto-tags!');
             fetchDocs(); fetchAll();
         } catch (err) { showMsg('error', err.response?.data?.error || 'Failed'); }
@@ -138,7 +139,7 @@ function Dashboard({ publicOnly = false }) {
     async function handleShareDoc() {
         if (!shareEmail.trim() || !docDetail) return;
         try {
-            const res = await axios.post(`/api/documents/${docDetail._id}/permissions`, {
+            const res = await axios.post(`${API_URL}/api/documents/${docDetail._id}/permissions`, {
                 email: shareEmail, level: shareLevel,
             });
             setDocDetail(res.data.document);
@@ -149,7 +150,7 @@ function Dashboard({ publicOnly = false }) {
 
     async function handleRevokeAccess(docId, userId) {
         try {
-            const res = await axios.delete(`/api/documents/${docId}/permissions/${userId}`);
+            const res = await axios.delete(`${API_URL}/api/documents/${docId}/permissions/${userId}`);
             setDocDetail(res.data.document);
             showMsg('success', 'Access revoked.');
         } catch (err) { showMsg('error', err.response?.data?.error || 'Failed'); }
@@ -158,7 +159,7 @@ function Dashboard({ publicOnly = false }) {
     async function handleRemoveMember(userId) {
         if (!selectedOrg) return;
         try {
-            await axios.delete(`/api/orgs/${selectedOrg._id}/members/${userId}`);
+            await axios.delete(`${API_URL}/api/orgs/${selectedOrg._id}/members/${userId}`);
             showMsg('success', 'Member removed.');
             fetchAll();
         } catch (err) { showMsg('error', err.response?.data?.error || 'Failed'); }
@@ -167,7 +168,7 @@ function Dashboard({ publicOnly = false }) {
     async function handleDeleteOrg(orgId) {
         if (!confirm('Delete this organization permanently? All documents inside it will also be deleted.')) return;
         try {
-            await axios.delete(`/api/orgs/${orgId}`);
+            await axios.delete(`${API_URL}/api/orgs/${orgId}`);
             if (selectedOrg?._id === orgId) setSelectedOrg(null);
             showMsg('success', 'Organization deleted.');
             fetchAll(); fetchDocs();
