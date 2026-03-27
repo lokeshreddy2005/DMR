@@ -56,15 +56,15 @@ function Dashboard({ publicOnly = false }) {
     const fetchDocs = useCallback(async () => {
         try {
             if (publicOnly || (activeSpace === 'public' && searchQuery.trim())) {
-                let url = '/api/public/documents';
+                let url = `${API_URL}/api/public/documents`;
                 if (searchQuery.trim()) {
-                    url = `/api/public/documents/search?q=${encodeURIComponent(searchQuery)}`;
+                    url = `${API_URL}/api/public/documents/search?q=${encodeURIComponent(searchQuery)}`;
                 }
                 const res = await axios.get(url);
                 setDocuments(res.data.documents || []);
                 return;
             }
-            let url = '/api/documents';
+            let url = `${API_URL}/api/documents`;
             if (activeSpace === 'organization' && selectedOrg) {
                 url += `?space=organization&organizationId=${selectedOrg._id}`;
             } else if (activeSpace !== 'organization') {
@@ -114,7 +114,7 @@ function Dashboard({ publicOnly = false }) {
 
     async function handleDownload(docId) {
         try {
-            const url = publicOnly ? `/api/public/documents/${docId}/download` : `/api/documents/${docId}/download`;
+            const url = publicOnly ? `${API_URL}/api/public/documents/${docId}/download` : `${API_URL}/api/documents/${docId}/download`;
             const res = await axios.get(url);
             window.open(res.data.downloadUrl, '_blank');
         } catch (err) { showMsg('error', 'Download failed.'); }
@@ -122,7 +122,7 @@ function Dashboard({ publicOnly = false }) {
 
     async function handleViewDetail(docId) {
         try {
-            const url = publicOnly ? `/api/public/documents/${docId}` : `/api/documents/${docId}`;
+            const url = publicOnly ? `${API_URL}/api/public/documents/${docId}` : `${API_URL}/api/documents/${docId}`;
             const res = await axios.get(url);
             setDocDetail(res.data.document);
         } catch (err) { showMsg('error', 'Failed to load details.'); }
