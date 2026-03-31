@@ -6,6 +6,7 @@ const authRoutes = require('./routes/auth');
 const documentRoutes = require('./routes/documents');
 const organizationRoutes = require('./routes/organizations');
 const publicRoutes = require('./routes/public');
+const apiKeyRoutes = require('./routes/apiKeys');
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -22,7 +23,7 @@ app.use(cors({
   origin: allowedOrigins,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   credentials: true,
-  allowedHeaders: ['Content-Type', 'Authorization'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'x-api-key'],
 }));
 
 // Preflight request handler
@@ -30,7 +31,7 @@ app.options('*', cors({
   origin: allowedOrigins,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   credentials: true,
-  allowedHeaders: ['Content-Type', 'Authorization'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'x-api-key'],
 }));
 
 app.use(express.json());
@@ -41,6 +42,7 @@ app.use('/api/auth', authRoutes);
 app.use('/api/documents', documentRoutes);
 app.use('/api/orgs', organizationRoutes);
 app.use('/api/public', publicRoutes); // No auth required
+app.use('/api/api-keys', apiKeyRoutes);
 
 // Health check
 app.get('/api/health', (req, res) => {

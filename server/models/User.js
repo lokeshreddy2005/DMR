@@ -33,6 +33,11 @@ const userSchema = new mongoose.Schema({
             return colors[Math.floor(Math.random() * colors.length)];
         },
     },
+    apiKeys: [{
+        name: { type: String, required: true },
+        key: { type: String, required: true },
+        createdAt: { type: Date, default: Date.now }
+    }],
     createdAt: {
         type: Date,
         default: Date.now,

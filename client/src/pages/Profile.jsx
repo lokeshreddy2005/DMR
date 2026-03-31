@@ -1,8 +1,10 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
+import axios from 'axios';
+import API_URL from '../config/api';
 import { useAuth } from '../context/AuthContext';
 import { Button } from '../components/ui/Button';
 import { Input } from '../components/ui/Input';
-import { UserCircle, KeyRound, CheckCircle2, AlertCircle, LogOut } from 'lucide-react';
+import { UserCircle, KeyRound, CheckCircle2, AlertCircle, LogOut, Terminal, Copy, Trash2 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 
 export function Profile() {
@@ -95,6 +97,16 @@ export function Profile() {
                         >
                             <KeyRound className="w-5 h-5 flex-shrink-0" /> Security
                         </button>
+                        <button
+                            onClick={() => setActiveSection('developer')}
+                            className={`flex justify-start items-center gap-3 px-4 py-3 rounded-xl text-sm font-bold transition-all whitespace-nowrap ${
+                                activeSection === 'developer' 
+                                ? 'bg-white dark:bg-gray-900 text-blue-600 dark:text-blue-400 shadow-sm border border-gray-200 dark:border-gray-700 md:translate-x-1' 
+                                : 'text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-800 hover:text-gray-900 dark:hover:text-white'
+                            }`}
+                        >
+                            <Terminal className="w-5 h-5 flex-shrink-0" /> Developer API
+                        </button>
                     </nav>
 
                     <div className="mt-8 hidden md:block">
@@ -182,6 +194,12 @@ export function Profile() {
                                 </form>
                             </motion.div>
                         )}
+
+                        {activeSection === 'developer' && (
+                            <motion.div key="developer" initial={{ opacity: 0, x: 10 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -10 }} className="space-y-6">
+                                <DeveloperSettings showToast={showToast} />
+                            </motion.div>
+                        )}
                     </AnimatePresence>
                 </div>
             </div>
@@ -195,6 +213,127 @@ export function Profile() {
                     </motion.div>
                 )}
             </AnimatePresence>
+        </div>
+    );
+}
+
+function DeveloperSettings({ showToast }) {
+    const [apiKeys, setApiKeys] = useState([]);
+    const [newKeyName, setNewKeyName] = useState('');
+    const [loading, setLoading] = useState(false);
+
+    const fetchApiKeys = async () => {
+        try {
+            const res = await axios.get(`${API_URL}/api/api-keys`);
+            setApiKeys(res.data.apiKeys);
+        } catch (err) {
+            console.error('Failed to fetch API keys', err);
+        }
+    };
+
+    useEffect(() => {
+        fetchApiKeys();
+    }, []);
+
+    const handleGenerateKey = async (e) => {
+        e.preventDefault();
+        if (!newKeyName.trim()) return;
+        setLoading(true);
+        try {
+            const res = await axios.post(`${API_URL}/api/api-keys`, { name: newKeyName });
+            setApiKeys([...apiKeys, res.data.apiKey]);
+            setNewKeyName('');
+            showToast('success', 'API Key generated successfully. Please copy it now!');
+        } catch (err) {
+            showToast('error', err.response?.data?.error || 'Failed to generate key.');
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    const handleDeleteKey = async (id) => {
+        if (!window.confirm('Are you sure you want to revoke this API Key?')) return;
+        try {
+            await axios.delete(`${API_URL}/api/api-keys/${id}`);
+            setApiKeys(apiKeys.filter((k) => k._id !== id));
+            showToast('success', 'API Key revoked.');
+        } catch (err) {
+            showToast('error', 'Failed to revoke key.');
+        }
+    };
+
+    const copyToClipboard = (text) => {
+        navigator.clipboard.writeText(text);
+        showToast('success', 'Copied to clipboard!');
+    };
+
+    return (
+        <div className="space-y-8">
+            <div>
+                <h3 className="text-xl font-bold text-gray-900 dark:text-white">Developer API</h3>
+                <p className="text-gray-500 dark:text-gray-400 text-sm mt-1">Generate API Keys to upload documents externally or programmatically.</p>
+            </div>
+
+            <div className="bg-gray-50 dark:bg-gray-800/50 p-5 rounded-2xl border border-gray-100 dark:border-gray-800">
+                <h4 className="font-bold text-gray-900 dark:text-white mb-4">Your API Keys</h4>
+                {apiKeys.length === 0 ? (
+                    <p className="text-sm text-gray-500">No API keys generated yet.</p>
+                ) : (
+                    <div className="space-y-3">
+                        {apiKeys.map((key) => (
+                            <div key={key._id} className="flex flex-col sm:flex-row sm:items-center justify-between bg-white dark:bg-gray-900 p-3 rounded-xl border border-gray-200 dark:border-gray-700 gap-3">
+                                <div className="overflow-hidden">
+                                    <p className="font-bold text-sm text-gray-900 dark:text-white truncate">{key.name}</p>
+                                    <p className="font-mono text-xs text-blue-600 dark:text-blue-400 mt-1 truncate max-w-[200px] md:max-w-[400px]">{key.key}</p>
+                                </div>
+                                <div className="flex items-center gap-2 flex-shrink-0">
+                                    <button onClick={() => copyToClipboard(key.key)} className="p-2 text-gray-500 hover:text-blue-600 bg-gray-50 dark:bg-gray-800 rounded-lg transition-colors" title="Copy API Key">
+                                        <Copy className="w-4 h-4" />
+                                    </button>
+                                    <button onClick={() => handleDeleteKey(key._id)} className="p-2 text-gray-500 hover:text-red-600 bg-gray-50 dark:bg-gray-800 rounded-lg transition-colors" title="Revoke API Key">
+                                        <Trash2 className="w-4 h-4" />
+                                    </button>
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                )}
+
+                <form onSubmit={handleGenerateKey} className="mt-6 flex flex-col sm:flex-row gap-3">
+                    <div className="flex-1">
+                        <Input 
+                            placeholder="Key Name (e.g., CLI Uploader)" 
+                            value={newKeyName} 
+                            onChange={(e) => setNewKeyName(e.target.value)}
+                            required
+                        />
+                    </div>
+                    <div>
+                        <Button type="submit" isLoading={loading} className="w-full sm:w-auto h-full">Generate Key</Button>
+                    </div>
+                </form>
+            </div>
+
+            <div>
+                <h4 className="font-bold text-gray-900 dark:text-white mb-3">Usage Example</h4>
+                <div className="bg-gray-900 rounded-xl p-4 overflow-x-auto relative group">
+                    <button 
+                        onClick={() => copyToClipboard(`curl -X POST ${API_URL}/api/documents/upload \\\n  -H "x-api-key: YOUR_API_KEY" \\\n  -F "document=@/path/to/file.pdf" \\\n  -F "space=public"`)}
+                        className="absolute right-3 top-3 p-2 bg-gray-800 text-gray-300 rounded-lg opacity-0 group-hover:opacity-100 transition-opacity hover:bg-gray-700"
+                        title="Copy command"
+                    >
+                        <Copy className="w-4 h-4" />
+                    </button>
+                    <pre className="text-sm font-mono text-emerald-400">
+                        <code>
+<span className="text-blue-400">curl</span> -X POST {API_URL}/api/documents/upload \{"\n"}
+  -H <span className="text-yellow-300">"x-api-key: YOUR_API_KEY"</span> \{"\n"}
+  -F <span className="text-yellow-300">"document=@/path/to/file.pdf"</span> \{"\n"}
+  -F <span className="text-yellow-300">"space=public"</span>
+                        </code>
+                    </pre>
+                </div>
+            </div>
         </div>
     );
 }
