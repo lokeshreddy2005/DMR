@@ -14,25 +14,25 @@ const QUOTAS = {
 async function getPublicUsage() {
     const result = await Document.aggregate([
         { $match: { space: 'public' } },
-        { $group: { _id: null, total: { $sum: '$fileSize' } } },
+        { $group: { _id: null, total: { $sum: '$fileSize' }, count: { $sum: 1 } } },
     ]);
-    return result[0]?.total || 0;
+    return { total: result[0]?.total || 0, count: result[0]?.count || 0 };
 }
 
 async function getPrivateUsage(userId) {
     const result = await Document.aggregate([
         { $match: { space: 'private', uploadedBy: userId } },
-        { $group: { _id: null, total: { $sum: '$fileSize' } } },
+        { $group: { _id: null, total: { $sum: '$fileSize' }, count: { $sum: 1 } } },
     ]);
-    return result[0]?.total || 0;
+    return { total: result[0]?.total || 0, count: result[0]?.count || 0 };
 }
 
 async function getOrgUsage(orgId) {
     const result = await Document.aggregate([
         { $match: { space: 'organization', organization: orgId } },
-        { $group: { _id: null, total: { $sum: '$fileSize' } } },
+        { $group: { _id: null, total: { $sum: '$fileSize' }, count: { $sum: 1 } } },
     ]);
-    return result[0]?.total || 0;
+    return { total: result[0]?.total || 0, count: result[0]?.count || 0 };
 }
 
 /**
@@ -43,13 +43,13 @@ async function checkQuota(space, userId, orgId, fileSize) {
     let used, limit;
 
     if (space === 'public') {
-        used = await getPublicUsage();
+        used = (await getPublicUsage()).total;
         limit = QUOTAS.PUBLIC_TOTAL;
     } else if (space === 'private') {
-        used = await getPrivateUsage(userId);
+        used = (await getPrivateUsage(userId)).total;
         limit = QUOTAS.PRIVATE_PER_USER;
     } else if (space === 'organization') {
-        used = await getOrgUsage(orgId);
+        used = (await getOrgUsage(orgId)).total;
         limit = QUOTAS.ORG_TOTAL;
     } else {
         throw new Error('Invalid space type');
@@ -65,33 +65,36 @@ async function checkQuota(space, userId, orgId, fileSize) {
  * Get full storage summary for a user.
  */
 async function getStorageSummary(userId) {
-    const publicUsed = await getPublicUsage();
-    const privateUsed = await getPrivateUsage(userId);
+    const publicData = await getPublicUsage();
+    const privateData = await getPrivateUsage(userId);
 
     // Get all user's orgs
     const userOrgs = await Organization.find({ 'members.user': userId }).select('_id name');
     const orgUsages = [];
     for (const org of userOrgs) {
-        const used = await getOrgUsage(org._id);
+        const orgData = await getOrgUsage(org._id);
         orgUsages.push({
             orgId: org._id,
             orgName: org.name,
-            used,
+            used: orgData.total,
+            count: orgData.count,
             limit: QUOTAS.ORG_TOTAL,
-            percentage: Math.round((used / QUOTAS.ORG_TOTAL) * 100),
+            percentage: Math.round((orgData.total / QUOTAS.ORG_TOTAL) * 100),
         });
     }
 
     return {
         public: {
-            used: publicUsed,
+            used: publicData.total,
+            count: publicData.count,
             limit: QUOTAS.PUBLIC_TOTAL,
-            percentage: Math.round((publicUsed / QUOTAS.PUBLIC_TOTAL) * 100),
+            percentage: Math.round((publicData.total / QUOTAS.PUBLIC_TOTAL) * 100),
         },
         private: {
-            used: privateUsed,
+            used: privateData.total,
+            count: privateData.count,
             limit: QUOTAS.PRIVATE_PER_USER,
-            percentage: Math.round((privateUsed / QUOTAS.PRIVATE_PER_USER) * 100),
+            percentage: Math.round((privateData.total / QUOTAS.PRIVATE_PER_USER) * 100),
         },
         organizations: orgUsages,
     };

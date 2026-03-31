@@ -206,7 +206,12 @@ router.get('/', async (req, res) => {
     if (space === 'public') {
       query = { space: 'public' };
     } else if (space === 'private') {
-      query = { space: 'private', $or: [{ uploadedBy: req.user._id }, { 'permissions.user': req.user._id }] };
+      query = { space: 'private', uploadedBy: req.user._id };
+    } else if (space === 'shared') {
+      query = { 
+        uploadedBy: { $ne: req.user._id },
+        'permissions.user': req.user._id
+      };
     } else if (space === 'organization' && organizationId) {
       const org = await Organization.findById(organizationId);
       if (!org || !org.isMember(req.user._id)) {
@@ -236,6 +241,85 @@ router.get('/', async (req, res) => {
   } catch (err) {
     console.error('Fetch docs error:', err);
     res.status(500).json({ error: 'Failed to fetch documents.' });
+  }
+});
+
+/**
+ * GET /api/documents/recent
+ * Get recent documents across all spaces the user has access to
+ */
+router.get('/recent', async (req, res) => {
+  try {
+    const userOrgs = await Organization.find({ 'members.user': req.user._id }).select('_id');
+    const orgIds = userOrgs.map((o) => o._id);
+
+    const query = {
+      $or: [
+        { space: 'public' },
+        { space: 'private', uploadedBy: req.user._id },
+        { space: 'private', 'permissions.user': req.user._id },
+        { space: 'organization', organization: { $in: orgIds } },
+      ],
+    };
+
+    const documents = await Document.find(query)
+      .populate('uploadedBy', 'name email avatarColor')
+      .populate('organization', 'name avatarColor')
+      .sort({ uploadDate: -1 })
+      .limit(5);
+
+    res.json({ documents });
+  } catch (err) {
+    console.error('Fetch recent docs error:', err);
+    res.status(500).json({ error: 'Failed to fetch recent documents.' });
+  }
+});
+
+/**
+ * GET /api/documents/search
+ * Search all documents user has access to by keyword
+ */
+router.get('/search', async (req, res) => {
+  try {
+    const { q } = req.query;
+    if (!q || q.trim().length < 2) {
+      return res.status(400).json({ error: 'Search query must be at least 2 characters.' });
+    }
+
+    const regex = new RegExp(q.trim(), 'i');
+    
+    const userOrgs = await Organization.find({ 'members.user': req.user._id }).select('_id');
+    const orgIds = userOrgs.map((o) => o._id);
+
+    const accessQuery = {
+      $or: [
+        { space: 'public' },
+        { space: 'private', uploadedBy: req.user._id },
+        { space: 'private', 'permissions.user': req.user._id },
+        { space: 'organization', organization: { $in: orgIds } },
+      ],
+    };
+
+    const searchQuery = {
+      $or: [
+        { tags: { $elemMatch: { $regex: regex } } },
+        { fileName: { $regex: regex } },
+        { 'metadata.primaryDomain': { $regex: regex } },
+        { 'metadata.typeTags': { $elemMatch: { $regex: regex } } },
+        { description: { $regex: regex } },
+      ],
+    };
+
+    const documents = await Document.find({ $and: [accessQuery, searchQuery] })
+      .populate('uploadedBy', 'name email avatarColor')
+      .populate('organization', 'name avatarColor')
+      .sort({ uploadDate: -1 })
+      .limit(50);
+
+    res.json({ documents, query: q });
+  } catch (err) {
+    console.error('Search error:', err);
+    res.status(500).json({ error: 'Search failed.' });
   }
 });
 

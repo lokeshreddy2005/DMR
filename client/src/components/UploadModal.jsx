@@ -30,7 +30,9 @@ function UploadModal({ isOpen, onClose, onUploadSuccess, defaultSpace, defaultOr
 
     async function fetchOrgs() {
         try {
-            const res = await axios.get(`${API_URL}/api/orgs`);
+            const t = token || localStorage.getItem('dmr_token');
+            const headers = t ? { Authorization: `Bearer ${t}` } : {};
+            const res = await axios.get(`${API_URL}/api/orgs`, { headers });
             setOrgs(res.data.organizations || []);
         } catch { /* ignore */ }
     }
@@ -93,9 +95,14 @@ function UploadModal({ isOpen, onClose, onUploadSuccess, defaultSpace, defaultOr
         if (space === 'organization') formData.append('organizationId', organizationId);
         if (description) formData.append('description', description);
 
+        const t = token || localStorage.getItem('dmr_token');
+
         try {
             await axios.post(`${API_URL}/api/documents/upload`, formData, {
-                headers: { 'Content-Type': 'multipart/form-data' },
+                headers: {
+                    'Content-Type': 'multipart/form-data',
+                    ...(t ? { Authorization: `Bearer ${t}` } : {}),
+                },
                 onUploadProgress: (e) => {
                     const pct = Math.round((e.loaded * 100) / e.total);
                     updateFileItem(item.id, { progress: pct });
