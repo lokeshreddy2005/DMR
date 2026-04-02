@@ -156,6 +156,7 @@ export function AppLayout() {
                 value={globalSearch}
                 onChange={(e) => setGlobalSearch(e.target.value)}
                 onFocus={() => setShowGlobalResults(true)}
+                onBlur={() => setTimeout(() => { setShowGlobalResults(false); setGlobalSearch(''); }, 200)}
                 placeholder="Search all documents..."
                 className="w-full bg-gray-50 dark:bg-gray-800/50 border border-gray-200 dark:border-gray-700 rounded-full pl-10 pr-10 py-2 text-sm text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500/50 focus:border-blue-500 transition-all placeholder:text-gray-500 relative z-10"
               />
@@ -169,8 +170,6 @@ export function AppLayout() {
                 </button>
               )}
               {showGlobalResults && (globalSearch || globalResults.length > 0) && (
-                <>
-                  <div className="fixed inset-0 z-0" onClick={() => setShowGlobalResults(false)} />
                   <motion.div
                     initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}
                     className="absolute top-12 left-0 w-full bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-2xl shadow-xl overflow-hidden z-20"
@@ -199,7 +198,6 @@ export function AppLayout() {
                       </div>
                     )}
                   </motion.div>
-                </>
               )}
             </div>
           </div>

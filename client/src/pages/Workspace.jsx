@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import axios from 'axios';
@@ -109,8 +109,12 @@ export function Workspace({ isPublicOnly = false }) {
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [isPublicOnly, activeSpace, token]);
 
-    // Fetch orgs when entering organization space, then fetchDocuments
+    // Effect to clear selection and fetch data when space changes
     useEffect(() => {
+        if (searchQuery) {
+            skipSearchEffect.current = true;
+            setSearchQuery('');
+        }
         setDocuments([]);
         setSelectedDoc(null);
         if (!isPublicOnly && activeSpace === 'organization') {
@@ -129,8 +133,18 @@ export function Workspace({ isPublicOnly = false }) {
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [selectedOrgId]);
 
+    const isFirstSearchRun = useRef(true);
+    const skipSearchEffect = useRef(false);
     // Debounced search for public space
     useEffect(() => {
+        if (isFirstSearchRun.current) {
+            isFirstSearchRun.current = false;
+            return;
+        }
+        if (skipSearchEffect.current) {
+            skipSearchEffect.current = false;
+            return;
+        }
         if (activeSpace !== 'public') return;
         const t = setTimeout(() => fetchDocuments(), 350);
         return () => clearTimeout(t);
@@ -213,7 +227,7 @@ export function Workspace({ isPublicOnly = false }) {
                         <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
                         <input
                             type="text"
-                            placeholder="Search files..."
+                            placeholder={`Search in ${spaceLabel}...`}
                             value={searchQuery}
                             onChange={(e) => setSearchQuery(e.target.value)}
                             className="w-full pl-9 pr-10 py-2.5 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none text-sm shadow-sm transition-all"
@@ -254,16 +268,16 @@ export function Workspace({ isPublicOnly = false }) {
 
             {/* Org Selector */}
             {!isPublicOnly && activeSpace === 'organization' && (
-                <div className="mb-6 flex flex-wrap gap-2 overflow-x-auto pb-2 flex-shrink-0">
+                <div className="mb-6 flex flex-wrap items-center gap-2 overflow-x-auto pb-2 flex-shrink-0">
                     {orgs.length === 0 ? (
-                        <p className="text-sm text-gray-400 py-2">You are not a member of any organization.</p>
+                        <p className="text-sm text-gray-400 py-1">You are not a member of any organization.</p>
                     ) : orgs.map(org => (
                         <button
                             key={org._id}
                             onClick={() => setSelectedOrgId(org._id)}
-                            className={`px-4 py-2 rounded-xl text-sm font-bold whitespace-nowrap transition-all ${selectedOrgId === org._id
-                                ? 'bg-purple-100 text-purple-700 dark:bg-purple-500/20 dark:text-purple-300 ring-2 ring-purple-500/50'
-                                : 'bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 text-gray-600 dark:text-gray-400 hover:bg-gray-50'
+                            className={`px-3.5 py-1.5 rounded-lg text-sm font-semibold whitespace-nowrap transition-all flex items-center justify-center ${selectedOrgId === org._id
+                                ? 'bg-purple-100 text-purple-700 dark:bg-purple-500/20 dark:text-purple-300 ring-1 ring-purple-500/50 shadow-sm'
+                                : 'bg-white dark:bg-gray-800/80 border border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 hover:border-gray-300 dark:hover:border-gray-600'
                                 }`}
                         >
                             {org.name}

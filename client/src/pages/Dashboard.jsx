@@ -1,12 +1,12 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useAuth } from '../context/AuthContext';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import API_URL from '../config/api';
 import axios from 'axios';
 import { motion } from 'framer-motion';
 import { CircularProgress, getStorageHeaderColor, getWarningMessage } from '../components/ui/CircularProgress';
 import { Button } from '../components/ui/Button';
-import { FileUp, FileText, Globe, Lock, Building2, Download, Eye, FolderPlus, ArrowRight } from 'lucide-react';
+import { FileUp, FileText, Globe, Lock, Building2, ArrowRight } from 'lucide-react';
 import UploadModal from '../components/UploadModal';
 
 const formatSize = (bytes) => {
@@ -18,6 +18,7 @@ const formatSize = (bytes) => {
 
 export function Dashboard() {
     const { user, token: authToken } = useAuth();
+    const navigate = useNavigate();
     const [stats, setStats] = useState({});
     const [storage, setStorage] = useState(null);
     const [recentDocs, setRecentDocs] = useState([]);
@@ -103,7 +104,7 @@ export function Dashboard() {
             {storage && (
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-6 animate-fade-in-up">
                     {/* Public Storage */}
-                    <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700/80 rounded-3xl p-6 shadow-sm hover:shadow-md transition-shadow relative overflow-hidden flex flex-col">
+                    <motion.div onClick={() => navigate('/workspace/public')} initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} className="cursor-pointer bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700/80 rounded-3xl p-6 shadow-sm hover:shadow-md transition-shadow relative overflow-hidden flex flex-col">
                         <div className={`absolute top-0 left-0 w-full h-1.5 ${getStorageHeaderColor(storage.public.percentage)} transition-colors duration-500`}></div>
                         <div className="flex justify-between items-center mb-6">
                             <span className="font-bold text-gray-800 dark:text-gray-200 flex items-center gap-2 text-lg"><Globe className="w-5 h-5 text-emerald-500" /> Public Space</span>
@@ -124,7 +125,7 @@ export function Dashboard() {
                     </motion.div>
 
                     {/* Private Storage */}
-                    <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} transition={{ delay: 0.1 }} className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700/80 rounded-3xl p-6 shadow-sm hover:shadow-md transition-shadow relative overflow-hidden flex flex-col">
+                    <motion.div onClick={() => navigate('/workspace/private')} initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} transition={{ delay: 0.1 }} className="cursor-pointer bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700/80 rounded-3xl p-6 shadow-sm hover:shadow-md transition-shadow relative overflow-hidden flex flex-col">
                         <div className={`absolute top-0 left-0 w-full h-1.5 ${getStorageHeaderColor(storage.private.percentage)} transition-colors duration-500`}></div>
                         <div className="flex justify-between items-center mb-6">
                             <span className="font-bold text-gray-800 dark:text-gray-200 flex items-center gap-2 text-lg"><Lock className="w-5 h-5 text-blue-500" /> Private Space</span>
@@ -150,7 +151,8 @@ export function Dashboard() {
                         initial={{ opacity: 0, scale: 0.95 }}
                         animate={{ opacity: 1, scale: 1 }}
                         transition={{ delay: 0.2 }}
-                        className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700/80 rounded-3xl p-6 shadow-sm hover:shadow-md transition-shadow relative overflow-hidden flex flex-col"
+                        onClick={() => navigate('/workspace/organization')}
+                        className="cursor-pointer bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700/80 rounded-3xl p-6 shadow-sm hover:shadow-md transition-shadow relative overflow-hidden flex flex-col"
                     >
                         {storage.organizations?.length > 0 ? (() => {
                             const activeOrgStats =
@@ -184,6 +186,7 @@ export function Dashboard() {
                                             <div className="relative">
                                                 <select
                                                     value={storageOrgId}
+                                                    onClick={(e) => e.stopPropagation()}
                                                     onChange={(e) => setStorageOrgId(e.target.value)}
                                                     className="w-full bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-700 text-gray-800 dark:text-gray-200 text-sm font-medium rounded-xl px-3 py-2 pr-8 outline-none focus:ring-2 focus:ring-purple-500 transition-all appearance-none"
                                                 >
@@ -257,60 +260,42 @@ export function Dashboard() {
                 </div>
             )}
 
-            {/* Recent Uploads & Activity Grid */}
-            <div className="grid lg:grid-cols-3 gap-8">
-                <div className="lg:col-span-2 space-y-4">
-                    <div className="flex items-center justify-between">
-                        <h3 className="text-xl font-bold text-gray-900 dark:text-white">Recent Uploads</h3>
-                        <Link to="/workspace/public" className="text-sm font-semibold text-blue-600 dark:text-blue-400 hover:text-blue-700 flex items-center gap-1">
-                            Browse all <ArrowRight className="w-4 h-4" />
-                        </Link>
-                    </div>
-                    {recentDocs.length > 0 ? (
-                        <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-3xl overflow-hidden shadow-sm">
-                            <ul className="divide-y divide-gray-100 dark:divide-gray-800">
-                                {recentDocs.slice(0, 5).map(doc => (
-                                    <li key={doc._id} className="p-4 hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-colors flex items-center justify-between group">
-                                        <div className="flex items-center gap-4 overflow-hidden">
-                                            <div className="w-10 h-10 rounded-lg bg-blue-50 dark:bg-blue-500/10 text-blue-600 dark:text-blue-400 flex items-center justify-center flex-shrink-0">
-                                                <FileText className="w-5 h-5" />
-                                            </div>
-                                            <div className="min-w-0">
-                                                <p className="text-sm font-bold text-gray-900 dark:text-white truncate">{doc.fileName}</p>
-                                                <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5 truncate">{formatSize(doc.fileSize)} • {new Date(doc.uploadDate).toLocaleDateString()}</p>
-                                            </div>
+            {/* Recent Uploads */}
+            <div className="space-y-4">
+                <div className="flex items-center justify-between">
+                    <h3 className="text-xl font-bold text-gray-900 dark:text-white">Recent Uploads</h3>
+                    <Link to="/workspace/public" className="text-sm font-semibold text-blue-600 dark:text-blue-400 hover:text-blue-700 flex items-center gap-1">
+                        Browse all <ArrowRight className="w-4 h-4" />
+                    </Link>
+                </div>
+                {recentDocs.length > 0 ? (
+                    <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-3xl overflow-hidden shadow-sm">
+                        <ul className="divide-y divide-gray-100 dark:divide-gray-800">
+                            {recentDocs.slice(0, 5).map(doc => (
+                                <li key={doc._id} className="p-4 hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-colors flex items-center justify-between group">
+                                    <div className="flex items-center gap-4 overflow-hidden">
+                                        <div className="w-10 h-10 rounded-lg bg-blue-50 dark:bg-blue-500/10 text-blue-600 dark:text-blue-400 flex items-center justify-center flex-shrink-0">
+                                            <FileText className="w-5 h-5" />
                                         </div>
-                                    </li>
-                                ))}
-                            </ul>
-                        </div>
-                    ) : (
-                        <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 border-dashed rounded-3xl p-12 text-center flex flex-col items-center">
-                            <div className="w-16 h-16 bg-blue-50 dark:bg-blue-900/20 rounded-full flex items-center justify-center text-blue-500 mb-4">
-                                <FileUp className="w-8 h-8" />
-                            </div>
-                            <h4 className="text-lg font-bold text-gray-900 dark:text-white mb-2">No documents yet</h4>
-                            <p className="text-sm text-gray-500 dark:text-gray-400 max-w-sm mb-6">Upload your first document to get started with DMR's powerful management system.</p>
-                            <Button onClick={() => setIsUploadModalOpen(true)}>Upload Document</Button>
-                        </div>
-                    )}
-                </div>
-
-                <div className="space-y-4">
-                    <h3 className="text-xl font-bold text-gray-900 dark:text-white">Quick Actions</h3>
-                    <div className="grid grid-cols-1 gap-3">
-                        <Button variant="secondary" className="w-full justify-start py-6 rounded-2xl" onClick={() => setIsUploadModalOpen(true)}>
-                            <div className="w-10 h-10 rounded-xl bg-blue-50 dark:bg-blue-500/10 text-blue-600 flex items-center justify-center mr-4"><FileUp className="w-5 h-5" /></div>
-                            <div className="text-left"><p className="font-bold text-gray-900 dark:text-white">Upload New</p><p className="text-xs font-normal text-gray-500 dark:text-gray-400">Share a document</p></div>
-                        </Button>
-                        <Link to="/workspace/organization">
-                            <Button variant="secondary" className="w-full justify-start py-6 rounded-2xl h-auto">
-                                <div className="w-10 h-10 rounded-xl bg-purple-50 dark:bg-purple-500/10 text-purple-600 flex items-center justify-center mr-4"><FolderPlus className="w-5 h-5" /></div>
-                                <div className="text-left"><p className="font-bold text-gray-900 dark:text-white">Team Spaces</p><p className="text-xs font-normal text-gray-500 dark:text-gray-400">Manage Org Files</p></div>
-                            </Button>
-                        </Link>
+                                        <div className="min-w-0">
+                                            <p className="text-sm font-bold text-gray-900 dark:text-white truncate">{doc.fileName}</p>
+                                            <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5 truncate">{formatSize(doc.fileSize)} • {new Date(doc.uploadDate).toLocaleDateString()}</p>
+                                        </div>
+                                    </div>
+                                </li>
+                            ))}
+                        </ul>
                     </div>
-                </div>
+                ) : (
+                    <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 border-dashed rounded-3xl p-12 text-center flex flex-col items-center">
+                        <div className="w-16 h-16 bg-blue-50 dark:bg-blue-900/20 rounded-full flex items-center justify-center text-blue-500 mb-4">
+                            <FileUp className="w-8 h-8" />
+                        </div>
+                        <h4 className="text-lg font-bold text-gray-900 dark:text-white mb-2">No documents yet</h4>
+                        <p className="text-sm text-gray-500 dark:text-gray-400 max-w-sm mb-6">Upload your first document to get started with DMR's powerful management system.</p>
+                        <Button onClick={() => setIsUploadModalOpen(true)}>Upload Document</Button>
+                    </div>
+                )}
             </div>
 
             <UploadModal
