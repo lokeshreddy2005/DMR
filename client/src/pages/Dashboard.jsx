@@ -73,7 +73,7 @@ export function Dashboard() {
                     <p className="text-gray-500 dark:text-gray-400 mt-1">Here is what is happening with your documents today.</p>
                 </div>
                 <div className="flex gap-3 w-full sm:w-auto">
-                    <Button onClick={() => setIsUploadOpen(true)} className="flex-shrink-0 shadow-lg shadow-blue-500/20">
+                    <Button onClick={() => setIsUploadModalOpen(true)} className="flex-shrink-0 shadow-lg shadow-blue-500/20">
                         <FileUp className="w-4 h-4 mr-2" /> Upload Document
                     </Button>
                 </div>
@@ -313,12 +313,11 @@ export function Dashboard() {
                 </div>
             </div>
 
-            {isUploadModalOpen && (
-                <UploadModal
-                    onClose={() => setIsUploadModalOpen(false)}
-                    onUploadSuccess={fetchDashboardData}
-                />
-            )}
+            <UploadModal
+                isOpen={isUploadModalOpen}
+                onClose={() => setIsUploadModalOpen(false)}
+                onUploadSuccess={fetchDashboardData}
+            />
         </div>
     );
 }

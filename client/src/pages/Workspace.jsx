@@ -512,9 +512,9 @@ export function Workspace({ isPublicOnly = false }) {
             {/* Upload Modal */}
             <UploadModal
                 isOpen={isUploadOpen}
-                onClose={() => { setIsUploadOpen(false); fetchDocuments(); }}
+                onClose={() => setIsUploadOpen(false)}
                 onUploadSuccess={() => fetchDocuments()}
-                defaultSpace={activeSpace !== 'public' && activeSpace !== 'shared' ? activeSpace : 'private'}
+                defaultSpace={activeSpace === 'shared' ? null : activeSpace}
                 defaultOrgId={selectedOrgId}
             />
         </div>

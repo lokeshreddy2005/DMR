@@ -7,7 +7,7 @@ function UploadModal({ isOpen, onClose, onUploadSuccess, defaultSpace, defaultOr
     const { token } = useAuth();
     // files: [{ id, file, progress, status('pending'|'uploading'|'done'|'error'), error }]
     const [files, setFiles] = useState([]);
-    const [space, setSpace] = useState(defaultSpace || 'public');
+    const [space, setSpace] = useState(defaultSpace || null);
     const [organizationId, setOrganizationId] = useState(defaultOrgId || '');
     const [description, setDescription] = useState('');
     const [orgs, setOrgs] = useState([]);
@@ -22,7 +22,7 @@ function UploadModal({ isOpen, onClose, onUploadSuccess, defaultSpace, defaultOr
             setFiles([]);
             setDescription('');
             setAllDone(false);
-            setSpace(defaultSpace || 'public');
+            setSpace(defaultSpace || null);
             setOrganizationId(defaultOrgId || '');
             setIsDragging(false);
         }
@@ -116,6 +116,7 @@ function UploadModal({ isOpen, onClose, onUploadSuccess, defaultSpace, defaultOr
 
     async function handleUpload() {
         if (files.length === 0) return;
+        if (!space) return;
         if (space === 'organization' && !organizationId) return;
 
         setUploading(true);
@@ -139,7 +140,7 @@ function UploadModal({ isOpen, onClose, onUploadSuccess, defaultSpace, defaultOr
     };
 
     const pendingFiles = files.filter(f => f.status === 'pending' || f.status === 'error');
-    const canUpload = files.length > 0 && pendingFiles.length > 0 && !uploading;
+    const canUpload = files.length > 0 && pendingFiles.length > 0 && !uploading && space !== null;
 
     return (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 sm:p-6 animate-fade-in">
@@ -181,8 +182,8 @@ function UploadModal({ isOpen, onClose, onUploadSuccess, defaultSpace, defaultOr
                                         <button
                                             key={s.key}
                                             className={`flex flex-col items-center justify-center p-4 rounded-2xl border-2 transition-all duration-300 ${space === s.key
-                                                    ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/20 text-blue-600 dark:text-blue-400 shadow-sm'
-                                                    : 'border-gray-100 dark:border-gray-800 bg-white dark:bg-gray-800/50 text-gray-500 dark:text-gray-400 hover:border-blue-200 dark:hover:border-blue-800/50 hover:bg-blue-50/50 dark:hover:bg-blue-900/10'
+                                                ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/20 text-blue-600 dark:text-blue-400 shadow-sm'
+                                                : 'border-gray-100 dark:border-gray-800 bg-white dark:bg-gray-800/50 text-gray-500 dark:text-gray-400 hover:border-blue-200 dark:hover:border-blue-800/50 hover:bg-blue-50/50 dark:hover:bg-blue-900/10'
                                                 }`}
                                             onClick={() => setSpace(s.key)}
                                         >
@@ -229,8 +230,7 @@ function UploadModal({ isOpen, onClose, onUploadSuccess, defaultSpace, defaultOr
                                 <div>
                                     <label className="block text-sm font-bold text-gray-700 dark:text-gray-300 mb-2 uppercase tracking-wider">Files</label>
                                     <div
-                                        className={`relative border-2 border-dashed rounded-3xl p-8 text-center transition-all duration-300 cursor-pointer ${
-                                                isDragging ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/20 scale-[1.02]' : 'border-gray-300 dark:border-gray-700 bg-gray-50 hover:bg-gray-100 dark:bg-gray-800/30 dark:hover:bg-gray-800'
+                                        className={`relative border-2 border-dashed rounded-3xl p-8 text-center transition-all duration-300 cursor-pointer ${isDragging ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/20 scale-[1.02]' : 'border-gray-300 dark:border-gray-700 bg-gray-50 hover:bg-gray-100 dark:bg-gray-800/30 dark:hover:bg-gray-800'
                                             }`}
                                         onClick={() => fileInputRef.current?.click()}
                                         onDragEnter={handleDragEnter}
@@ -267,21 +267,20 @@ function UploadModal({ isOpen, onClose, onUploadSuccess, defaultSpace, defaultOr
                                     </div>
                                     <div className="max-h-48 overflow-y-auto space-y-2 pr-1">
                                         {files.map((item) => (
-                                            <div key={item.id} className={`flex items-center gap-3 p-3 rounded-2xl border transition-all ${
-                                                item.status === 'done'
+                                            <div key={item.id} className={`flex items-center gap-3 p-3 rounded-2xl border transition-all ${item.status === 'done'
                                                     ? 'bg-emerald-50 dark:bg-emerald-900/10 border-emerald-200 dark:border-emerald-800/50'
                                                     : item.status === 'error'
                                                         ? 'bg-red-50 dark:bg-red-900/10 border-red-200 dark:border-red-800/50'
                                                         : item.status === 'uploading'
                                                             ? 'bg-blue-50 dark:bg-blue-900/10 border-blue-200 dark:border-blue-800/50'
                                                             : 'bg-white dark:bg-gray-800/50 border-gray-100 dark:border-gray-800'
-                                            }`}>
+                                                }`}>
                                                 {/* Icon */}
                                                 <div className="w-10 h-10 rounded-xl flex items-center justify-center text-lg flex-shrink-0" style={{
                                                     background: item.status === 'done' ? 'rgba(16,185,129,0.15)' :
                                                         item.status === 'error' ? 'rgba(244,63,94,0.15)' :
-                                                        item.status === 'uploading' ? 'rgba(59,130,246,0.15)' :
-                                                        'rgba(107,114,128,0.1)'
+                                                            item.status === 'uploading' ? 'rgba(59,130,246,0.15)' :
+                                                                'rgba(107,114,128,0.1)'
                                                 }}>
                                                     {item.status === 'done' ? '✅' : item.status === 'error' ? '❌' : item.status === 'uploading' ? '⏳' : '📄'}
                                                 </div>
@@ -291,9 +290,9 @@ function UploadModal({ isOpen, onClose, onUploadSuccess, defaultSpace, defaultOr
                                                     <p className="text-sm font-bold text-gray-900 dark:text-white truncate">{item.file.name}</p>
                                                     <p className="text-xs text-gray-500 dark:text-gray-400">
                                                         {item.status === 'uploading' ? `Uploading... ${item.progress}%` :
-                                                         item.status === 'done' ? 'Uploaded successfully' :
-                                                         item.status === 'error' ? item.error :
-                                                         formatSize(item.file.size)}
+                                                            item.status === 'done' ? 'Uploaded successfully' :
+                                                                item.status === 'error' ? item.error :
+                                                                    formatSize(item.file.size)}
                                                     </p>
                                                     {/* Progress bar */}
                                                     {item.status === 'uploading' && (
@@ -355,8 +354,8 @@ function UploadModal({ isOpen, onClose, onUploadSuccess, defaultSpace, defaultOr
                         </button>
                         <button
                             className={`px-8 py-3 rounded-xl font-bold text-white shadow-lg transition-all w-full sm:w-auto flex items-center justify-center gap-2 ${!canUpload
-                                    ? 'bg-blue-400 dark:bg-blue-600 cursor-not-allowed shadow-none'
-                                    : 'bg-blue-600 hover:bg-blue-700 shadow-blue-500/30 transform hover:-translate-y-0.5'
+                                ? 'bg-blue-400 dark:bg-blue-600 cursor-not-allowed shadow-none'
+                                : 'bg-blue-600 hover:bg-blue-700 shadow-blue-500/30 transform hover:-translate-y-0.5'
                                 }`}
                             onClick={handleUpload}
                             disabled={!canUpload}
