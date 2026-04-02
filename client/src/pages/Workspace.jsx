@@ -1,29 +1,37 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate, useSearchParams, useLocation } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import axios from 'axios';
 import API_URL from '../config/api';
 import { Button } from '../components/ui/Button';
-import { FileText, Download, Trash2, Search, Plus, FileUp, MoreVertical, Globe, Lock, Building2, Users, Edit3, Eye, X, LayoutGrid, List } from 'lucide-react';
+import { FileText, Download, Trash2, Search, Plus, FileUp, MoreVertical, Globe, Lock, Building2, Users, Edit3, Eye, X, LayoutGrid, List, ChevronLeft, ChevronRight } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import UploadModal from '../components/UploadModal';
 
-export function Workspace({ isPublicOnly = false }) {
+export function Workspace({ isPublicOnly = false, isSearchPage = false }) {
     const { spaceId } = useParams();
     const navigate = useNavigate();
+    const [searchParams, setSearchParams] = useSearchParams();
+    const location = useLocation();
     const { user, token } = useAuth();
-    const activeSpace = isPublicOnly ? 'public' : (spaceId || 'public');
+
+    const activeSpace = isPublicOnly ? 'public' : isSearchPage ? 'search' : (spaceId || 'public');
 
     const [documents, setDocuments] = useState([]);
     const [orgs, setOrgs] = useState([]);
     const [selectedOrgId, setSelectedOrgId] = useState('');
-    const [searchQuery, setSearchQuery] = useState('');
+    const [searchQuery, setSearchQuery] = useState(isSearchPage ? (searchParams.get('q') || '') : '');
     const [isLoading, setIsLoading] = useState(true);
     const [error, setError] = useState(null);
     const [isUploadOpen, setIsUploadOpen] = useState(false);
     const [selectedDoc, setSelectedDoc] = useState(null);
     const [toast, setToast] = useState(null);
     const [viewMode, setViewMode] = useState('grid');
+    const [currentPage, setCurrentPage] = useState(1);
+
+    useEffect(() => {
+        setCurrentPage(1);
+    }, [searchQuery, activeSpace]);
 
     const showToast = (type, message) => {
         setToast({ type, message });
@@ -67,7 +75,12 @@ export function Workspace({ isPublicOnly = false }) {
             // --- Authenticated spaces ---
             const headers = getAuthHeaders();
 
-            if (activeSpace === 'organization') {
+            if (isSearchPage) {
+                const query = searchParams.get('q') || searchQuery || '';
+                const url = `${API_URL}/api/documents/search?q=${encodeURIComponent(query)}`;
+                const res = await axios.get(url, { headers });
+                setDocuments(res.data.documents || []);
+            } else if (activeSpace === 'organization') {
                 if (!selectedOrgId) {
                     setDocuments([]);
                     return;
@@ -111,7 +124,7 @@ export function Workspace({ isPublicOnly = false }) {
 
     // Effect to clear selection and fetch data when space changes
     useEffect(() => {
-        if (searchQuery) {
+        if (searchQuery && activeSpace !== 'search') {
             skipSearchEffect.current = true;
             setSearchQuery('');
         }
@@ -133,6 +146,14 @@ export function Workspace({ isPublicOnly = false }) {
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [selectedOrgId]);
 
+    // Sync URL param to state if it changes externally
+    useEffect(() => {
+        if (isSearchPage && searchParams.get('q') !== searchQuery) {
+            setSearchQuery(searchParams.get('q') || '');
+        }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [searchParams.get('q')]);
+
     const isFirstSearchRun = useRef(true);
     const skipSearchEffect = useRef(false);
     // Debounced search for public space
@@ -145,7 +166,12 @@ export function Workspace({ isPublicOnly = false }) {
             skipSearchEffect.current = false;
             return;
         }
-        if (activeSpace !== 'public') return;
+        if (activeSpace !== 'public' && activeSpace !== 'search') return;
+
+        if (isSearchPage && searchQuery) {
+            setSearchParams({ q: searchQuery }, { replace: true });
+        }
+
         const t = setTimeout(() => fetchDocuments(), 350);
         return () => clearTimeout(t);
         // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -192,7 +218,7 @@ export function Workspace({ isPublicOnly = false }) {
     };
 
     // Local filter for authenticated spaces (instant search)
-    const displayedDocuments = (activeSpace === 'public' || !searchQuery.trim())
+    const displayedDocuments = (activeSpace === 'public' || activeSpace === 'search' || !searchQuery.trim())
         ? documents
         : documents.filter(doc =>
             doc.fileName?.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -200,7 +226,13 @@ export function Workspace({ isPublicOnly = false }) {
             doc.description?.toLowerCase().includes(searchQuery.toLowerCase())
         );
 
-    const spaceLabel = activeSpace === 'shared' ? 'Shared with Me' : `${activeSpace.charAt(0).toUpperCase() + activeSpace.slice(1)} Space`;
+    const itemsPerPage = 24;
+    const totalItems = displayedDocuments.length;
+    const totalPages = Math.ceil(totalItems / itemsPerPage) || 1;
+    const startIndex = (currentPage - 1) * itemsPerPage;
+    const paginatedDocuments = isSearchPage ? displayedDocuments.slice(startIndex, startIndex + itemsPerPage) : displayedDocuments;
+
+    const spaceLabel = isSearchPage ? 'Search Results' : activeSpace === 'shared' ? 'Shared with Me' : `${activeSpace.charAt(0).toUpperCase() + activeSpace.slice(1)} Space`;
 
     return (
         <div className="max-w-7xl mx-auto flex flex-col h-[calc(100vh-8rem)]">
@@ -212,6 +244,7 @@ export function Workspace({ isPublicOnly = false }) {
                         {activeSpace === 'private' && <Lock className="w-8 h-8 text-blue-500" />}
                         {activeSpace === 'shared' && <Users className="w-8 h-8 text-orange-500" />}
                         {activeSpace === 'organization' && <Building2 className="w-8 h-8 text-purple-500" />}
+                        {isSearchPage && <Search className="w-8 h-8 text-blue-500" />}
                         {spaceLabel}
                     </h1>
                     <p className="text-gray-500 dark:text-gray-400 mt-1 text-sm">
@@ -290,6 +323,35 @@ export function Workspace({ isPublicOnly = false }) {
             <div className="flex-1 flex gap-6 overflow-hidden relative">
                 {/* File Grid */}
                 <div className="flex-1 overflow-y-auto pr-2 pb-24">
+                    {!isLoading && !error && isSearchPage && totalItems > 0 && (
+                        <div className="flex items-center justify-end mb-4 mt-1">
+                            <div className="flex items-center gap-3">
+                                <span className="text-sm font-medium text-gray-500 dark:text-gray-400 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 px-3 py-1.5 rounded-lg shadow-sm tracking-wide">
+                                    Showing <span className="font-bold text-gray-900 dark:text-white">{startIndex + 1}</span> - <span className="font-bold text-gray-900 dark:text-white">{Math.min(startIndex + itemsPerPage, totalItems)}</span> of <span className="font-bold text-blue-600 dark:text-blue-400">{totalItems}</span>
+                                </span>
+
+                                {totalPages > 1 && (
+                                    <div className="flex items-center gap-1 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg shadow-sm">
+                                        <button
+                                            onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+                                            disabled={currentPage === 1}
+                                            className="p-1.5 text-gray-500 hover:text-blue-600 disabled:opacity-30 disabled:hover:text-gray-500 transition-colors"
+                                        >
+                                            <ChevronLeft className="w-4 h-4" />
+                                        </button>
+                                        <div className="w-px h-5 bg-gray-200 dark:bg-gray-700"></div>
+                                        <button
+                                            onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
+                                            disabled={currentPage === totalPages}
+                                            className="p-1.5 text-gray-500 hover:text-blue-600 disabled:opacity-30 disabled:hover:text-gray-500 transition-colors"
+                                        >
+                                            <ChevronRight className="w-4 h-4" />
+                                        </button>
+                                    </div>
+                                )}
+                            </div>
+                        </div>
+                    )}
                     {isLoading ? (
                         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
                             {[1, 2, 3, 4, 5, 6].map(i => (
@@ -317,7 +379,7 @@ export function Workspace({ isPublicOnly = false }) {
                                 }}
                                 className={viewMode === 'grid' ? "grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-4" : "flex flex-col gap-2"}
                             >
-                                {displayedDocuments.map(doc => {
+                                {paginatedDocuments.map(doc => {
                                     const accessLevel = getAccessLevel(doc);
                                     return viewMode === 'grid' ? (
                                         <motion.div
@@ -334,6 +396,11 @@ export function Workspace({ isPublicOnly = false }) {
                                                     <FileText className="w-6 h-6" />
                                                 </div>
                                                 <div className="flex items-center gap-1.5">
+                                                    {isSearchPage && (
+                                                        <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-gray-100 text-gray-800 dark:bg-gray-800 dark:text-gray-200 uppercase tracking-wider border border-gray-200 dark:border-gray-700">
+                                                            {doc.space}
+                                                        </span>
+                                                    )}
                                                     {accessLevel === 'Write' ? (
                                                         <span className="flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400 uppercase tracking-wider border border-purple-200 dark:border-purple-800" title="You have Write access">
                                                             <Edit3 className="w-3 h-3" /> Write
@@ -397,6 +464,11 @@ export function Workspace({ isPublicOnly = false }) {
                                                 )}
 
                                                 <div className="flex items-center gap-2">
+                                                    {isSearchPage && (
+                                                        <span className="hidden sm:inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold bg-gray-100 text-gray-800 dark:bg-gray-800 dark:text-gray-200 uppercase tracking-wider border border-gray-200 dark:border-gray-700">
+                                                            {doc.space}
+                                                        </span>
+                                                    )}
                                                     {accessLevel === 'Write' ? (
                                                         <span className="hidden sm:inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400 uppercase tracking-wider border border-purple-200 dark:border-purple-800" title="You have Write access">
                                                             Editor
@@ -436,74 +508,76 @@ export function Workspace({ isPublicOnly = false }) {
                 <AnimatePresence>
                     {selectedDoc && (
                         <motion.div
-                            initial={{ x: 300, opacity: 0 }}
-                            animate={{ x: 0, opacity: 1 }}
-                            exit={{ x: 300, opacity: 0 }}
+                            initial={{ width: 0, opacity: 0 }}
+                            animate={{ width: 320, opacity: 1 }}
+                            exit={{ width: 0, opacity: 0 }}
                             transition={{ type: "spring", stiffness: 300, damping: 30 }}
-                            className="hidden lg:flex w-80 flex-shrink-0 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-2xl shadow-sm flex-col overflow-hidden h-full"
+                            className="hidden lg:flex flex-shrink-0 flex-col overflow-hidden h-full"
                         >
-                            <div className="p-5 border-b border-gray-100 dark:border-gray-800 flex justify-between items-center bg-gray-50/50 dark:bg-gray-800/20">
-                                <h4 className="font-bold text-gray-900 dark:text-white">Document Details</h4>
-                                <button onClick={() => setSelectedDoc(null)} className="p-1 text-gray-400 hover:text-gray-900 dark:hover:text-white rounded-md hover:bg-gray-200 dark:hover:bg-gray-800 transition-colors">
-                                    <X className="w-4 h-4" />
-                                </button>
-                            </div>
-
-                            <div className="flex-1 overflow-y-auto p-6 space-y-6">
-                                <div className="flex justify-center p-6 bg-blue-50 dark:bg-blue-900/10 rounded-xl border border-blue-100 dark:border-blue-800/30">
-                                    <FileText className="w-16 h-16 text-blue-500" />
+                            <div className="w-80 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-2xl shadow-sm flex-col h-full flex flex-shrink-0">
+                                <div className="p-5 border-b border-gray-100 dark:border-gray-800 flex justify-between items-center bg-gray-50/50 dark:bg-gray-800/20">
+                                    <h4 className="font-bold text-gray-900 dark:text-white">Document Details</h4>
+                                    <button onClick={() => setSelectedDoc(null)} className="p-1 text-gray-400 hover:text-gray-900 dark:hover:text-white rounded-md hover:bg-gray-200 dark:hover:bg-gray-800 transition-colors">
+                                        <X className="w-4 h-4" />
+                                    </button>
                                 </div>
 
-                                <div>
-                                    <h3 className="font-extrabold text-lg text-gray-900 dark:text-white leading-tight mb-2">{selectedDoc.fileName}</h3>
-                                    <p className="text-sm text-gray-500 dark:text-gray-400 leading-relaxed">{selectedDoc.description || 'No description provided.'}</p>
-                                </div>
-
-                                <div className="space-y-0 divide-y divide-gray-100 dark:divide-gray-800">
-                                    {[
-                                        { label: 'Access', value: getAccessLevel(selectedDoc) === 'Write' ? '✏️ Write (Editor)' : '👁️ Read-only' },
-                                        { label: 'Space', value: selectedDoc.space },
-                                        { label: 'Type', value: selectedDoc.mimeType },
-                                        { label: 'Size', value: formatSize(selectedDoc.fileSize) },
-                                        { label: 'Uploaded', value: new Date(selectedDoc.uploadDate).toLocaleDateString() },
-                                        { label: 'Uploaded By', value: selectedDoc.uploadedBy?.name || 'Unknown' },
-                                    ].map(({ label, value }) => (
-                                        <div key={label} className="flex justify-between py-2.5">
-                                            <span className="text-xs font-bold text-gray-400 uppercase tracking-widest">{label}</span>
-                                            <span className="text-sm font-semibold text-gray-900 dark:text-white capitalize truncate max-w-[140px]">{value}</span>
-                                        </div>
-                                    ))}
-                                </div>
-
-                                {selectedDoc.tags?.length > 0 && (
-                                    <div>
-                                        <p className="text-xs font-bold text-gray-400 uppercase tracking-widest mb-2">Tags</p>
-                                        <div className="flex flex-wrap gap-1.5">
-                                            {selectedDoc.tags.map((t, i) => (
-                                                <span key={i} className="px-2 py-0.5 bg-gray-100 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-md text-[10px] uppercase font-bold text-gray-600 dark:text-gray-300">{t}</span>
-                                            ))}
-                                        </div>
+                                <div className="flex-1 overflow-y-auto p-6 space-y-6">
+                                    <div className="flex justify-center p-6 bg-blue-50 dark:bg-blue-900/10 rounded-xl border border-blue-100 dark:border-blue-800/30">
+                                        <FileText className="w-16 h-16 text-blue-500" />
                                     </div>
-                                )}
-                            </div>
 
-                            <div className="p-4 border-t border-gray-100 dark:border-gray-800 bg-gray-50/50 dark:bg-gray-900/50 flex flex-col gap-2">
-                                <Button className="w-full" onClick={() => handleDownload(selectedDoc)}>
-                                    <Download className="w-4 h-4 mr-2" /> Download
-                                </Button>
-                                {!isPublicOnly && activeSpace !== 'public' && getAccessLevel(selectedDoc) === 'Write' && (
-                                    <>
-                                        <Button
-                                            className="w-full bg-emerald-50 text-emerald-600 hover:bg-emerald-100 dark:bg-emerald-900/20 dark:text-emerald-400 shadow-none border border-emerald-200 dark:border-emerald-800/50"
-                                            onClick={() => handleMakePublic(selectedDoc._id)}
-                                        >
-                                            <Globe className="w-4 h-4 mr-2" /> Make Public
-                                        </Button>
-                                        <Button variant="danger" className="w-full" onClick={() => handleDelete(selectedDoc._id)}>
-                                            <Trash2 className="w-4 h-4 mr-2" /> Delete
-                                        </Button>
-                                    </>
-                                )}
+                                    <div>
+                                        <h3 className="font-extrabold text-lg text-gray-900 dark:text-white leading-tight mb-2">{selectedDoc.fileName}</h3>
+                                        <p className="text-sm text-gray-500 dark:text-gray-400 leading-relaxed">{selectedDoc.description || 'No description provided.'}</p>
+                                    </div>
+
+                                    <div className="space-y-0 divide-y divide-gray-100 dark:divide-gray-800">
+                                        {[
+                                            { label: 'Access', value: getAccessLevel(selectedDoc) === 'Write' ? '✏️ Write (Editor)' : '👁️ Read-only' },
+                                            { label: 'Space', value: selectedDoc.space },
+                                            { label: 'Type', value: selectedDoc.mimeType },
+                                            { label: 'Size', value: formatSize(selectedDoc.fileSize) },
+                                            { label: 'Uploaded', value: new Date(selectedDoc.uploadDate).toLocaleDateString() },
+                                            { label: 'Uploaded By', value: selectedDoc.uploadedBy?.name || 'Unknown' },
+                                        ].map(({ label, value }) => (
+                                            <div key={label} className="flex justify-between py-2.5">
+                                                <span className="text-xs font-bold text-gray-400 uppercase tracking-widest">{label}</span>
+                                                <span className="text-sm font-semibold text-gray-900 dark:text-white capitalize truncate max-w-[140px]">{value}</span>
+                                            </div>
+                                        ))}
+                                    </div>
+
+                                    {selectedDoc.tags?.length > 0 && (
+                                        <div>
+                                            <p className="text-xs font-bold text-gray-400 uppercase tracking-widest mb-2">Tags</p>
+                                            <div className="flex flex-wrap gap-1.5">
+                                                {selectedDoc.tags.map((t, i) => (
+                                                    <span key={i} className="px-2 py-0.5 bg-gray-100 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-md text-[10px] uppercase font-bold text-gray-600 dark:text-gray-300">{t}</span>
+                                                ))}
+                                            </div>
+                                        </div>
+                                    )}
+                                </div>
+
+                                <div className="p-4 border-t border-gray-100 dark:border-gray-800 bg-gray-50/50 dark:bg-gray-900/50 flex flex-col gap-2">
+                                    <Button className="w-full" onClick={() => handleDownload(selectedDoc)}>
+                                        <Download className="w-4 h-4 mr-2" /> Download
+                                    </Button>
+                                    {!isPublicOnly && activeSpace !== 'public' && getAccessLevel(selectedDoc) === 'Write' && (
+                                        <>
+                                            <Button
+                                                className="w-full bg-emerald-50 text-emerald-600 hover:bg-emerald-100 dark:bg-emerald-900/20 dark:text-emerald-400 shadow-none border border-emerald-200 dark:border-emerald-800/50"
+                                                onClick={() => handleMakePublic(selectedDoc._id)}
+                                            >
+                                                <Globe className="w-4 h-4 mr-2" /> Make Public
+                                            </Button>
+                                            <Button variant="danger" className="w-full" onClick={() => handleDelete(selectedDoc._id)}>
+                                                <Trash2 className="w-4 h-4 mr-2" /> Delete
+                                            </Button>
+                                        </>
+                                    )}
+                                </div>
                             </div>
                         </motion.div>
                     )}
@@ -528,7 +602,7 @@ export function Workspace({ isPublicOnly = false }) {
                 isOpen={isUploadOpen}
                 onClose={() => setIsUploadOpen(false)}
                 onUploadSuccess={() => fetchDocuments()}
-                defaultSpace={activeSpace === 'shared' ? null : activeSpace}
+                defaultSpace={(activeSpace === 'shared' || isSearchPage) ? null : activeSpace}
                 defaultOrgId={selectedOrgId}
             />
         </div>

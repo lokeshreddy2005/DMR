@@ -49,6 +49,7 @@ function App() {
                 {/* Protected Application Routes */}
                 <Route element={<ProtectedRoute><AppLayout /></ProtectedRoute>}>
                     <Route path="/dashboard" element={<Dashboard />} />
+                    <Route path="/search" element={<Workspace isSearchPage={true} />} />
                     <Route path="/workspace/:spaceId" element={<Workspace />} />
                     <Route path="/profile" element={<Profile />} />
                 </Route>

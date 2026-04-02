@@ -1,4 +1,4 @@
-import { Link, Outlet, useLocation } from "react-router-dom";
+import { Link, Outlet, useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "../../context/AuthContext";
 import { useTheme } from "../../context/ThemeContext";
 import { Button } from "../ui/Button";
@@ -35,6 +35,7 @@ export function AppLayout() {
   const { user, logout } = useAuth();
   const { isDarkMode, toggleTheme } = useTheme();
   const location = useLocation();
+  const navigate = useNavigate();
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [showProfileMenu, setShowProfileMenu] = useState(false);
 
@@ -155,6 +156,15 @@ export function AppLayout() {
                 type="text"
                 value={globalSearch}
                 onChange={(e) => setGlobalSearch(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && globalSearch.trim()) {
+                    e.preventDefault();
+                    const query = globalSearch.trim();
+                    setShowGlobalResults(false);
+                    setGlobalSearch('');
+                    navigate(`/search?q=${encodeURIComponent(query)}`);
+                  }
+                }}
                 onFocus={() => setShowGlobalResults(true)}
                 onBlur={() => setTimeout(() => { setShowGlobalResults(false); setGlobalSearch(''); }, 200)}
                 placeholder="Search all documents..."
@@ -184,12 +194,16 @@ export function AppLayout() {
                     ) : (
                       <div className="max-h-80 overflow-y-auto py-2">
                         {globalResults.map(doc => (
-                          <div key={doc._id} className="px-4 py-3 hover:bg-gray-50 dark:hover:bg-gray-800/50 cursor-pointer flex items-center justify-between group transition-colors" onClick={() => { setShowGlobalResults(false); window.location.href = `/workspace/${doc.space}`; }}>
+                          <div key={doc._id} className="px-4 py-3 hover:bg-gray-50 dark:hover:bg-gray-800/50 cursor-pointer flex items-center justify-between group transition-colors" onClick={() => { setShowGlobalResults(false); navigate(`/workspace/${doc.space}`); }}>
                             <div className="flex items-center gap-3">
                               <div className="w-8 h-8 rounded bg-blue-50 dark:bg-blue-900/10 text-blue-500 flex items-center justify-center">📄</div>
                               <div>
                                 <p className="text-sm font-bold text-gray-900 dark:text-white truncate">{doc.fileName}</p>
-                                <p className="text-xs text-gray-500 capitalize">{doc.space} Space</p>
+                                <p className="text-xs text-gray-500 mt-1">
+                                  <span className="px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider bg-gray-200/60 dark:bg-gray-800 text-gray-700 dark:text-gray-300">
+                                      {doc.space}
+                                  </span>
+                                </p>
                               </div>
                             </div>
                             {doc.space === 'public' && doc.metadata?.typeTags?.length > 0 && <span className="text-[10px] uppercase font-bold text-gray-400 group-hover:text-blue-500">{doc.metadata.typeTags[0]}</span>}
