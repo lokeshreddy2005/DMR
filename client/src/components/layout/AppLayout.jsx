@@ -73,7 +73,7 @@ export function AppLayout() {
 
   return (
     <div className="min-h-screen flex bg-gray-50 dark:bg-gray-950 font-sans transition-colors duration-300">
-      
+
       {/* Mobile Sidebar Overlay */}
       <AnimatePresence>
         {isSidebarOpen && (
@@ -141,7 +141,7 @@ export function AppLayout() {
 
       {/* Main Content Area */}
       <div className="flex-1 flex flex-col min-w-0 h-screen overflow-hidden">
-        
+
         {/* Top Navbar */}
         <header className="h-16 flex-shrink-0 bg-white/70 dark:bg-gray-900/70 backdrop-blur-xl border-b border-gray-200 dark:border-gray-800 flex items-center justify-between px-4 sm:px-6 lg:px-8 z-30">
           <div className="flex items-center gap-4 flex-1">
@@ -157,19 +157,28 @@ export function AppLayout() {
                 onChange={(e) => setGlobalSearch(e.target.value)}
                 onFocus={() => setShowGlobalResults(true)}
                 placeholder="Search all documents..."
-                className="w-full bg-gray-50 dark:bg-gray-800/50 border border-gray-200 dark:border-gray-700 rounded-full pl-10 pr-4 py-2 text-sm text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500/50 focus:border-blue-500 transition-all placeholder:text-gray-500 relative z-10"
+                className="w-full bg-gray-50 dark:bg-gray-800/50 border border-gray-200 dark:border-gray-700 rounded-full pl-10 pr-10 py-2 text-sm text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500/50 focus:border-blue-500 transition-all placeholder:text-gray-500 relative z-10"
               />
+              {globalSearch && (
+                <button
+                  type="button"
+                  onClick={() => { setGlobalSearch(''); setShowGlobalResults(false); }}
+                  className="absolute right-3.5 top-1/2 -translate-y-1/2 z-20 p-1 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 rounded-full transition-colors"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              )}
               {showGlobalResults && (globalSearch || globalResults.length > 0) && (
                 <>
                   <div className="fixed inset-0 z-0" onClick={() => setShowGlobalResults(false)} />
-                  <motion.div 
+                  <motion.div
                     initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}
                     className="absolute top-12 left-0 w-full bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-2xl shadow-xl overflow-hidden z-20"
                   >
                     {globalSearchLoading ? (
                       <div className="p-4 text-sm text-gray-500 text-center flex items-center justify-center gap-2">
-                         <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none"></circle><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
-                         Searching...
+                        <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none"></circle><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
+                        Searching...
                       </div>
                     ) : globalResults.length === 0 && globalSearch ? (
                       <div className="p-4 text-sm text-gray-500 text-center">No results found for "{globalSearch}"</div>
@@ -199,7 +208,7 @@ export function AppLayout() {
             <button onClick={toggleTheme} className="p-2 text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-full transition-colors">
               {isDarkMode ? <Sun className="w-5 h-5" /> : <Moon className="w-5 h-5" />}
             </button>
-            
+
             <div className="w-px h-6 bg-gray-200 dark:bg-gray-700 hidden sm:block"></div>
 
             {/* Profile Dropdown */}
@@ -211,7 +220,7 @@ export function AppLayout() {
               >
                 {initials}
               </button>
-              
+
               <AnimatePresence>
                 {showProfileMenu && (
                   <>
