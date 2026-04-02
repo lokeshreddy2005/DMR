@@ -4,7 +4,7 @@ import { useAuth } from '../context/AuthContext';
 import axios from 'axios';
 import API_URL from '../config/api';
 import { Button } from '../components/ui/Button';
-import { FileText, Download, Trash2, Search, Plus, FileUp, MoreVertical, Globe, Lock, Building2, Users, Edit3, Eye, X } from 'lucide-react';
+import { FileText, Download, Trash2, Search, Plus, FileUp, MoreVertical, Globe, Lock, Building2, Users, Edit3, Eye, X, LayoutGrid, List } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import UploadModal from '../components/UploadModal';
 
@@ -23,6 +23,7 @@ export function Workspace({ isPublicOnly = false }) {
     const [isUploadOpen, setIsUploadOpen] = useState(false);
     const [selectedDoc, setSelectedDoc] = useState(null);
     const [toast, setToast] = useState(null);
+    const [viewMode, setViewMode] = useState('grid');
 
     const showToast = (type, message) => {
         setToast({ type, message });
@@ -227,6 +228,22 @@ export function Workspace({ isPublicOnly = false }) {
                             </button>
                         )}
                     </div>
+                    <div className="flex bg-gray-100 dark:bg-gray-800 p-1 rounded-xl flex-shrink-0">
+                        <button
+                            onClick={() => setViewMode('grid')}
+                            className={`p-1.5 rounded-lg transition-all ${viewMode === 'grid' ? 'bg-white dark:bg-gray-900 shadow-sm text-gray-900 dark:text-white' : 'text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'}`}
+                            title="Grid View"
+                        >
+                            <LayoutGrid className="w-4 h-4" />
+                        </button>
+                        <button
+                            onClick={() => setViewMode('list')}
+                            className={`p-1.5 rounded-lg transition-all ${viewMode === 'list' ? 'bg-white dark:bg-gray-900 shadow-sm text-gray-900 dark:text-white' : 'text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'}`}
+                            title="List View"
+                        >
+                            <List className="w-4 h-4" />
+                        </button>
+                    </div>
                     {!isPublicOnly && (
                         <Button onClick={() => setIsUploadOpen(true)} className="flex-shrink-0 shadow-lg shadow-blue-500/20">
                             <FileUp className="w-4 h-4 mr-2" /> Upload
@@ -275,59 +292,116 @@ export function Workspace({ isPublicOnly = false }) {
                             <Button onClick={fetchDocuments}>Retry</Button>
                         </div>
                     ) : displayedDocuments.length > 0 ? (
-                        <motion.div
-                            initial="hidden" animate="visible"
-                            variants={{ visible: { transition: { staggerChildren: 0.05 } } }}
-                            className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-4"
-                        >
-                            {displayedDocuments.map(doc => {
-                                const accessLevel = getAccessLevel(doc);
-                                return (
-                                    <motion.div
-                                        key={doc._id}
-                                        variants={{ hidden: { opacity: 0, y: 10 }, visible: { opacity: 1, y: 0 } }}
-                                        onClick={() => setSelectedDoc(doc._id === selectedDoc?._id ? null : doc)}
-                                        className={`group bg-white dark:bg-gray-900 border rounded-2xl p-5 cursor-pointer transition-all duration-200 hover:shadow-lg hover:-translate-y-1 ${selectedDoc?._id === doc._id
-                                            ? 'border-blue-500 ring-1 ring-blue-500 shadow-md'
-                                            : 'border-gray-200 dark:border-gray-800 shadow-sm'
-                                            }`}
-                                    >
-                                        <div className="flex justify-between items-start mb-4">
-                                            <div className="w-12 h-12 rounded-xl bg-blue-50 dark:bg-blue-500/10 text-blue-600 dark:text-blue-400 flex items-center justify-center flex-shrink-0 group-hover:scale-110 transition-transform">
-                                                <FileText className="w-6 h-6" />
+                        <AnimatePresence mode="wait">
+                            <motion.div
+                                key={viewMode}
+                                initial="hidden" animate="visible" exit="exit"
+                                variants={{
+                                    hidden: { opacity: 0 },
+                                    visible: { opacity: 1, transition: { staggerChildren: 0.05 } },
+                                    exit: { opacity: 0, transition: { duration: 0.15 } }
+                                }}
+                                className={viewMode === 'grid' ? "grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-4" : "flex flex-col gap-2"}
+                            >
+                                {displayedDocuments.map(doc => {
+                                    const accessLevel = getAccessLevel(doc);
+                                    return viewMode === 'grid' ? (
+                                        <motion.div
+                                            key={doc._id}
+                                            variants={{ hidden: { opacity: 0, y: 10 }, visible: { opacity: 1, y: 0 } }}
+                                            onClick={() => setSelectedDoc(doc._id === selectedDoc?._id ? null : doc)}
+                                            className={`group bg-white dark:bg-gray-900 border rounded-2xl p-5 cursor-pointer transition-all duration-200 hover:shadow-lg hover:-translate-y-1 ${selectedDoc?._id === doc._id
+                                                ? 'border-blue-500 ring-1 ring-blue-500 shadow-md'
+                                                : 'border-gray-200 dark:border-gray-800 shadow-sm'
+                                                }`}
+                                        >
+                                            <div className="flex justify-between items-start mb-4">
+                                                <div className="w-12 h-12 rounded-xl bg-blue-50 dark:bg-blue-500/10 text-blue-600 dark:text-blue-400 flex items-center justify-center flex-shrink-0 group-hover:scale-110 transition-transform">
+                                                    <FileText className="w-6 h-6" />
+                                                </div>
+                                                <div className="flex items-center gap-1.5">
+                                                    {accessLevel === 'Write' ? (
+                                                        <span className="flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400 uppercase tracking-wider border border-purple-200 dark:border-purple-800" title="You have Write access">
+                                                            <Edit3 className="w-3 h-3" /> Write
+                                                        </span>
+                                                    ) : (
+                                                        <span className="flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400 uppercase tracking-wider border border-gray-200 dark:border-gray-700" title="Read-only access">
+                                                            <Eye className="w-3 h-3" /> Read
+                                                        </span>
+                                                    )}
+                                                    <button className="text-gray-400 hover:text-gray-900 dark:hover:text-white transition-colors" onClick={e => e.stopPropagation()}>
+                                                        <MoreVertical className="w-4 h-4" />
+                                                    </button>
+                                                </div>
                                             </div>
-                                            <div className="flex items-center gap-1.5">
-                                                {accessLevel === 'Write' ? (
-                                                    <span className="flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400 uppercase tracking-wider border border-purple-200 dark:border-purple-800" title="You have Write access">
-                                                        <Edit3 className="w-3 h-3" /> Write
-                                                    </span>
-                                                ) : (
-                                                    <span className="flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400 uppercase tracking-wider border border-gray-200 dark:border-gray-700" title="Read-only access">
-                                                        <Eye className="w-3 h-3" /> Read
-                                                    </span>
+                                            <h3 className="font-bold text-gray-900 dark:text-white text-sm truncate mb-1" title={doc.fileName}>{doc.fileName}</h3>
+                                            <div className="flex items-center justify-between text-xs text-gray-500 dark:text-gray-400 font-medium">
+                                                <span>{formatSize(doc.fileSize)}</span>
+                                                <span>{new Date(doc.uploadDate).toLocaleDateString()}</span>
+                                            </div>
+                                            {doc.isTagged && doc.metadata?.typeTags?.length > 0 && (
+                                                <div className="mt-3 flex flex-wrap gap-1.5 overflow-hidden max-h-6">
+                                                    {doc.metadata.typeTags.slice(0, 2).map((tag, i) => (
+                                                        <span key={i} className="px-2 py-0.5 rounded-md bg-blue-50 dark:bg-blue-500/10 text-blue-600 dark:text-blue-400 text-[10px] font-bold uppercase tracking-wider truncate">{tag}</span>
+                                                    ))}
+                                                    {doc.metadata.typeTags.length > 2 && <span className="text-[10px] text-gray-400 font-bold">+{doc.metadata.typeTags.length - 2}</span>}
+                                                </div>
+                                            )}
+                                        </motion.div>
+                                    ) : (
+                                        <motion.div
+                                            key={doc._id}
+                                            variants={{ hidden: { opacity: 0, x: -10 }, visible: { opacity: 1, x: 0 } }}
+                                            onClick={() => setSelectedDoc(doc._id === selectedDoc?._id ? null : doc)}
+                                            className={`group bg-white dark:bg-gray-900 border rounded-xl p-3 cursor-pointer transition-all duration-200 hover:shadow-sm flex items-center justify-between ${selectedDoc?._id === doc._id
+                                                ? 'border-blue-500 ring-1 ring-blue-500 shadow-sm'
+                                                : 'border-gray-200 dark:border-gray-800'
+                                                }`}
+                                        >
+                                            <div className="flex items-center gap-4 flex-1 min-w-0">
+                                                <div className="w-10 h-10 rounded-lg bg-blue-50 dark:bg-blue-500/10 text-blue-600 dark:text-blue-400 flex items-center justify-center flex-shrink-0">
+                                                    <FileText className="w-5 h-5" />
+                                                </div>
+                                                <div className="flex flex-col min-w-0 flex-1 pr-4">
+                                                    <h3 className="font-bold text-gray-900 dark:text-white text-sm truncate" title={doc.fileName}>{doc.fileName}</h3>
+                                                    <div className="flex items-center gap-3 text-xs text-gray-500 dark:text-gray-400 mt-1 uppercase tracking-wider font-semibold">
+                                                        <span>{formatSize(doc.fileSize)}</span>
+                                                        <span>•</span>
+                                                        <span>{new Date(doc.uploadDate).toLocaleDateString()}</span>
+                                                    </div>
+                                                </div>
+                                            </div>
+
+                                            <div className="flex items-center gap-4 flex-shrink-0">
+                                                {doc.isTagged && doc.metadata?.typeTags?.length > 0 && (
+                                                    <div className="hidden md:flex flex-wrap gap-1.5 max-w-[200px] overflow-hidden">
+                                                        {doc.metadata.typeTags.slice(0, 1).map((tag, i) => (
+                                                            <span key={i} className="px-2 py-0.5 rounded-md bg-blue-50 dark:bg-blue-500/10 text-blue-600 dark:text-blue-400 text-[10px] font-bold uppercase tracking-wider truncate">{tag}</span>
+                                                        ))}
+                                                        {doc.metadata.typeTags.length > 1 && <span className="text-[10px] text-gray-400 font-bold">+{doc.metadata.typeTags.length - 1}</span>}
+                                                    </div>
                                                 )}
-                                                <button className="text-gray-400 hover:text-gray-900 dark:hover:text-white transition-colors" onClick={e => e.stopPropagation()}>
-                                                    <MoreVertical className="w-4 h-4" />
-                                                </button>
+
+                                                <div className="flex items-center gap-2">
+                                                    {accessLevel === 'Write' ? (
+                                                        <span className="hidden sm:inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400 uppercase tracking-wider border border-purple-200 dark:border-purple-800" title="You have Write access">
+                                                            Editor
+                                                        </span>
+                                                    ) : (
+                                                        <span className="hidden sm:inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400 uppercase tracking-wider border border-gray-200 dark:border-gray-700" title="Read-only access">
+                                                            Read
+                                                        </span>
+                                                    )}
+                                                    <button className="p-1 text-gray-400 hover:text-gray-900 dark:hover:text-white transition-colors rounded hover:bg-gray-100 dark:hover:bg-gray-800" onClick={e => e.stopPropagation()}>
+                                                        <MoreVertical className="w-5 h-5" />
+                                                    </button>
+                                                </div>
                                             </div>
-                                        </div>
-                                        <h3 className="font-bold text-gray-900 dark:text-white text-sm truncate mb-1" title={doc.fileName}>{doc.fileName}</h3>
-                                        <div className="flex items-center justify-between text-xs text-gray-500 dark:text-gray-400 font-medium">
-                                            <span>{formatSize(doc.fileSize)}</span>
-                                            <span>{new Date(doc.uploadDate).toLocaleDateString()}</span>
-                                        </div>
-                                        {doc.isTagged && doc.metadata?.typeTags?.length > 0 && (
-                                            <div className="mt-3 flex flex-wrap gap-1.5 overflow-hidden max-h-6">
-                                                {doc.metadata.typeTags.slice(0, 2).map((tag, i) => (
-                                                    <span key={i} className="px-2 py-0.5 rounded-md bg-blue-50 dark:bg-blue-500/10 text-blue-600 dark:text-blue-400 text-[10px] font-bold uppercase tracking-wider truncate">{tag}</span>
-                                                ))}
-                                                {doc.metadata.typeTags.length > 2 && <span className="text-[10px] text-gray-400 font-bold">+{doc.metadata.typeTags.length - 2}</span>}
-                                            </div>
-                                        )}
-                                    </motion.div>
-                                );
-                            })}
-                        </motion.div>
+                                        </motion.div>
+                                    );
+                                })}
+                            </motion.div>
+                        </AnimatePresence>
                     ) : (
                         <div className="flex flex-col items-center justify-center h-[50vh] text-center max-w-md mx-auto">
                             <div className="w-20 h-20 bg-gray-50 dark:bg-gray-900 rounded-full flex items-center justify-center text-gray-400 mb-6">

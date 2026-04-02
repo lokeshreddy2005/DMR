@@ -22,9 +22,23 @@ export function PublicLayout() {
           <div className="flex items-center gap-4">
             <button
               onClick={toggleTheme}
-              className="p-2.5 rounded-full text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors focus:outline-none"
+              className="relative flex h-8 w-16 items-center rounded-full bg-gray-200 dark:bg-gray-800 transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 dark:focus:ring-offset-gray-900 shadow-inner group"
+              aria-label="Toggle Theme"
             >
-              {isDarkMode ? <Sun className="w-5 h-5" /> : <Moon className="w-5 h-5" />}
+              <div className="absolute inset-0 flex w-full items-center justify-between px-2 text-gray-400 dark:text-gray-500 pointer-events-none">
+                <Sun className="h-4 w-4" />
+                <Moon className="h-4 w-4" />
+              </div>
+              <span
+                className={`absolute left-1 top-1 flex h-6 w-6 transform items-center justify-center rounded-full bg-white dark:bg-gray-950 shadow-sm transition-transform duration-300 ease-in-out ${isDarkMode ? "translate-x-8" : "translate-x-0"
+                  }`}
+              >
+                {isDarkMode ? (
+                  <Moon className="h-3.5 w-3.5 text-blue-400" />
+                ) : (
+                  <Sun className="h-3.5 w-3.5 text-amber-500" />
+                )}
+              </span>
             </button>
             <div className="w-px h-6 bg-gray-200 dark:bg-gray-800 hidden sm:block"></div>
             {isAuthenticated ? (
