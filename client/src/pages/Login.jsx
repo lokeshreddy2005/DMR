@@ -11,7 +11,7 @@ export function Login() {
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState('');
   const [isLoading, setIsLoading] = useState(false);
-  
+
   const { login } = useAuth();
   const navigate = useNavigate();
 
@@ -21,10 +21,10 @@ export function Login() {
       setError('Please fill in all fields');
       return;
     }
-    
+
     setIsLoading(true);
     setError('');
-    
+
     try {
       await login(email, password);
       navigate('/dashboard');
@@ -41,37 +41,37 @@ export function Login() {
         <h2 className="text-3xl font-extrabold text-gray-900 dark:text-white tracking-tight">Welcome back</h2>
         <p className="text-sm text-gray-500 dark:text-gray-400 mt-2">Sign in to your DMR account to manage your files.</p>
       </div>
-      
+
       {error && (
         <div className="mb-6 p-4 bg-red-50 dark:bg-red-500/10 border border-red-200 dark:border-red-500/20 text-red-600 dark:text-red-400 rounded-xl text-sm font-semibold flex items-center gap-2">
-           <svg className="w-5 h-5 flex-shrink-0" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" /></svg>
-           {error}
+          <svg className="w-5 h-5 flex-shrink-0" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" /></svg>
+          {error}
         </div>
       )}
 
       <form onSubmit={handleSubmit} className="space-y-5">
-        <Input 
+        <Input
           label="Email Address"
-          type="email" 
-          placeholder="you@company.com" 
+          type="email"
+          placeholder="you@company.com"
           leftIcon={<Mail className="w-5 h-5" />}
           value={email}
           onChange={(e) => setEmail(e.target.value)}
           required
         />
-        
+
         <div className="relative">
-          <Input 
+          <Input
             label="Password"
-            type={showPassword ? "text" : "password"} 
-            placeholder="••••••••" 
+            type={showPassword ? "text" : "password"}
+            placeholder="••••••••"
             leftIcon={<Lock className="w-5 h-5" />}
             value={password}
             onChange={(e) => setPassword(e.target.value)}
             required
           />
-          <button 
-            type="button" 
+          <button
+            type="button"
             className="absolute right-4 top-[38px] text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 focus:outline-none"
             onClick={() => setShowPassword(!showPassword)}
           >
@@ -85,7 +85,7 @@ export function Login() {
           </Button>
         </div>
       </form>
-      
+
       <div className="mt-8 text-center text-sm font-medium text-gray-600 dark:text-gray-400">
         Don't have an account?{' '}
         <Link to="/signup" className="text-blue-600 dark:text-blue-400 hover:underline font-bold transition-all">
