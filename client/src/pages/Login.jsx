@@ -36,7 +36,7 @@ export function Login() {
   };
 
   return (
-    <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 p-8 sm:p-10 rounded-3xl shadow-xl w-full">
+    <div className="backdrop-blur-2xl bg-white/40 dark:bg-gray-900/40 border border-white/60 dark:border-white/10 shadow-[0_8px_32px_0_rgba(31,38,135,0.1)] dark:shadow-[0_8px_32px_0_rgba(0,0,0,0.37)] p-8 sm:p-10 rounded-3xl w-full relative z-10">
       <div className="text-center mb-8">
         <h2 className="text-3xl font-extrabold text-gray-900 dark:text-white tracking-tight">Welcome back</h2>
         <p className="text-sm text-gray-500 dark:text-gray-400 mt-2">Sign in to your DMR account to manage your files.</p>
