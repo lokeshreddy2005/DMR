@@ -332,15 +332,19 @@ router.get('/stats', async (req, res) => {
     const userOrgs = await Organization.find({ 'members.user': userId }).select('_id');
     const orgIds = userOrgs.map((o) => o._id);
 
-    const [publicCount, privateCount, orgCount] = await Promise.all([
+    const [publicCount, privateCount, orgCount, sharedCount] = await Promise.all([
       Document.countDocuments({ space: 'public' }),
       Document.countDocuments({
         space: 'private',
-        $or: [{ uploadedBy: userId }, { 'permissions.user': userId }],
+        uploadedBy: userId,
       }),
       Document.countDocuments({
         space: 'organization',
         organization: { $in: orgIds },
+      }),
+      Document.countDocuments({
+        uploadedBy: { $ne: userId },
+        'permissions.user': userId
       }),
     ]);
 
@@ -348,8 +352,9 @@ router.get('/stats', async (req, res) => {
       stats: {
         public: { count: publicCount, label: 'Public', icon: '🌐' },
         private: { count: privateCount, label: 'Private', icon: '🔒' },
+        shared: { count: sharedCount, label: 'Shared with Me', icon: '👥' },
         organization: { count: orgCount, label: 'Organizations', icon: '🏢' },
-        total: publicCount + privateCount + orgCount,
+        total: publicCount + privateCount + orgCount + sharedCount,
       },
     });
   } catch (err) {

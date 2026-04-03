@@ -15,7 +15,8 @@ import {
   Settings,
   Menu,
   X,
-  Users
+  Users,
+  FileText
 } from "lucide-react";
 import { useState, useEffect } from "react";
 import axios from "axios";
@@ -44,6 +45,29 @@ export function AppLayout() {
   const [globalResults, setGlobalResults] = useState([]);
   const [showGlobalResults, setShowGlobalResults] = useState(false);
   const [globalSearchLoading, setGlobalSearchLoading] = useState(false);
+  const [previewDoc, setPreviewDoc] = useState(null);
+
+  const formatSizePreview = (bytes) => {
+    if (!bytes) return '0 B';
+    const k = 1024, sizes = ['B', 'KB', 'MB', 'GB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
+  };
+
+  const handleDownloadPreview = async (doc) => {
+    try {
+      const token = localStorage.getItem('dmr_token');
+      const headers = { Authorization: `Bearer ${token}` };
+      const url = doc.space === 'public'
+          ? `${API_URL}/api/public/documents/${doc._id}/download`
+          : `${API_URL}/api/documents/${doc._id}/download`;
+      const res = await axios.get(url, { headers });
+      window.open(res.data.downloadUrl, '_blank');
+    } catch (err) {
+      console.error(err);
+      alert('Download failed.');
+    }
+  };
 
   useEffect(() => {
     if (!globalSearch.trim()) {
@@ -194,7 +218,7 @@ export function AppLayout() {
                     ) : (
                       <div className="max-h-80 overflow-y-auto py-2">
                         {globalResults.map(doc => (
-                          <div key={doc._id} className="px-4 py-3 hover:bg-gray-50 dark:hover:bg-gray-800/50 cursor-pointer flex items-center justify-between group transition-colors" onClick={() => { setShowGlobalResults(false); navigate(`/workspace/${doc.space}`); }}>
+                          <div key={doc._id} className="px-4 py-3 hover:bg-gray-50 dark:hover:bg-gray-800/50 cursor-pointer flex items-center justify-between group transition-colors" onMouseDown={(e) => { e.preventDefault(); setShowGlobalResults(false); setPreviewDoc(doc); setGlobalSearch(''); }}>
                             <div className="flex items-center gap-3">
                               <div className="w-8 h-8 rounded bg-blue-50 dark:bg-blue-900/10 text-blue-500 flex items-center justify-center">📄</div>
                               <div>
@@ -286,6 +310,96 @@ export function AppLayout() {
           <Outlet />
         </main>
       </div>
+
+      {/* Global Document Preview Modal */}
+      <AnimatePresence>
+        {previewDoc && (
+          <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 sm:p-6">
+            <motion.div
+              initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+              onClick={() => setPreviewDoc(null)}
+              className="absolute inset-0 bg-gray-900/60 backdrop-blur-sm cursor-pointer"
+            />
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95, y: 20 }} animate={{ opacity: 1, scale: 1, y: 0 }} exit={{ opacity: 0, scale: 0.95, y: 20 }}
+              className="relative w-full max-w-2xl bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-3xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh]"
+            >
+              {/* Header */}
+              <div className="flex items-start sm:items-center justify-between p-6 border-b border-gray-100 dark:border-gray-800/60 bg-gray-50/50 dark:bg-gray-800/20">
+                <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4">
+                  <div className="w-12 h-12 rounded-xl bg-blue-50 dark:bg-blue-500/10 flex items-center justify-center text-blue-600 dark:text-blue-400 flex-shrink-0">
+                    <FileText className="w-6 h-6" />
+                  </div>
+                  <div>
+                    <h3 className="text-xl font-bold text-gray-900 dark:text-white line-clamp-2 sm:truncate max-w-md">{previewDoc.fileName}</h3>
+                    <div className="flex flex-wrap items-center gap-2 mt-1.5">
+                      <span className="px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider bg-gray-200/60 dark:bg-gray-800 text-gray-700 dark:text-gray-300">
+                          {previewDoc.space} Space
+                      </span>
+                      {previewDoc.organization && (
+                        <span className="px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider bg-purple-100 dark:bg-purple-900/30 text-purple-700 dark:text-purple-400">
+                            {previewDoc.organization.name}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                </div>
+                <button onClick={() => setPreviewDoc(null)} className="flex-shrink-0 p-2 text-gray-400 hover:text-gray-900 dark:hover:text-white rounded-xl hover:bg-gray-200 dark:hover:bg-gray-800 transition-colors ml-4 sm:ml-0">
+                  <X className="w-5 h-5"/>
+                </button>
+              </div>
+
+              {/* Body */}
+              <div className="p-6 overflow-y-auto">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                  {/* Info Column */}
+                  <div className="space-y-6">
+                    <div>
+                      <p className="text-xs font-bold text-gray-400 uppercase tracking-widest mb-1.5">Description</p>
+                      <p className="text-sm text-gray-700 dark:text-gray-300 leading-relaxed font-medium">{previewDoc.description || 'No description provided.'}</p>
+                    </div>
+                    {previewDoc.isTagged && previewDoc.metadata?.typeTags?.length > 0 && (
+                      <div>
+                        <p className="text-xs font-bold text-gray-400 uppercase tracking-widest mb-2">Metadata Tags</p>
+                        <div className="flex flex-wrap gap-1.5">
+                          {previewDoc.metadata.typeTags.map((tag, i) => (
+                            <span key={i} className="px-2 py-1 bg-blue-50 dark:bg-blue-500/10 border border-blue-100 dark:border-blue-500/20 text-blue-600 dark:text-blue-400 rounded-lg text-xs font-bold uppercase tracking-wider">{tag}</span>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Metadata Column */}
+                  <div className="bg-gray-50/50 dark:bg-gray-800/40 rounded-3xl p-6 border border-gray-100 dark:border-gray-800/60 space-y-4">
+                    {[
+                      { label: 'Uploader', value: previewDoc.uploadedBy?.name || 'Unknown' },
+                      { label: 'Upload Date', value: new Date(previewDoc.uploadDate).toLocaleDateString() },
+                      { label: 'File Size', value: formatSizePreview(previewDoc.fileSize) },
+                      { label: 'File Type', value: previewDoc.mimeType },
+                    ].map(item => (
+                      <div key={item.label} className="flex justify-between items-center py-1">
+                        <span className="text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-widest">{item.label}</span>
+                        <span className="text-sm font-semibold text-gray-900 dark:text-white truncate max-w-[140px]">{item.value}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+
+              {/* Footer */}
+              <div className="p-6 border-t border-gray-100 dark:border-gray-800/60 bg-gray-50/50 dark:bg-gray-800/20 flex flex-col sm:flex-row justify-end gap-3 sm:gap-4">
+                <Button className="w-full sm:w-auto bg-gray-200 text-gray-800 hover:bg-gray-300 border-none shadow-none dark:bg-gray-800 dark:text-white dark:hover:bg-gray-700" onClick={() => { setPreviewDoc(null); navigate(`/workspace/${previewDoc.space}`); }}>
+                  Go to Workspace
+                </Button>
+                <Button className="w-full sm:w-auto border-none shadow-lg shadow-blue-500/20" onClick={() => handleDownloadPreview(previewDoc)}>
+                  Download Document
+                </Button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }

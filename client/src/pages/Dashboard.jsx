@@ -6,7 +6,7 @@ import axios from 'axios';
 import { motion } from 'framer-motion';
 import { CircularProgress, getStorageHeaderColor, getWarningMessage } from '../components/ui/CircularProgress';
 import { Button } from '../components/ui/Button';
-import { FileUp, FileText, Globe, Lock, Building2, ArrowRight } from 'lucide-react';
+import { FileUp, FileText, Globe, Lock, Building2, ArrowRight, Users } from 'lucide-react';
 import UploadModal from '../components/UploadModal';
 
 const formatSize = (bytes) => {
@@ -81,15 +81,23 @@ export function Dashboard() {
             </div>
 
             {/* Quick Stats overview */}
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 sm:gap-6">
+            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4 sm:gap-6">
                 {[
-                    { label: "Total Files", count: stats.total || 0, icon: FileText, color: "text-blue-500", bg: "bg-blue-50 dark:bg-blue-500/10" },
-                    { label: "Public Files", count: stats.public?.count || 0, icon: Globe, color: "text-emerald-500", bg: "bg-emerald-50 dark:bg-emerald-500/10" },
-                    { label: "Private Files", count: stats.private?.count || 0, icon: Lock, color: "text-indigo-500", bg: "bg-indigo-50 dark:bg-indigo-500/10" },
-                    { label: "Team Files", count: stats.organization?.count || 0, icon: Building2, color: "text-purple-500", bg: "bg-purple-50 dark:bg-purple-500/10" }
+                    { label: "Total Files", count: stats.total || 0, icon: FileText, color: "text-blue-500", bg: "bg-blue-50 dark:bg-blue-500/10", path: null },
+                    { label: "Public Files", count: stats.public?.count || 0, icon: Globe, color: "text-emerald-500", bg: "bg-emerald-50 dark:bg-emerald-500/10", path: "/workspace/public" },
+                    { label: "Private Files", count: stats.private?.count || 0, icon: Lock, color: "text-indigo-500", bg: "bg-indigo-50 dark:bg-indigo-500/10", path: "/workspace/private" },
+                    { label: "Shared Files", count: stats.shared?.count || 0, icon: Users, color: "text-orange-500", bg: "bg-orange-50 dark:bg-orange-500/10", path: "/workspace/shared" },
+                    { label: "Team Files", count: stats.organization?.count || 0, icon: Building2, color: "text-purple-500", bg: "bg-purple-50 dark:bg-purple-500/10", path: "/workspace/organization" }
                 ].map((stat, i) => (
-                    <motion.div key={i} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.05 }} className="bg-white dark:bg-gray-900 rounded-3xl p-5 border border-gray-200 dark:border-gray-800 shadow-sm flex items-center gap-4">
-                        <div className={`w-12 h-12 rounded-xl flex items-center justify-center ${stat.bg}`}>
+                    <motion.div 
+                        key={i} 
+                        initial={{ opacity: 0, y: 10 }} 
+                        animate={{ opacity: 1, y: 0 }} 
+                        transition={{ delay: i * 0.05 }} 
+                        onClick={() => stat.path && navigate(stat.path)}
+                        className={`bg-white dark:bg-gray-900 rounded-3xl p-5 border border-gray-200 dark:border-gray-800 shadow-sm flex items-center gap-4 ${stat.path ? 'cursor-pointer hover:shadow-md hover:border-blue-500/50 transition-all group' : ''}`}
+                    >
+                        <div className={`w-12 h-12 rounded-xl flex items-center justify-center transition-transform ${stat.path ? 'group-hover:scale-110' : ''} ${stat.bg}`}>
                             <stat.icon className={`w-6 h-6 ${stat.color}`} />
                         </div>
                         <div>
