@@ -16,7 +16,8 @@ import {
   Menu,
   X,
   Users,
-  FileText
+  FileText,
+  ChevronLeft
 } from "lucide-react";
 import { useState, useEffect } from "react";
 import axios from "axios";
@@ -38,6 +39,7 @@ export function AppLayout() {
   const location = useLocation();
   const navigate = useNavigate();
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
   const [showProfileMenu, setShowProfileMenu] = useState(false);
 
   // Global Search State
@@ -59,8 +61,8 @@ export function AppLayout() {
       const token = localStorage.getItem('dmr_token');
       const headers = { Authorization: `Bearer ${token}` };
       const url = doc.space === 'public'
-          ? `${API_URL}/api/public/documents/${doc._id}/download`
-          : `${API_URL}/api/documents/${doc._id}/download`;
+        ? `${API_URL}/api/public/documents/${doc._id}/download`
+        : `${API_URL}/api/documents/${doc._id}/download`;
       const res = await axios.get(url, { headers });
       window.open(res.data.downloadUrl, '_blank');
     } catch (err) {
@@ -114,52 +116,61 @@ export function AppLayout() {
 
       {/* Sidebar Navigation */}
       <aside className={cn(
-        "fixed lg:static inset-y-0 left-0 z-50 w-72 bg-white dark:bg-gray-900 border-r border-gray-200 dark:border-gray-800 transform transition-transform duration-300 ease-in-out lg:transform-none flex flex-col",
-        isSidebarOpen ? "translate-x-0" : "-translate-x-full"
+        "fixed lg:static inset-y-0 left-0 z-50 bg-white dark:bg-gray-900 border-r border-gray-200 dark:border-gray-800 transition-all duration-300 ease-in-out flex flex-col overflow-hidden",
+        isSidebarOpen ? "translate-x-0 w-72" : "-translate-x-full lg:translate-x-0",
+        isSidebarCollapsed ? "lg:w-20" : "lg:w-72"
       )}>
         {/* Sidebar Header */}
-        <div className="h-16 flex items-center justify-between px-6 border-b border-gray-200 dark:border-gray-800">
-          <Link to="/dashboard" className="flex items-center gap-3">
-            <div className="w-8 h-8 rounded-lg bg-gradient-to-tr from-blue-600 to-indigo-500 flex items-center justify-center text-white shadow-md">
+        <div className="h-16 flex flex-shrink-0 items-center justify-between px-6 border-b border-gray-200 dark:border-gray-800">
+          <Link to="/dashboard" className="flex items-center gap-3 min-w-max">
+            <div className="w-8 h-8 rounded-lg bg-gradient-to-tr from-blue-600 to-indigo-500 flex items-center justify-center text-white shadow-md flex-shrink-0">
               <FolderClosed className="w-4 h-4" />
             </div>
-            <span className="text-xl font-bold tracking-tight text-gray-900 dark:text-white">DMR</span>
+            <span className={cn("text-xl font-bold tracking-tight text-gray-900 dark:text-white transition-opacity duration-300", isSidebarCollapsed ? "lg:opacity-0 lg:hidden" : "opacity-100")}>
+              DMR
+            </span>
           </Link>
-          <button className="lg:hidden p-2 text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg" onClick={() => setIsSidebarOpen(false)}>
+          <button className="lg:hidden p-2 text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg flex-shrink-0" onClick={() => setIsSidebarOpen(false)}>
             <X className="w-5 h-5" />
           </button>
         </div>
 
         {/* Navigation Links */}
-        <nav className="flex-1 px-4 py-6 space-y-1 overflow-y-auto">
+        <nav className="flex-1 px-4 py-6 space-y-1 overflow-y-auto overflow-x-hidden">
           {SIDEBAR_LINKS.map((link) => {
             const isActive = location.pathname.startsWith(link.href) && (link.href !== '/dashboard' || location.pathname === '/dashboard');
             return (
               <Link
                 key={link.name}
                 to={link.href}
+                title={isSidebarCollapsed ? link.name : undefined}
                 className={cn(
-                  "flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-semibold transition-all",
+                  "flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-semibold transition-all whitespace-nowrap overflow-hidden",
                   isActive
                     ? "bg-blue-50 dark:bg-blue-500/10 text-blue-700 dark:text-blue-400"
-                    : "text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800/80 hover:text-gray-900 dark:hover:text-gray-200"
+                    : "text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800/80 hover:text-gray-900 dark:hover:text-gray-200",
+                  isSidebarCollapsed && "lg:px-0 lg:justify-center"
                 )}
               >
-                <link.icon className={cn("w-5 h-5", isActive ? "text-blue-600 dark:text-blue-400" : "text-gray-400")} />
-                {link.name}
+                <link.icon className={cn("w-5 h-5 flex-shrink-0", isActive ? "text-blue-600 dark:text-blue-400" : "text-gray-400")} />
+                <span className={cn("transition-opacity duration-300", isSidebarCollapsed ? "lg:opacity-0 lg:w-0" : "opacity-100")}>{link.name}</span>
               </Link>
             );
           })}
         </nav>
 
         {/* Sidebar Footer */}
-        <div className="p-4 border-t border-gray-200 dark:border-gray-800">
+        <div className="p-4 border-t border-gray-200 dark:border-gray-800 overflow-hidden">
           <Link
             to="/profile"
-            className="flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-semibold text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors"
+            title={isSidebarCollapsed ? "Settings" : undefined}
+            className={cn(
+              "flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-semibold text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors whitespace-nowrap",
+              isSidebarCollapsed && "lg:px-0 lg:justify-center"
+            )}
           >
-            <Settings className="w-5 h-5 text-gray-400" />
-            Settings
+            <Settings className="w-5 h-5 text-gray-400 flex-shrink-0" />
+            <span className={cn("transition-opacity duration-300", isSidebarCollapsed ? "lg:opacity-0 lg:w-0" : "opacity-100")}>Settings</span>
           </Link>
         </div>
       </aside>
@@ -168,11 +179,21 @@ export function AppLayout() {
       <div className="flex-1 flex flex-col min-w-0 h-screen overflow-hidden">
 
         {/* Top Navbar */}
-        <header className="h-16 flex-shrink-0 bg-white/70 dark:bg-gray-900/70 backdrop-blur-xl border-b border-gray-200 dark:border-gray-800 flex items-center justify-between px-4 sm:px-6 lg:px-8 z-30">
+        <header className="h-16 flex-shrink-0 bg-white/70 dark:bg-gray-900/70 backdrop-blur-xl border-b border-gray-200 dark:border-gray-800 flex items-center justify-between px-4 sm:px-6 lg:px-8 z-30 transition-all duration-300">
           <div className="flex items-center gap-4 flex-1">
-            <button className="lg:hidden p-2 -ml-2 text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg transition-colors" onClick={() => setIsSidebarOpen(true)}>
+            {/* Mobile Menu Toggle */}
+            <button className="lg:hidden p-2 -ml-2 text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg transition-colors flex-shrink-0" onClick={() => setIsSidebarOpen(true)}>
               <Menu className="w-5 h-5" />
             </button>
+            {/* Desktop Sidebar Toggle */}
+            <button
+              className="hidden lg:flex p-2 -ml-2 text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg transition-colors flex-shrink-0"
+              onClick={() => setIsSidebarCollapsed(!isSidebarCollapsed)}
+              title={isSidebarCollapsed ? "Expand Sidebar" : "Collapse Sidebar"}
+            >
+              {isSidebarCollapsed ? <Menu className="w-5 h-5" /> : <ChevronLeft className="w-5 h-5" />}
+            </button>
+
             {/* Global Search */}
             <div className="hidden sm:flex max-w-md w-full relative group z-50">
               <Search className={`absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 ${globalSearchLoading ? 'text-blue-500 animate-pulse' : 'text-gray-400'} group-focus-within:text-blue-500 transition-colors z-10`} />
@@ -204,38 +225,38 @@ export function AppLayout() {
                 </button>
               )}
               {showGlobalResults && (globalSearch || globalResults.length > 0) && (
-                  <motion.div
-                    initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}
-                    className="absolute top-12 left-0 w-full bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-2xl shadow-xl overflow-hidden z-20"
-                  >
-                    {globalSearchLoading ? (
-                      <div className="p-4 text-sm text-gray-500 text-center flex items-center justify-center gap-2">
-                        <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none"></circle><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
-                        Searching...
-                      </div>
-                    ) : globalResults.length === 0 && globalSearch ? (
-                      <div className="p-4 text-sm text-gray-500 text-center">No results found for "{globalSearch}"</div>
-                    ) : (
-                      <div className="max-h-80 overflow-y-auto py-2">
-                        {globalResults.map(doc => (
-                          <div key={doc._id} className="px-4 py-3 hover:bg-gray-50 dark:hover:bg-gray-800/50 cursor-pointer flex items-center justify-between group transition-colors" onMouseDown={(e) => { e.preventDefault(); setShowGlobalResults(false); setPreviewDoc(doc); setGlobalSearch(''); }}>
-                            <div className="flex items-center gap-3">
-                              <div className="w-8 h-8 rounded bg-blue-50 dark:bg-blue-900/10 text-blue-500 flex items-center justify-center">📄</div>
-                              <div>
-                                <p className="text-sm font-bold text-gray-900 dark:text-white truncate">{doc.fileName}</p>
-                                <p className="text-xs text-gray-500 mt-1">
-                                  <span className="px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider bg-gray-200/60 dark:bg-gray-800 text-gray-700 dark:text-gray-300">
-                                      {doc.space}
-                                  </span>
-                                </p>
-                              </div>
+                <motion.div
+                  initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}
+                  className="absolute top-12 left-0 w-full bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-2xl shadow-xl overflow-hidden z-20"
+                >
+                  {globalSearchLoading ? (
+                    <div className="p-4 text-sm text-gray-500 text-center flex items-center justify-center gap-2">
+                      <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none"></circle><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
+                      Searching...
+                    </div>
+                  ) : globalResults.length === 0 && globalSearch ? (
+                    <div className="p-4 text-sm text-gray-500 text-center">No results found for "{globalSearch}"</div>
+                  ) : (
+                    <div className="max-h-80 overflow-y-auto py-2">
+                      {globalResults.map(doc => (
+                        <div key={doc._id} className="px-4 py-3 hover:bg-gray-50 dark:hover:bg-gray-800/50 cursor-pointer flex items-center justify-between group transition-colors" onMouseDown={(e) => { e.preventDefault(); setShowGlobalResults(false); setPreviewDoc(doc); setGlobalSearch(''); }}>
+                          <div className="flex items-center gap-3">
+                            <div className="w-8 h-8 rounded bg-blue-50 dark:bg-blue-900/10 text-blue-500 flex items-center justify-center">📄</div>
+                            <div>
+                              <p className="text-sm font-bold text-gray-900 dark:text-white truncate">{doc.fileName}</p>
+                              <p className="text-xs text-gray-500 mt-1">
+                                <span className="px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider bg-gray-200/60 dark:bg-gray-800 text-gray-700 dark:text-gray-300">
+                                  {doc.space}
+                                </span>
+                              </p>
                             </div>
-                            {doc.space === 'public' && doc.metadata?.typeTags?.length > 0 && <span className="text-[10px] uppercase font-bold text-gray-400 group-hover:text-blue-500">{doc.metadata.typeTags[0]}</span>}
                           </div>
-                        ))}
-                      </div>
-                    )}
-                  </motion.div>
+                          {doc.space === 'public' && doc.metadata?.typeTags?.length > 0 && <span className="text-[10px] uppercase font-bold text-gray-400 group-hover:text-blue-500">{doc.metadata.typeTags[0]}</span>}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </motion.div>
               )}
             </div>
           </div>
@@ -334,18 +355,18 @@ export function AppLayout() {
                     <h3 className="text-xl font-bold text-gray-900 dark:text-white line-clamp-2 sm:truncate max-w-md">{previewDoc.fileName}</h3>
                     <div className="flex flex-wrap items-center gap-2 mt-1.5">
                       <span className="px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider bg-gray-200/60 dark:bg-gray-800 text-gray-700 dark:text-gray-300">
-                          {previewDoc.space} Space
+                        {previewDoc.space} Space
                       </span>
                       {previewDoc.organization && (
                         <span className="px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider bg-purple-100 dark:bg-purple-900/30 text-purple-700 dark:text-purple-400">
-                            {previewDoc.organization.name}
+                          {previewDoc.organization.name}
                         </span>
                       )}
                     </div>
                   </div>
                 </div>
                 <button onClick={() => setPreviewDoc(null)} className="flex-shrink-0 p-2 text-gray-400 hover:text-gray-900 dark:hover:text-white rounded-xl hover:bg-gray-200 dark:hover:bg-gray-800 transition-colors ml-4 sm:ml-0">
-                  <X className="w-5 h-5"/>
+                  <X className="w-5 h-5" />
                 </button>
               </div>
 

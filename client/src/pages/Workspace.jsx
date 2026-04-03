@@ -410,7 +410,14 @@ export function Workspace({ isPublicOnly = false, isSearchPage = false }) {
                                                             <Eye className="w-3 h-3" /> Read
                                                         </span>
                                                     )}
-                                                    <button className="text-gray-400 hover:text-gray-900 dark:hover:text-white transition-colors" onClick={e => e.stopPropagation()}>
+                                                    <button 
+                                                        className="text-gray-400 hover:text-gray-900 dark:hover:text-white transition-colors" 
+                                                        onClick={(e) => { 
+                                                            e.stopPropagation(); 
+                                                            setSelectedDoc(doc._id === selectedDoc?._id ? null : doc); 
+                                                        }}
+                                                        title="More actions"
+                                                    >
                                                         <MoreVertical className="w-4 h-4" />
                                                     </button>
                                                 </div>
@@ -478,7 +485,14 @@ export function Workspace({ isPublicOnly = false, isSearchPage = false }) {
                                                             Read
                                                         </span>
                                                     )}
-                                                    <button className="p-1 text-gray-400 hover:text-gray-900 dark:hover:text-white transition-colors rounded hover:bg-gray-100 dark:hover:bg-gray-800" onClick={e => e.stopPropagation()}>
+                                                    <button 
+                                                        className="p-1 text-gray-400 hover:text-gray-900 dark:hover:text-white transition-colors rounded hover:bg-gray-100 dark:hover:bg-gray-800" 
+                                                        onClick={(e) => { 
+                                                            e.stopPropagation(); 
+                                                            setSelectedDoc(doc._id === selectedDoc?._id ? null : doc); 
+                                                        }}
+                                                        title="More actions"
+                                                    >
                                                         <MoreVertical className="w-5 h-5" />
                                                     </button>
                                                 </div>
