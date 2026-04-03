@@ -78,6 +78,10 @@ const documentSchema = new mongoose.Schema({
     type: Boolean,
     default: false,
   },
+  isAITagged: {
+    type: Boolean,
+    default: false,
+  },
   // Permissions
   permissions: [permissionSchema],
   uploadDate: {

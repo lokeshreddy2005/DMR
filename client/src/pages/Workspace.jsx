@@ -28,6 +28,14 @@ export function Workspace({ isPublicOnly = false, isSearchPage = false }) {
     const [toast, setToast] = useState(null);
     const [viewMode, setViewMode] = useState('grid');
     const [currentPage, setCurrentPage] = useState(1);
+    
+    // Tagging & Moving state
+    const [tagInput, setTagInput] = useState('');
+    const [isMoving, setIsMoving] = useState(false);
+    const [moveSpace, setMoveSpace] = useState('public');
+    const [moveOrg, setMoveOrg] = useState('');
+    const [moveAutoTag, setMoveAutoTag] = useState(false);
+    const [isTaggingAI, setIsTaggingAI] = useState(false);
 
     useEffect(() => {
         setCurrentPage(1);
@@ -130,6 +138,7 @@ export function Workspace({ isPublicOnly = false, isSearchPage = false }) {
         }
         setDocuments([]);
         setSelectedDoc(null);
+        setIsMoving(false);
         if (!isPublicOnly && activeSpace === 'organization') {
             fetchOrgs();
         } else {
@@ -199,15 +208,60 @@ export function Workspace({ isPublicOnly = false, isSearchPage = false }) {
         } catch (err) { showToast('error', err.response?.data?.error || 'Delete failed.'); }
     };
 
-    const handleMakePublic = async (docId) => {
-        if (!confirm('Make this document public?')) return;
+    const handleMoveSpaceSubmit = async () => {
+        if (!moveSpace) return;
+        if (moveSpace === 'organization' && !moveOrg) return;
+
         try {
             const headers = getAuthHeaders();
-            const res = await axios.put(`${API_URL}/api/documents/${docId}/make-public`, {}, { headers });
-            showToast('success', res.data.message || 'Document is now public!');
+            const payload = { targetSpace: moveSpace, organizationId: moveOrg, autoTag: moveAutoTag };
+            const res = await axios.put(`${API_URL}/api/documents/${selectedDoc._id}/change-space`, payload, { headers });
+            showToast('success', res.data.message || 'Document moved successfully!');
             fetchDocuments();
             setSelectedDoc(null);
-        } catch (err) { showToast('error', err.response?.data?.error || 'Failed to make public.'); }
+            setIsMoving(false);
+        } catch (err) { showToast('error', err.response?.data?.error || 'Failed to move document.'); }
+    };
+
+    const handleAddTag = async (e) => {
+        if (e.key !== 'Enter' || !tagInput.trim() || !selectedDoc) return;
+        e.preventDefault();
+        const currentTags = selectedDoc.tags || [];
+        const newTag = tagInput.trim();
+        if (currentTags.includes(newTag)) return setTagInput('');
+        try {
+            const newTags = [...currentTags, newTag];
+            const headers = getAuthHeaders();
+            const res = await axios.put(`${API_URL}/api/documents/${selectedDoc._id}/tags`, { tags: newTags }, { headers });
+            setSelectedDoc(res.data.document);
+            setDocuments(docs => docs.map(d => d._id === res.data.document._id ? res.data.document : d));
+            setTagInput('');
+        } catch (err) { showToast('error', 'Failed to add tag.'); }
+    };
+
+    const handleRemoveTag = async (tagToRemove) => {
+        if (!selectedDoc) return;
+        try {
+            const newTags = selectedDoc.tags.filter(t => t !== tagToRemove);
+            const headers = getAuthHeaders();
+            const res = await axios.put(`${API_URL}/api/documents/${selectedDoc._id}/tags`, { tags: newTags }, { headers });
+            setSelectedDoc(res.data.document);
+            setDocuments(docs => docs.map(d => d._id === res.data.document._id ? res.data.document : d));
+        } catch (err) { showToast('error', 'Failed to remove tag.'); }
+    };
+
+    const handleAITag = async () => {
+        if (!selectedDoc) return;
+        setIsTaggingAI(true);
+        try {
+            const headers = getAuthHeaders();
+            const res = await axios.post(`${API_URL}/api/documents/${selectedDoc._id}/tags/ai`, {}, { headers });
+            setSelectedDoc(res.data.document);
+            setDocuments(docs => docs.map(d => d._id === res.data.document._id ? res.data.document : d));
+            showToast('success', 'AI Auto-tagging complete!');
+        } catch (err) { showToast('error', 'AI Tagging failed.'); } finally {
+            setIsTaggingAI(false);
+        }
     };
 
     const formatSize = (bytes) => {
@@ -562,31 +616,90 @@ export function Workspace({ isPublicOnly = false, isSearchPage = false }) {
                                         ))}
                                     </div>
 
-                                    {selectedDoc.tags?.length > 0 && (
+                                    <div className="space-y-4 pt-2">
                                         <div>
-                                            <p className="text-xs font-bold text-gray-400 uppercase tracking-widest mb-2">Tags</p>
-                                            <div className="flex flex-wrap gap-1.5">
-                                                {selectedDoc.tags.map((t, i) => (
-                                                    <span key={i} className="px-2 py-0.5 bg-gray-100 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-md text-[10px] uppercase font-bold text-gray-600 dark:text-gray-300">{t}</span>
-                                                ))}
+                                            <div className="flex items-center justify-between mb-2">
+                                                <p className="text-xs font-bold text-gray-400 uppercase tracking-widest">Tags</p>
+                                                {selectedDoc.isAITagged && (
+                                                    <span className="text-[10px] font-bold text-purple-600 bg-purple-100 dark:bg-purple-900/30 dark:text-purple-400 px-1.5 py-0.5 rounded uppercase tracking-wider">AI Tagged</span>
+                                                )}
                                             </div>
+                                            {(selectedDoc.tags?.length > 0) ? (
+                                                <div className="flex flex-wrap gap-1.5 mb-3">
+                                                    {selectedDoc.tags.map((t, i) => (
+                                                        <span key={i} className="flex items-center gap-1.5 px-2 py-1 bg-blue-50 dark:bg-blue-500/10 border border-blue-200 dark:border-blue-800/50 rounded-md text-[11px] font-bold text-blue-600 dark:text-blue-400 group">
+                                                            {t}
+                                                            {getAccessLevel(selectedDoc) === 'Write' && (
+                                                                <button type="button" onClick={() => handleRemoveTag(t)} className="opacity-50 hover:opacity-100 hover:text-blue-800 dark:hover:text-blue-200 transition-opacity">
+                                                                    <X className="w-3 h-3" />
+                                                                </button>
+                                                            )}
+                                                        </span>
+                                                    ))}
+                                                </div>
+                                            ) : (
+                                                <p className="text-xs text-gray-500 italic mb-3">No tags added yet.</p>
+                                            )}
+                                            {getAccessLevel(selectedDoc) === 'Write' && (
+                                                <input
+                                                    type="text"
+                                                    value={tagInput}
+                                                    onChange={e => setTagInput(e.target.value)}
+                                                    onKeyDown={handleAddTag}
+                                                    placeholder="Type tag & Enter..."
+                                                    className="w-full text-xs px-3 py-2 bg-gray-50 dark:bg-gray-800/80 border border-gray-200 dark:border-gray-700 rounded-lg focus:outline-none focus:ring-1 focus:ring-blue-500 text-gray-900 dark:text-white"
+                                                />
+                                            )}
                                         </div>
-                                    )}
+                                        {getAccessLevel(selectedDoc) === 'Write' && (
+                                            <button 
+                                                onClick={handleAITag} 
+                                                disabled={isTaggingAI}
+                                                className="w-full flex items-center justify-center gap-2 text-xs font-bold py-2 bg-purple-50 hover:bg-purple-100 text-purple-600 dark:bg-purple-900/20 dark:hover:bg-purple-900/40 dark:text-purple-400 rounded-lg transition-colors border border-purple-100 dark:border-purple-800/50 shadow-sm"
+                                            >
+                                                {isTaggingAI ? <span className="animate-pulse flex items-center gap-2"><div className="w-3 h-3 border-2 border-purple-500 border-t-transparent rounded-full animate-spin"></div> Analyzing...</span> : <>✨ Auto-tag with AI</>}
+                                            </button>
+                                        )}
+                                    </div>
                                 </div>
 
                                 <div className="p-4 border-t border-gray-100 dark:border-gray-800 bg-gray-50/50 dark:bg-gray-900/50 flex flex-col gap-2">
-                                    <Button className="w-full" onClick={() => handleDownload(selectedDoc)}>
+                                    <Button className="w-full shadow-sm" onClick={() => handleDownload(selectedDoc)}>
                                         <Download className="w-4 h-4 mr-2" /> Download
                                     </Button>
-                                    {!isPublicOnly && activeSpace !== 'public' && getAccessLevel(selectedDoc) === 'Write' && (
+                                    {!isPublicOnly && getAccessLevel(selectedDoc) === 'Write' && (
                                         <>
-                                            <Button
-                                                className="w-full bg-emerald-50 text-emerald-600 hover:bg-emerald-100 dark:bg-emerald-900/20 dark:text-emerald-400 shadow-none border border-emerald-200 dark:border-emerald-800/50"
-                                                onClick={() => handleMakePublic(selectedDoc._id)}
-                                            >
-                                                <Globe className="w-4 h-4 mr-2" /> Make Public
-                                            </Button>
-                                            <Button variant="danger" className="w-full" onClick={() => handleDelete(selectedDoc._id)}>
+                                            {!isMoving ? (
+                                                <Button
+                                                    className="w-full bg-emerald-50 text-emerald-600 hover:bg-emerald-100 dark:bg-emerald-900/20 dark:text-emerald-400 shadow-sm border border-emerald-200 dark:border-emerald-800/50 transition-colors"
+                                                    onClick={() => setIsMoving(true)}
+                                                >
+                                                    <Globe className="w-4 h-4 mr-2" /> Move Document
+                                                </Button>
+                                            ) : (
+                                                <div className="p-3 bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 shadow-md space-y-3 animate-fade-in-up">
+                                                    <div className="flex justify-between items-center mb-1">
+                                                        <span className="text-xs font-bold uppercase tracking-wider text-gray-500 dark:text-gray-400">Move To</span>
+                                                        <button onClick={() => setIsMoving(false)} className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 bg-gray-100 hover:bg-gray-200 dark:bg-gray-700 dark:hover:bg-gray-600 rounded p-1 transition-colors"><X className="w-3 h-3"/></button>
+                                                    </div>
+                                                    <select value={moveSpace} onChange={e => setMoveSpace(e.target.value)} className="w-full text-sm p-2 rounded-lg bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-700 outline-none focus:ring-2 focus:ring-blue-500">
+                                                        <option value="public">Public Space</option>
+                                                        {orgs.length > 0 && <option value="organization">Organization Space</option>}
+                                                    </select>
+                                                    {moveSpace === 'organization' && (
+                                                        <select value={moveOrg} onChange={e => setMoveOrg(e.target.value)} className="w-full text-sm p-2 rounded-lg bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-700 outline-none focus:ring-2 focus:ring-blue-500">
+                                                            <option value="">Select Organization...</option>
+                                                            {orgs.map(o => <option key={o._id} value={o._id}>{o.name}</option>)}
+                                                        </select>
+                                                    )}
+                                                    <label className="flex items-center gap-2 text-xs font-medium text-gray-700 dark:text-gray-300 cursor-pointer pt-1">
+                                                        <input type="checkbox" checked={moveAutoTag} onChange={e => setMoveAutoTag(e.target.checked)} className="rounded text-blue-600 border-gray-300 dark:border-gray-600 dark:bg-gray-700" />
+                                                        Run AI Auto-tagging
+                                                    </label>
+                                                    <Button className="w-full py-2 text-xs mt-1" onClick={handleMoveSpaceSubmit}>Confirm Move</Button>
+                                                </div>
+                                            )}
+                                            <Button variant="danger" className="w-full shadow-sm" onClick={() => handleDelete(selectedDoc._id)}>
                                                 <Trash2 className="w-4 h-4 mr-2" /> Delete
                                             </Button>
                                         </>

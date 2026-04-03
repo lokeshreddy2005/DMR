@@ -45,7 +45,7 @@ router.post('/upload', upload.single('document'), async (req, res) => {
       return res.status(400).json({ error: 'No file uploaded.' });
     }
 
-    const { space, organizationId, description } = req.body;
+    const { space, organizationId, description, autoTag, manualTags } = req.body;
 
     if (!space || !['public', 'private', 'organization'].includes(space)) {
       cleanupFile(req.file.path);
@@ -110,14 +110,28 @@ router.post('/upload', upload.single('document'), async (req, res) => {
       permissions: [{ user: req.user._id, level: 'owner' }],
     });
 
-    // Auto-tag if public
-    if (space === 'public') {
+    // Handle Initial Manual Tags
+    let initialTags = [];
+    try {
+      if (manualTags) {
+        initialTags = JSON.parse(manualTags);
+      }
+    } catch (e) {}
+    
+    if (initialTags.length > 0) {
+      doc.tags = initialTags;
+      doc.isTagged = true;
+    }
+
+    // Auto-tag if requested
+    if (autoTag === 'true' || autoTag === true) {
       try {
         console.log(`🏷️  Auto-tagging "${req.file.originalname}"...`);
         const tagResult = await autoTagDocument(fileBuffer, req.file.mimetype, req.file.originalname);
-        doc.tags = tagResult.tags;
+        doc.tags = [...new Set([...initialTags, ...tagResult.tags])];
         doc.metadata = tagResult.metadata;
-        doc.isTagged = true;
+        doc.isTagged = doc.tags.length > 0;
+        doc.isAITagged = true;
         console.log(`✅ Tagged with ${tagResult.tags.length} keywords`);
       } catch (tagErr) {
         console.error('Auto-tag warning (non-blocking):', tagErr.message);
@@ -141,56 +155,143 @@ router.post('/upload', upload.single('document'), async (req, res) => {
 });
 
 /**
- * PUT /api/documents/:id/make-public
- * Convert a private document to public, triggering auto-tagging.
+ * PUT /api/documents/:id/change-space
+ * Move a document between spaces (e.g. private -> public or org), triggering auto-tagging optionally.
  */
-router.put('/:id/make-public', async (req, res) => {
+router.put('/:id/change-space', async (req, res) => {
   try {
     const doc = await Document.findById(req.params.id);
     if (!doc) return res.status(404).json({ error: 'Document not found.' });
 
     if (!doc.isOwner(req.user._id)) {
-      return res.status(403).json({ error: 'Only the owner can change document visibility.' });
+      return res.status(403).json({ error: 'Only the owner can change document space.' });
     }
 
-    if (doc.space === 'public') {
-      return res.status(400).json({ error: 'Document is already public.' });
-    }
+    const { targetSpace, organizationId, autoTag } = req.body;
 
-    // Check public quota
-    const quota = await checkQuota('public', req.user._id, null, doc.fileSize);
-    if (!quota.allowed) {
-      return res.status(413).json({ error: 'Public storage quota exceeded.' });
+    if (targetSpace === 'public') {
+      if (doc.space === 'public') {
+        return res.status(400).json({ error: 'Document is already public.' });
+      }
+      const quota = await checkQuota('public', req.user._id, null, doc.fileSize);
+      if (!quota.allowed) {
+        return res.status(413).json({ error: 'Public storage quota exceeded.' });
+      }
+      doc.space = 'public';
+      doc.organization = null;
+    } else if (targetSpace === 'organization') {
+      if (!organizationId) {
+        return res.status(400).json({ error: 'Organization ID is required.' });
+      }
+      const org = await Organization.findById(organizationId);
+      if (!org || !org.isMember(req.user._id)) {
+        return res.status(403).json({ error: 'You are not a member of this organization.' });
+      }
+      const quota = await checkQuota('organization', req.user._id, organizationId, doc.fileSize);
+      if (!quota.allowed) {
+        return res.status(413).json({ error: 'Organization storage quota exceeded.' });
+      }
+      if (doc.space === 'organization' && doc.organization?.toString() === organizationId.toString()) {
+         return res.status(400).json({ error: 'Document is already in this organization.' });
+      }
+      doc.space = 'organization';
+      doc.organization = organizationId;
+    } else {
+       return res.status(400).json({ error: 'Invalid target space.' });
     }
-
-    // Change space to public
-    doc.space = 'public';
-    doc.organization = null;
 
     // Auto-tag the document
-    try {
-      console.log(`🏷️  Auto-tagging "${doc.fileName}" (private→public)...`);
-      const downloadUrl = await getDownloadUrl(doc.s3Key);
-      // Fetch the file from S3 for tagging
-      const response = await fetch(downloadUrl);
-      const fileBuffer = Buffer.from(await response.arrayBuffer());
-      const tagResult = await autoTagDocument(fileBuffer, doc.mimeType, doc.fileName);
-      doc.tags = tagResult.tags;
-      doc.metadata = tagResult.metadata;
-      doc.isTagged = true;
-      console.log(`✅ Tagged with ${tagResult.tags.length} keywords`);
-    } catch (tagErr) {
-      console.error('Auto-tag warning:', tagErr.message);
-      // Still make it public even if tagging fails
+    if (autoTag === 'true' || autoTag === true) {
+      try {
+        console.log(`🏷️  Auto-tagging "${doc.fileName}" (space change)...`);
+        const downloadUrl = await getDownloadUrl(doc.s3Key);
+        const response = await fetch(downloadUrl);
+        const fileBuffer = Buffer.from(await response.arrayBuffer());
+        const tagResult = await autoTagDocument(fileBuffer, doc.mimeType, doc.fileName);
+        doc.tags = [...new Set([...doc.tags, ...tagResult.tags])];
+        if (!doc.metadata?.primaryDomain) doc.metadata = tagResult.metadata;
+        doc.isTagged = doc.tags.length > 0;
+        doc.isAITagged = true;
+        console.log(`✅ Tagged with ${tagResult.tags.length} keywords`);
+      } catch (tagErr) {
+        console.error('Auto-tag warning:', tagErr.message);
+      }
     }
 
     await doc.save();
     await doc.populate('uploadedBy', 'name email avatarColor');
+    if (doc.organization) await doc.populate('organization', 'name avatarColor');
 
-    res.json({ message: 'Document is now public!', document: doc });
+    res.json({ message: 'Document moved successfully!', document: doc });
   } catch (err) {
-    console.error('Make public error:', err);
-    res.status(500).json({ error: 'Failed to make document public.' });
+    console.error('Change space error:', err);
+    res.status(500).json({ error: 'Failed to move document.' });
+  }
+});
+
+/**
+ * PUT /api/documents/:id/tags
+ * Manually update tags of a document
+ */
+router.put('/:id/tags', async (req, res) => {
+  try {
+    const doc = await Document.findById(req.params.id);
+    if (!doc) return res.status(404).json({ error: 'Document not found.' });
+
+    if (!doc.canEdit(req.user._id)) {
+      return res.status(403).json({ error: 'You do not have edit access to this document.' });
+    }
+
+    const { tags } = req.body;
+    if (!Array.isArray(tags)) return res.status(400).json({ error: 'Tags must be an array.' });
+
+    doc.tags = tags;
+    doc.isTagged = doc.tags.length > 0;
+    if (doc.tags.length === 0) doc.isAITagged = false;
+
+    await doc.save();
+    await doc.populate('uploadedBy', 'name email avatarColor');
+    if (doc.organization) await doc.populate('organization', 'name avatarColor');
+
+    res.json({ message: 'Tags updated successfully.', document: doc });
+  } catch (err) {
+    console.error('Update tags error:', err);
+    res.status(500).json({ error: 'Failed to update tags.' });
+  }
+});
+
+/**
+ * POST /api/documents/:id/tags/ai
+ * Trigger AI tagging for an existing document
+ */
+router.post('/:id/tags/ai', async (req, res) => {
+  try {
+    const doc = await Document.findById(req.params.id);
+    if (!doc) return res.status(404).json({ error: 'Document not found.' });
+
+    if (!doc.canEdit(req.user._id)) {
+      return res.status(403).json({ error: 'You do not have edit access to this document.' });
+    }
+
+    console.log(`🏷️  Auto-tagging triggered manually for "${doc.fileName}"...`);
+    const downloadUrl = await getDownloadUrl(doc.s3Key);
+    const response = await fetch(downloadUrl);
+    const fileBuffer = Buffer.from(await response.arrayBuffer());
+    const tagResult = await autoTagDocument(fileBuffer, doc.mimeType, doc.fileName);
+    
+    doc.tags = [...new Set([...doc.tags, ...tagResult.tags])];
+    if (!doc.metadata?.primaryDomain) doc.metadata = tagResult.metadata;
+    doc.isTagged = doc.tags.length > 0;
+    doc.isAITagged = true;
+
+    await doc.save();
+    await doc.populate('uploadedBy', 'name email avatarColor');
+    if (doc.organization) await doc.populate('organization', 'name avatarColor');
+
+    res.json({ message: 'AI auto-tagging successful!', document: doc });
+  } catch (err) {
+    console.error('AI tag error:', err);
+    res.status(500).json({ error: 'Failed to generate AI tags.' });
   }
 });
 

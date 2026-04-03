@@ -10,6 +10,9 @@ function UploadModal({ isOpen, onClose, onUploadSuccess, defaultSpace, defaultOr
     const [space, setSpace] = useState(defaultSpace || null);
     const [organizationId, setOrganizationId] = useState(defaultOrgId || '');
     const [description, setDescription] = useState('');
+    const [autoTag, setAutoTag] = useState(false);
+    const [manualTags, setManualTags] = useState([]);
+    const [tagInput, setTagInput] = useState('');
     const [orgs, setOrgs] = useState([]);
     const [uploading, setUploading] = useState(false);
     const [isDragging, setIsDragging] = useState(false);
@@ -21,6 +24,9 @@ function UploadModal({ isOpen, onClose, onUploadSuccess, defaultSpace, defaultOr
             fetchOrgs();
             setFiles([]);
             setDescription('');
+            setAutoTag(false);
+            setManualTags([]);
+            setTagInput('');
             setAllDone(false);
             setSpace(defaultSpace || null);
             setOrganizationId(defaultOrgId || '');
@@ -94,6 +100,8 @@ function UploadModal({ isOpen, onClose, onUploadSuccess, defaultSpace, defaultOr
         formData.append('space', space);
         if (space === 'organization') formData.append('organizationId', organizationId);
         if (description) formData.append('description', description);
+        formData.append('autoTag', autoTag);
+        if (manualTags.length > 0) formData.append('manualTags', JSON.stringify(manualTags));
 
         const t = token || localStorage.getItem('dmr_token');
 
@@ -328,7 +336,6 @@ function UploadModal({ isOpen, onClose, onUploadSuccess, defaultSpace, defaultOr
                                 </div>
                             )}
 
-                            {/* Description */}
                             <div>
                                 <label className="block text-sm font-bold text-gray-700 dark:text-gray-300 mb-2 uppercase tracking-wider">Description <span className="text-gray-400 font-normal normal-case">(optional)</span></label>
                                 <textarea
@@ -339,6 +346,51 @@ function UploadModal({ isOpen, onClose, onUploadSuccess, defaultSpace, defaultOr
                                     className="w-full px-5 py-3.5 bg-gray-50 dark:bg-gray-800/50 border border-gray-200 dark:border-gray-700 rounded-2xl focus:ring-2 focus:ring-blue-500 outline-none text-gray-900 dark:text-white placeholder-gray-400 resize-none transition-shadow text-sm"
                                 />
                             </div>
+
+                            {/* Tags Input */}
+                            <div>
+                                <label className="block text-sm font-bold text-gray-700 dark:text-gray-300 mb-2 uppercase tracking-wider">Manual Tags <span className="text-gray-400 font-normal normal-case">(optional)</span></label>
+                                <div className="flex flex-wrap gap-2 mb-2">
+                                    {manualTags.map((tag, i) => (
+                                        <span key={i} className="flex items-center gap-1 px-2.5 py-1 bg-blue-50 dark:bg-blue-900/20 text-blue-600 dark:text-blue-400 text-xs font-bold rounded-lg border border-blue-200 dark:border-blue-800">
+                                            {tag}
+                                            <button type="button" onClick={() => setManualTags(prev => prev.filter((_, idx) => idx !== i))} className="text-blue-400 hover:text-blue-600 dark:hover:text-blue-200 focus:outline-none">
+                                                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+                                            </button>
+                                        </span>
+                                    ))}
+                                </div>
+                                <input
+                                    type="text"
+                                    value={tagInput}
+                                    onChange={(e) => setTagInput(e.target.value)}
+                                    onKeyDown={(e) => {
+                                        if (e.key === 'Enter') {
+                                            e.preventDefault();
+                                            if (tagInput.trim() && !manualTags.includes(tagInput.trim())) {
+                                                setManualTags(prev => [...prev, tagInput.trim()]);
+                                                setTagInput('');
+                                            }
+                                        }
+                                    }}
+                                    placeholder="Type a tag and press Enter"
+                                    className="w-full px-5 py-3.5 bg-gray-50 dark:bg-gray-800/50 border border-gray-200 dark:border-gray-700 rounded-2xl focus:ring-2 focus:ring-blue-500 outline-none text-gray-900 dark:text-white placeholder-gray-400 transition-shadow text-sm"
+                                />
+                            </div>
+
+                            {/* Auto Tag Checkbox */}
+                            <label className="flex items-center gap-3 p-4 border border-gray-200 dark:border-gray-700 rounded-2xl cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-colors">
+                                <input
+                                    type="checkbox"
+                                    checked={autoTag}
+                                    onChange={(e) => setAutoTag(e.target.checked)}
+                                    className="w-5 h-5 rounded text-blue-600 focus:ring-blue-500 bg-gray-100 border-gray-300 dark:bg-gray-800 dark:border-gray-600 cursor-pointer"
+                                />
+                                <div>
+                                    <span className="block text-sm font-bold text-gray-900 dark:text-white">Auto-tag Document using AI</span>
+                                    <span className="block text-xs text-gray-500 dark:text-gray-400 mt-0.5">Automatically extract keywords and metadata to improve discoverability.</span>
+                                </div>
+                            </label>
                         </div>
                     )}
                 </div>
