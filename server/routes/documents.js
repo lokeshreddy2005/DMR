@@ -112,11 +112,22 @@ router.post('/upload', upload.single('document'), async (req, res) => {
 
     // Handle Initial Manual Tags
     let initialTags = [];
-    try {
-      if (manualTags) {
-        initialTags = JSON.parse(manualTags);
-      }
-    } catch (e) {}
+    if (manualTags) {
+        if (Array.isArray(manualTags)) {
+            initialTags = manualTags;
+        } else if (typeof manualTags === 'string') {
+            try {
+                const parsed = JSON.parse(manualTags);
+                if (Array.isArray(parsed)) {
+                    initialTags = parsed;
+                } else {
+                    initialTags = manualTags.split(',').map(s => s.trim()).filter(Boolean);
+                }
+            } catch (e) {
+                initialTags = manualTags.split(',').map(s => s.trim()).filter(Boolean);
+            }
+        }
+    }
     
     if (initialTags.length > 0) {
       doc.tags = initialTags;

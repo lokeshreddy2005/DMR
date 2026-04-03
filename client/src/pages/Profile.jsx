@@ -318,7 +318,7 @@ function DeveloperSettings({ showToast }) {
                 <h4 className="font-bold text-gray-900 dark:text-white mb-3">Usage Example</h4>
                 <div className="bg-gray-900 rounded-xl p-4 overflow-x-auto relative group">
                     <button 
-                        onClick={() => copyToClipboard(`curl -X POST ${API_URL}/api/documents/upload \\\n  -H "x-api-key: YOUR_API_KEY" \\\n  -F "document=@/path/to/file.pdf" \\\n  -F "space=public"`)}
+                        onClick={() => copyToClipboard(`curl -X POST ${API_URL}/api/documents/upload \\\n  -H "x-api-key: YOUR_API_KEY" \\\n  -F "document=@/path/to/file.pdf" \\\n  -F "space=public" \\\n  -F "autoTag=true" \\\n  -F "manualTags=Finance,Report"`)}
                         className="absolute right-3 top-3 p-2 bg-gray-800 text-gray-300 rounded-lg opacity-0 group-hover:opacity-100 transition-opacity hover:bg-gray-700"
                         title="Copy command"
                     >
@@ -329,7 +329,9 @@ function DeveloperSettings({ showToast }) {
 <span className="text-blue-400">curl</span> -X POST {API_URL}/api/documents/upload \{"\n"}
   -H <span className="text-yellow-300">"x-api-key: YOUR_API_KEY"</span> \{"\n"}
   -F <span className="text-yellow-300">"document=@/path/to/file.pdf"</span> \{"\n"}
-  -F <span className="text-yellow-300">"space=public"</span>
+  -F <span className="text-yellow-300">"space=public"</span> \{"\n"}
+  -F <span className="text-yellow-300">"autoTag=true"</span> \{"\n"}
+  -F <span className="text-yellow-300">"manualTags=Finance,Report"</span>
                         </code>
                     </pre>
                 </div>
