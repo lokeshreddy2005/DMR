@@ -10,6 +10,7 @@ const { authMiddleware } = require('../middleware/auth');
 const { uploadToS3, getDownloadUrl, deleteFromS3 } = require('../services/s3');
 const { checkQuota, getStorageSummary } = require('../services/storageQuota');
 const { autoTagDocument } = require('../services/autoTagger');
+const RecentAccess = require('../models/RecentAccess');
 
 const router = express.Router();
 
@@ -109,6 +110,7 @@ router.post('/upload', upload.single('document'), async (req, res) => {
       mimeType: req.file.mimetype,
       fileSize: req.file.size,
       permissions: [Document.buildPermission(req.user._id, 'owner', req.user._id)],
+      metadata: { extension: path.extname(req.file.originalname).toLowerCase() }
     });
 
     // Handle Initial Manual Tags
@@ -309,19 +311,29 @@ router.post('/:id/tags/ai', async (req, res) => {
 
 /**
  * GET /api/documents
- * List documents. Query params: space, organizationId
+ * List documents with advanced filtering, search, and pagination.
  */
 router.get('/', async (req, res) => {
   try {
-    const { space, organizationId } = req.query;
-    let query = {};
+    const { 
+      space, organizationId, 
+      q, page = 1, limit = 20, 
+      minSize, maxSize, 
+      startDate, endDate, 
+      extension, tags,
+      uploadedBy, permissionLevel,
+      isTagged, departmentOwner
+    } = req.query;
 
+    let accessQuery = {};
+
+    // 1. Establish Base Permissions (Who can see what)
     if (space === 'public') {
-      query = { space: 'public' };
+      accessQuery = { space: 'public' };
     } else if (space === 'private') {
-      query = { space: 'private', uploadedBy: req.user._id };
+      accessQuery = { space: 'private', uploadedBy: req.user._id };
     } else if (space === 'shared') {
-      query = { 
+      accessQuery = { 
         uploadedBy: { $ne: req.user._id },
         'permissions.user': req.user._id
       };
@@ -330,9 +342,9 @@ router.get('/', async (req, res) => {
       if (!org || !org.isMember(req.user._id)) {
         return res.status(403).json({ error: 'Not a member of this organization.' });
       }
-      query = { space: 'organization', organization: organizationId };
+      accessQuery = { space: 'organization', organization: organizationId };
     } else {
-      query = {
+      accessQuery = {
         $or: [
           { space: 'public' },
           { space: 'private', uploadedBy: req.user._id },
@@ -341,19 +353,208 @@ router.get('/', async (req, res) => {
       };
       const userOrgs = await Organization.find({ 'members.user': req.user._id }).select('_id');
       if (userOrgs.length > 0) {
-        query.$or.push({ space: 'organization', organization: { $in: userOrgs.map((o) => o._id) } });
+        accessQuery.$or.push({ space: 'organization', organization: { $in: userOrgs.map((o) => o._id) } });
       }
     }
 
-    const documents = await Document.find(query)
-      .populate('uploadedBy', 'name email avatarColor')
-      .populate('organization', 'name avatarColor')
-      .sort({ uploadDate: -1 });
+    // 2. Compile Additional Filters
+    let filterQuery = {};
 
-    res.json({ documents });
+    // Text Search Integration
+    if (q && q.trim().length >= 2) {
+      const regex = new RegExp(q.trim(), 'i');
+      filterQuery.$or = [
+        { tags: { $elemMatch: { $regex: regex } } },
+        { fileName: { $regex: regex } },
+        { 'metadata.primaryDomain': { $regex: regex } },
+        { 'metadata.typeTags': { $elemMatch: { $regex: regex } } },
+        { description: { $regex: regex } },
+      ];
+    }
+
+    // Size Range Filter
+    if (minSize || maxSize) {
+      filterQuery.fileSize = {};
+      if (minSize) filterQuery.fileSize.$gte = Number(minSize);
+      if (maxSize) filterQuery.fileSize.$lte = Number(maxSize);
+    }
+
+    // Date Range Filter
+    if (startDate || endDate) {
+      filterQuery.uploadDate = {};
+      if (startDate) filterQuery.uploadDate.$gte = new Date(startDate);
+      if (endDate) filterQuery.uploadDate.$lte = new Date(endDate);
+    }
+
+    // Exact String Filters
+    if (extension) {
+      filterQuery['metadata.extension'] = extension.toLowerCase();
+    }
+    
+    if (departmentOwner) {
+      filterQuery['metadata.departmentOwner'] = departmentOwner;
+    }
+    
+    // Array Subset Match
+    if (tags) {
+      const tagsArray = tags.split(',');
+      filterQuery.tags = { $in: tagsArray };
+    }
+
+    // Phase 1B: Relational & Permission Filters
+    if (uploadedBy) {
+      filterQuery.uploadedBy = uploadedBy;
+    }
+    if (space !== 'organization' && organizationId) {
+      filterQuery.organization = organizationId;
+    }
+    if (permissionLevel) {
+      filterQuery.permissions = { $elemMatch: { user: req.user._id, level: permissionLevel } };
+    }
+
+    if (isTagged !== undefined) {
+      filterQuery.isTagged = isTagged === 'true';
+    }
+
+    // 3. Merge Queries & Execute
+    const finalQuery = Object.keys(filterQuery).length > 0 
+      ? { $and: [accessQuery, filterQuery] } 
+      : accessQuery;
+
+    const skip = (parseInt(page) - 1) * parseInt(limit);
+    const limitNum = parseInt(limit);
+
+    const [documents, totalCount] = await Promise.all([
+      Document.find(finalQuery)
+        .populate('uploadedBy', 'name email avatarColor')
+        .populate('organization', 'name avatarColor')
+        .sort({ uploadDate: -1 })
+        .skip(skip)
+        .limit(limitNum),
+      Document.countDocuments(finalQuery)
+    ]);
+
+    const totalPages = Math.ceil(totalCount / limitNum);
+
+    res.json({ 
+      documents,
+      totalCount,
+      currentPage: parseInt(page),
+      totalPages
+    });
   } catch (err) {
     console.error('Fetch docs error:', err);
     res.status(500).json({ error: 'Failed to fetch documents.' });
+  }
+});
+
+/**
+ * GET /api/documents/tags/search
+ * Autocomplete search for tags
+ */
+router.get('/tags/search', async (req, res) => {
+  try {
+    const { q } = req.query;
+    if (!q) return res.json({ tags: [] });
+
+    // Restrict search space to what the user can reasonably see
+    const userOrgs = await Organization.find({ 'members.user': req.user._id }).select('_id');
+    const accessQuery = {
+      $or: [
+        { space: 'public' },
+        { space: 'private', uploadedBy: req.user._id },
+        { space: 'private', 'permissions.user': req.user._id },
+        { space: 'organization', organization: { $in: userOrgs.map(o => o._id) } },
+      ],
+    };
+
+    const tagAgg = await Document.aggregate([
+      { $match: accessQuery },
+      { $match: { tags: { $regex: new RegExp(q, 'i') } } },
+      { $unwind: '$tags' },
+      { $match: { tags: { $regex: new RegExp(q, 'i') } } },
+      { $group: { _id: { $toLower: '$tags' }, count: { $sum: 1 } } },
+      { $sort: { count: -1 } },
+      { $limit: 20 },
+    ]);
+
+    const tags = tagAgg.map((t) => ({ tag: t._id }));
+    res.json({ tags });
+  } catch (err) {
+    console.error('Tags search error:', err);
+    res.status(500).json({ error: 'Failed to search tags.' });
+  }
+});
+
+/**
+ * GET /api/documents/recent-activity
+ * Logged via Phase 1C recent access tracker
+ */
+router.get('/recent-activity', async (req, res) => {
+  try {
+    const recent = await RecentAccess.find({ user: req.user._id })
+      .sort({ lastOpenedAt: -1 })
+      .limit(10)
+      .populate({
+        path: 'document',
+        populate: [
+          { path: 'uploadedBy', select: 'name email avatarColor' },
+          { path: 'organization', select: 'name avatarColor' }
+        ]
+      });
+
+    const validRecents = [];
+    for (const r of recent) {
+      if (r.document) {
+        const hasAccess = await checkDocAccess(r.document, req.user._id);
+        if (hasAccess) {
+          validRecents.push({
+            ...r.document.toObject(),
+            lastOpenedAt: r.lastOpenedAt
+          });
+        }
+      }
+    }
+    res.json({ documents: validRecents });
+  } catch (err) {
+    console.error('Fetch recent activity error:', err);
+    res.status(500).json({ error: 'Failed to fetch recent activity.' });
+  }
+});
+
+/**
+ * GET /api/documents/departments/search
+ * Search distinct department owners for autocomplete filters.
+ */
+router.get('/departments/search', async (req, res) => {
+  try {
+    const { q } = req.query;
+    if (!q || q.trim().length < 2) {
+      return res.json({ departments: [] });
+    }
+
+    const regex = new RegExp(q.trim(), 'i');
+
+    // Filter by access logic
+    const userOrgs = await Organization.find({ 'members.user': req.user._id }).select('_id');
+    const accessQuery = {
+      $or: [
+        { space: 'public' },
+        { space: 'private', uploadedBy: req.user._id },
+        { space: 'private', 'permissions.user': req.user._id },
+        { space: 'organization', organization: { $in: userOrgs.map(o => o._id) } },
+      ],
+    };
+
+    const departments = await Document.distinct('metadata.departmentOwner', {
+      ...accessQuery,
+      'metadata.departmentOwner': { $regex: regex }
+    });
+
+    res.json({ departments: departments.slice(0, 10) });
+  } catch (err) {
+    console.error('Department search error:', err);
+    res.status(500).json({ error: 'Failed to search departments.' });
   }
 });
 
@@ -388,53 +589,53 @@ router.get('/recent', async (req, res) => {
   }
 });
 
-/**
- * GET /api/documents/search
- * Search all documents user has access to by keyword
- */
-router.get('/search', async (req, res) => {
-  try {
-    const { q } = req.query;
-    if (!q || q.trim().length < 2) {
-      return res.status(400).json({ error: 'Search query must be at least 2 characters.' });
-    }
+// /**
+//  * GET /api/documents/search
+//  * Search all documents user has access to by keyword
+//  */
+// router.get('/search', async (req, res) => {
+//   try {
+//     const { q } = req.query;
+//     if (!q || q.trim().length < 2) {
+//       return res.status(400).json({ error: 'Search query must be at least 2 characters.' });
+//     }
 
-    const regex = new RegExp(q.trim(), 'i');
+//     const regex = new RegExp(q.trim(), 'i');
     
-    const userOrgs = await Organization.find({ 'members.user': req.user._id }).select('_id');
-    const orgIds = userOrgs.map((o) => o._id);
+//     const userOrgs = await Organization.find({ 'members.user': req.user._id }).select('_id');
+//     const orgIds = userOrgs.map((o) => o._id);
 
-    const accessQuery = {
-      $or: [
-        { space: 'public' },
-        { space: 'private', uploadedBy: req.user._id },
-        { space: 'private', 'permissions.user': req.user._id },
-        { space: 'organization', organization: { $in: orgIds } },
-      ],
-    };
+//     const accessQuery = {
+//       $or: [
+//         { space: 'public' },
+//         { space: 'private', uploadedBy: req.user._id },
+//         { space: 'private', 'permissions.user': req.user._id },
+//         { space: 'organization', organization: { $in: orgIds } },
+//       ],
+//     };
 
-    const searchQuery = {
-      $or: [
-        { tags: { $elemMatch: { $regex: regex } } },
-        { fileName: { $regex: regex } },
-        { 'metadata.primaryDomain': { $regex: regex } },
-        { 'metadata.typeTags': { $elemMatch: { $regex: regex } } },
-        { description: { $regex: regex } },
-      ],
-    };
+//     const searchQuery = {
+//       $or: [
+//         { tags: { $elemMatch: { $regex: regex } } },
+//         { fileName: { $regex: regex } },
+//         { 'metadata.primaryDomain': { $regex: regex } },
+//         { 'metadata.typeTags': { $elemMatch: { $regex: regex } } },
+//         { description: { $regex: regex } },
+//       ],
+//     };
 
-    const documents = await Document.find({ $and: [accessQuery, searchQuery] })
-      .populate('uploadedBy', 'name email avatarColor')
-      .populate('organization', 'name avatarColor')
-      .sort({ uploadDate: -1 })
-      .limit(50);
+//     const documents = await Document.find({ $and: [accessQuery, searchQuery] })
+//       .populate('uploadedBy', 'name email avatarColor')
+//       .populate('organization', 'name avatarColor')
+//       .sort({ uploadDate: -1 })
+//       .limit(50);
 
-    res.json({ documents, query: q });
-  } catch (err) {
-    console.error('Search error:', err);
-    res.status(500).json({ error: 'Search failed.' });
-  }
-});
+//     res.json({ documents, query: q });
+//   } catch (err) {
+//     console.error('Search error:', err);
+//     res.status(500).json({ error: 'Search failed.' });
+//   }
+// });
 
 /**
  * GET /api/documents/stats
@@ -581,6 +782,13 @@ router.get('/:id/download', async (req, res) => {
         return res.status(403).json({ error: 'You do not have download permission for this document.' });
       }
     }
+
+    // Phase 1C: Usage Tracking Logging
+    await RecentAccess.findOneAndUpdate(
+      { user: req.user._id, document: doc._id },
+      { lastOpenedAt: new Date() },
+      { upsert: true }
+    );
 
     const downloadUrl = await getDownloadUrl(doc.s3Key);
     res.json({ downloadUrl, fileName: doc.fileName });

@@ -207,4 +207,32 @@ router.put('/password', authMiddleware, async (req, res) => {
     }
 });
 
+/**
+ * GET /api/auth/users/search
+ * Search users for autocomplete filters (e.g., "Uploaded By").
+ */
+router.get('/users/search', authMiddleware, async (req, res) => {
+    try {
+        const { q } = req.query;
+        if (!q || q.trim().length < 2) {
+            return res.json({ users: [] });
+        }
+
+        const regex = new RegExp(req.query.q.trim(), 'i');
+        const users = await User.find({
+            $or: [
+                { name: { $regex: regex } },
+                { email: { $regex: regex } }
+            ]
+        })
+        .select('name email avatarColor')
+        .limit(10);
+
+        res.json({ users });
+    } catch (err) {
+        console.error('User search error:', err);
+        res.status(500).json({ error: 'Failed to search users.' });
+    }
+});
+
 module.exports = router;

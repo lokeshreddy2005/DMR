@@ -6,61 +6,90 @@ const router = express.Router();
 
 /**
  * GET /api/public/documents
- * List all public documents — no authentication required.
- * Query: ?tag=keyword  (filter by tag)
+ * List public documents with advanced filtering, search, and pagination.
  */
 router.get('/documents', async (req, res) => {
     try {
-        const { tag } = req.query;
-        let query = { space: 'public' };
+        
+        const { 
+            q, page = 1, limit = 20, 
+            minSize, maxSize, 
+            startDate, endDate, 
+            extension, tags,
+            isTagged, departmentOwner
+        } = req.query;
 
-        if (tag) {
-            query.tags = { $regex: new RegExp(tag, 'i') };
-        }
+        const accessQuery = { space: 'public' };
+        let filterQuery = {};
 
-        const documents = await Document.find(query)
-            .populate('uploadedBy', 'name avatarColor')
-            .select('-permissions -s3Key')
-            .sort({ uploadDate: -1 });
-
-        res.json({ documents });
-    } catch (err) {
-        console.error('Public docs error:', err);
-        res.status(500).json({ error: 'Failed to fetch documents.' });
-    }
-});
-
-/**
- * GET /api/public/documents/search?q=keyword
- * Search public documents by keyword (searches tags + fileName).
- */
-router.get('/documents/search', async (req, res) => {
-    try {
-        const { q } = req.query;
-        if (!q || q.trim().length < 2) {
-            return res.status(400).json({ error: 'Search query must be at least 2 characters.' });
-        }
-
-        const regex = new RegExp(q.trim(), 'i');
-        const documents = await Document.find({
-            space: 'public',
-            $or: [
+        if (q && q.trim().length >= 2) {
+            const regex = new RegExp(q.trim(), 'i');
+            filterQuery.$or = [
                 { tags: { $elemMatch: { $regex: regex } } },
                 { fileName: { $regex: regex } },
                 { 'metadata.primaryDomain': { $regex: regex } },
                 { 'metadata.typeTags': { $elemMatch: { $regex: regex } } },
                 { description: { $regex: regex } },
-            ],
-        })
-            .populate('uploadedBy', 'name avatarColor')
-            .select('-permissions -s3Key')
-            .sort({ uploadDate: -1 })
-            .limit(50);
+            ];
+        }
 
-        res.json({ documents, query: q });
+        if (minSize || maxSize) {
+            filterQuery.fileSize = {};
+            if (minSize) filterQuery.fileSize.$gte = Number(minSize);
+            if (maxSize) filterQuery.fileSize.$lte = Number(maxSize);
+        }
+
+        if (startDate || endDate) {
+            filterQuery.uploadDate = {};
+            if (startDate) filterQuery.uploadDate.$gte = new Date(startDate);
+            if (endDate) filterQuery.uploadDate.$lte = new Date(endDate);
+        }
+
+        if (extension) {
+            filterQuery['metadata.extension'] = extension.toLowerCase();
+        }
+        
+        if (departmentOwner) {
+            filterQuery['metadata.departmentOwner'] = departmentOwner;
+        }
+
+        if (tags) {
+            const tagsArray = tags.split(',');
+            filterQuery.tags = { $in: tagsArray };
+        }
+
+        if (isTagged !== undefined) {
+             filterQuery.isTagged = isTagged === 'true';
+        }
+
+        const finalQuery = Object.keys(filterQuery).length > 0 
+            ? { $and: [accessQuery, filterQuery] } 
+            : accessQuery;
+
+        const skip = (parseInt(page) - 1) * parseInt(limit);
+        const limitNum = parseInt(limit);
+
+        const [documents, totalCount] = await Promise.all([
+            Document.find(finalQuery)
+                .populate('uploadedBy', 'name avatarColor')
+                .select('-permissions -s3Key')
+                .sort({ uploadDate: -1 })
+                .skip(skip)
+                .limit(limitNum),
+            Document.countDocuments(finalQuery)
+        ]);
+
+        const totalPages = Math.ceil(totalCount / limitNum);
+
+        res.json({ 
+            documents,
+            totalCount,
+            currentPage: parseInt(page),
+            totalPages
+        });
     } catch (err) {
-        console.error('Search error:', err);
-        res.status(500).json({ error: 'Search failed.' });
+        console.error('Public docs error:', err);
+        res.status(500).json({ error: 'Failed to fetch documents.' });
     }
 });
 
