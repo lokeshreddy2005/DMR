@@ -30,7 +30,7 @@ export function Workspace({ isPublicOnly = false, isSearchPage = false }) {
     const [toast, setToast] = useState(null);
     const [viewMode, setViewMode] = useState('grid');
     const [currentPage, setCurrentPage] = useState(1);
-    
+
     // Tagging & Moving state
     const [tagInput, setTagInput] = useState('');
     const [isMoving, setIsMoving] = useState(false);
@@ -120,7 +120,7 @@ export function Workspace({ isPublicOnly = false, isSearchPage = false }) {
             if (isPublicOnly || activeSpace === 'public') {
                 let url = `${API_URL}/api/public/documents`;
                 if (searchQuery.trim()) {
-                    url = `${API_URL}/api/public/documents/search?q=${encodeURIComponent(searchQuery.trim())}`;
+                    url = `${API_URL}/api/public/documents?q=${encodeURIComponent(searchQuery.trim())}`;
                 }
                 const res = await axios.get(url);
                 setDocuments(res.data.documents || []);
@@ -132,7 +132,7 @@ export function Workspace({ isPublicOnly = false, isSearchPage = false }) {
 
             if (isSearchPage) {
                 const query = searchParams.get('q') || searchQuery || '';
-                const url = `${API_URL}/api/documents/search?q=${encodeURIComponent(query)}`;
+                const url = `${API_URL}/api/documents?q=${encodeURIComponent(query)}`;
                 const res = await axios.get(url, { headers });
                 setDocuments(res.data.documents || []);
             } else if (activeSpace === 'organization') {
@@ -508,11 +508,11 @@ export function Workspace({ isPublicOnly = false, isSearchPage = false }) {
                                                             {accessLevel}
                                                         </span>
                                                     ); })()}
-                                                    <button 
-                                                        className="text-gray-400 hover:text-gray-900 dark:hover:text-white transition-colors" 
-                                                        onClick={(e) => { 
-                                                            e.stopPropagation(); 
-                                                            setSelectedDoc(doc._id === selectedDoc?._id ? null : doc); 
+                                                    <button
+                                                        className="text-gray-400 hover:text-gray-900 dark:hover:text-white transition-colors"
+                                                        onClick={(e) => {
+                                                            e.stopPropagation();
+                                                            setSelectedDoc(doc._id === selectedDoc?._id ? null : doc);
                                                         }}
                                                         title="More actions"
                                                     >
@@ -579,11 +579,11 @@ export function Workspace({ isPublicOnly = false, isSearchPage = false }) {
                                                             {accessLevel}
                                                         </span>
                                                     ); })()}
-                                                    <button 
-                                                        className="p-1 text-gray-400 hover:text-gray-900 dark:hover:text-white transition-colors rounded hover:bg-gray-100 dark:hover:bg-gray-800" 
-                                                        onClick={(e) => { 
-                                                            e.stopPropagation(); 
-                                                            setSelectedDoc(doc._id === selectedDoc?._id ? null : doc); 
+                                                    <button
+                                                        className="p-1 text-gray-400 hover:text-gray-900 dark:hover:text-white transition-colors rounded hover:bg-gray-100 dark:hover:bg-gray-800"
+                                                        onClick={(e) => {
+                                                            e.stopPropagation();
+                                                            setSelectedDoc(doc._id === selectedDoc?._id ? null : doc);
                                                         }}
                                                         title="More actions"
                                                     >
@@ -692,8 +692,8 @@ export function Workspace({ isPublicOnly = false, isSearchPage = false }) {
                                             )}
                                         </div>
                                         {canUserEdit(selectedDoc) && (
-                                            <button 
-                                                onClick={handleAITag} 
+                                            <button
+                                                onClick={handleAITag}
                                                 disabled={isTaggingAI}
                                                 className="w-full flex items-center justify-center gap-2 text-xs font-bold py-2 bg-purple-50 hover:bg-purple-100 text-purple-600 dark:bg-purple-900/20 dark:hover:bg-purple-900/40 dark:text-purple-400 rounded-lg transition-colors border border-purple-100 dark:border-purple-800/50 shadow-sm"
                                             >
@@ -728,7 +728,7 @@ export function Workspace({ isPublicOnly = false, isSearchPage = false }) {
                                                 <div className="p-3 bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 shadow-md space-y-3 animate-fade-in-up">
                                                     <div className="flex justify-between items-center mb-1">
                                                         <span className="text-xs font-bold uppercase tracking-wider text-gray-500 dark:text-gray-400">Move To</span>
-                                                        <button onClick={() => setIsMoving(false)} className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 bg-gray-100 hover:bg-gray-200 dark:bg-gray-700 dark:hover:bg-gray-600 rounded p-1 transition-colors"><X className="w-3 h-3"/></button>
+                                                        <button onClick={() => setIsMoving(false)} className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 bg-gray-100 hover:bg-gray-200 dark:bg-gray-700 dark:hover:bg-gray-600 rounded p-1 transition-colors"><X className="w-3 h-3" /></button>
                                                     </div>
                                                     <select value={moveSpace} onChange={e => setMoveSpace(e.target.value)} className="w-full text-sm p-2 rounded-lg bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-700 outline-none focus:ring-2 focus:ring-blue-500">
                                                         <option value="public">Public Space</option>

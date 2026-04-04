@@ -89,11 +89,11 @@ export function Dashboard() {
                     { label: "Shared Files", count: stats.shared?.count || 0, icon: Users, color: "text-orange-500", bg: "bg-orange-50 dark:bg-orange-500/10", path: "/workspace/shared" },
                     { label: "Team Files", count: stats.organization?.count || 0, icon: Building2, color: "text-purple-500", bg: "bg-purple-50 dark:bg-purple-500/10", path: "/workspace/organization" }
                 ].map((stat, i) => (
-                    <motion.div 
-                        key={i} 
-                        initial={{ opacity: 0, y: 10 }} 
-                        animate={{ opacity: 1, y: 0 }} 
-                        transition={{ delay: i * 0.05 }} 
+                    <motion.div
+                        key={i}
+                        initial={{ opacity: 0, y: 10 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        transition={{ delay: i * 0.05 }}
                         onClick={() => stat.path && navigate(stat.path)}
                         className={`bg-white dark:bg-gray-900 rounded-3xl p-5 border border-gray-200 dark:border-gray-800 shadow-sm flex items-center gap-4 ${stat.path ? 'cursor-pointer hover:shadow-md hover:border-blue-500/50 transition-all group' : ''}`}
                     >
