@@ -93,9 +93,16 @@ router.put('/:id', async (req, res) => {
             return res.status(403).json({ error: 'Only admins can update organization settings.' });
         }
 
-        const { name, description } = req.body;
+        const { name, description, sharingPolicy } = req.body;
         if (name) org.name = name.trim();
         if (description !== undefined) org.description = description.trim();
+        if (sharingPolicy?.defaultRole) {
+            const validRoles = ['viewer', 'downloader', 'editor', 'sharer', 'manager'];
+            if (validRoles.includes(sharingPolicy.defaultRole)) {
+                if (!org.sharingPolicy) org.sharingPolicy = {};
+                org.sharingPolicy.defaultRole = sharingPolicy.defaultRole;
+            }
+        }
 
         await org.save();
         await org.populate('members.user', 'name email avatarColor');

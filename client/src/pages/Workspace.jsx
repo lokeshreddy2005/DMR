@@ -4,9 +4,10 @@ import { useAuth } from '../context/AuthContext';
 import axios from 'axios';
 import API_URL from '../config/api';
 import { Button } from '../components/ui/Button';
-import { FileText, Download, Trash2, Search, Plus, FileUp, MoreVertical, Globe, Lock, Building2, Users, Edit3, Eye, X, LayoutGrid, List, ChevronLeft, ChevronRight } from 'lucide-react';
+import { FileText, Download, Trash2, Search, Plus, FileUp, MoreVertical, Globe, Lock, Building2, Users, Edit3, Eye, X, LayoutGrid, List, ChevronLeft, ChevronRight, Share2 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import UploadModal from '../components/UploadModal';
+import ShareModal from '../components/ShareModal';
 
 export function Workspace({ isPublicOnly = false, isSearchPage = false }) {
     const { spaceId } = useParams();
@@ -24,6 +25,7 @@ export function Workspace({ isPublicOnly = false, isSearchPage = false }) {
     const [isLoading, setIsLoading] = useState(true);
     const [error, setError] = useState(null);
     const [isUploadOpen, setIsUploadOpen] = useState(false);
+    const [isShareOpen, setIsShareOpen] = useState(false);
     const [selectedDoc, setSelectedDoc] = useState(null);
     const [toast, setToast] = useState(null);
     const [viewMode, setViewMode] = useState('grid');
@@ -52,17 +54,62 @@ export function Workspace({ isPublicOnly = false, isSearchPage = false }) {
         return t ? { Authorization: `Bearer ${t}` } : {};
     };
 
-    const getAccessLevel = (doc) => {
-        if (!user) return 'Read';
-        const uid = user._id;
-        const uploaderId = doc.uploadedBy?._id || doc.uploadedBy;
-        if (uploaderId?.toString() === uid?.toString()) return 'Write';
+    // ─── Role colors for badges ───
+    const ROLE_COLORS = {
+        owner:      { bg: 'bg-amber-100 dark:bg-amber-900/30', text: 'text-amber-700 dark:text-amber-400', border: 'border-amber-200 dark:border-amber-800' },
+        manager:    { bg: 'bg-purple-100 dark:bg-purple-900/30', text: 'text-purple-700 dark:text-purple-400', border: 'border-purple-200 dark:border-purple-800' },
+        editor:     { bg: 'bg-blue-100 dark:bg-blue-900/30', text: 'text-blue-700 dark:text-blue-400', border: 'border-blue-200 dark:border-blue-800' },
+        sharer:     { bg: 'bg-green-100 dark:bg-green-900/30', text: 'text-green-700 dark:text-green-400', border: 'border-green-200 dark:border-green-800' },
+        downloader: { bg: 'bg-teal-100 dark:bg-teal-900/30', text: 'text-teal-700 dark:text-teal-400', border: 'border-teal-200 dark:border-teal-800' },
+        viewer:     { bg: 'bg-gray-100 dark:bg-gray-800', text: 'text-gray-600 dark:text-gray-400', border: 'border-gray-200 dark:border-gray-700' },
+    };
+
+    const getUserPerm = (doc) => {
+        if (!user) return null;
+        const uid = user._id || user.id;
         const perm = doc.permissions?.find(p => {
-            const pu = p.user?._id || p.user;
+            const pu = p.user?._id || p.user?.id || p.user;
             return pu?.toString() === uid?.toString();
         });
-        if (perm && (perm.level === 'owner' || perm.level === 'editor')) return 'Write';
-        return 'Read';
+        return perm || null;
+    };
+
+    const getAccessLevel = (doc) => {
+        if (!user) return 'viewer';
+        const uid = user._id || user.id;
+        const uploaderId = doc.uploadedBy?._id || doc.uploadedBy?.id || doc.uploadedBy;
+        if (uploaderId?.toString() === uid?.toString()) return 'owner';
+        const perm = getUserPerm(doc);
+        if (perm) {
+            // Support both new `role` field and legacy `level` field
+            if (perm.role) return perm.role;
+            if (perm.level) return perm.level;
+            return 'viewer';
+        }
+        return 'viewer';
+    };
+
+    const canUserEdit = (doc) => {
+        if (!user) return false;
+        const uid = user._id || user.id;
+        const uploaderId = doc.uploadedBy?._id || doc.uploadedBy?.id || doc.uploadedBy;
+        if (uploaderId?.toString() === uid?.toString()) return true;
+        const perm = getUserPerm(doc);
+        if (!perm) return false;
+        // Support new flags and legacy level
+        if (perm.canEdit !== undefined) return perm.canEdit;
+        return perm.level === 'owner' || perm.level === 'editor';
+    };
+
+    const canUserDelete = (doc) => {
+        if (!user) return false;
+        const uid = user._id || user.id;
+        const uploaderId = doc.uploadedBy?._id || doc.uploadedBy?.id || doc.uploadedBy;
+        if (uploaderId?.toString() === uid?.toString()) return true;
+        const perm = getUserPerm(doc);
+        if (!perm) return false;
+        if (perm.canDelete !== undefined) return perm.canDelete;
+        return perm.level === 'owner';
     };
 
     const fetchDocuments = useCallback(async () => {
@@ -455,15 +502,12 @@ export function Workspace({ isPublicOnly = false, isSearchPage = false }) {
                                                             {doc.space}
                                                         </span>
                                                     )}
-                                                    {accessLevel === 'Write' ? (
-                                                        <span className="flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400 uppercase tracking-wider border border-purple-200 dark:border-purple-800" title="You have Write access">
-                                                            <Edit3 className="w-3 h-3" /> Write
+                                                    {(() => { const rc = ROLE_COLORS[accessLevel] || ROLE_COLORS.viewer; return (
+                                                        <span className={`flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider border ${rc.bg} ${rc.text} ${rc.border}`} title={`${accessLevel} access`}>
+                                                            {accessLevel === 'owner' || accessLevel === 'manager' || accessLevel === 'editor' ? <Edit3 className="w-3 h-3" /> : <Eye className="w-3 h-3" />}
+                                                            {accessLevel}
                                                         </span>
-                                                    ) : (
-                                                        <span className="flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400 uppercase tracking-wider border border-gray-200 dark:border-gray-700" title="Read-only access">
-                                                            <Eye className="w-3 h-3" /> Read
-                                                        </span>
-                                                    )}
+                                                    ); })()}
                                                     <button 
                                                         className="text-gray-400 hover:text-gray-900 dark:hover:text-white transition-colors" 
                                                         onClick={(e) => { 
@@ -530,15 +574,11 @@ export function Workspace({ isPublicOnly = false, isSearchPage = false }) {
                                                             {doc.space}
                                                         </span>
                                                     )}
-                                                    {accessLevel === 'Write' ? (
-                                                        <span className="hidden sm:inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400 uppercase tracking-wider border border-purple-200 dark:border-purple-800" title="You have Write access">
-                                                            Editor
+                                                    {(() => { const rc = ROLE_COLORS[accessLevel] || ROLE_COLORS.viewer; return (
+                                                        <span className={`hidden sm:inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider border ${rc.bg} ${rc.text} ${rc.border}`} title={`${accessLevel} access`}>
+                                                            {accessLevel}
                                                         </span>
-                                                    ) : (
-                                                        <span className="hidden sm:inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400 uppercase tracking-wider border border-gray-200 dark:border-gray-700" title="Read-only access">
-                                                            Read
-                                                        </span>
-                                                    )}
+                                                    ); })()}
                                                     <button 
                                                         className="p-1 text-gray-400 hover:text-gray-900 dark:hover:text-white transition-colors rounded hover:bg-gray-100 dark:hover:bg-gray-800" 
                                                         onClick={(e) => { 
@@ -602,7 +642,7 @@ export function Workspace({ isPublicOnly = false, isSearchPage = false }) {
 
                                     <div className="space-y-0 divide-y divide-gray-100 dark:divide-gray-800">
                                         {[
-                                            { label: 'Access', value: getAccessLevel(selectedDoc) === 'Write' ? '✏️ Write (Editor)' : '👁️ Read-only' },
+                                            { label: 'Role', value: (() => { const role = getAccessLevel(selectedDoc); return role.charAt(0).toUpperCase() + role.slice(1); })() },
                                             { label: 'Space', value: selectedDoc.space },
                                             { label: 'Type', value: selectedDoc.mimeType },
                                             { label: 'Size', value: formatSize(selectedDoc.fileSize) },
@@ -629,7 +669,7 @@ export function Workspace({ isPublicOnly = false, isSearchPage = false }) {
                                                     {selectedDoc.tags.map((t, i) => (
                                                         <span key={i} className="flex items-center gap-1.5 px-2 py-1 bg-blue-50 dark:bg-blue-500/10 border border-blue-200 dark:border-blue-800/50 rounded-md text-[11px] font-bold text-blue-600 dark:text-blue-400 group">
                                                             {t}
-                                                            {getAccessLevel(selectedDoc) === 'Write' && (
+                                                            {canUserEdit(selectedDoc) && (
                                                                 <button type="button" onClick={() => handleRemoveTag(t)} className="opacity-50 hover:opacity-100 hover:text-blue-800 dark:hover:text-blue-200 transition-opacity">
                                                                     <X className="w-3 h-3" />
                                                                 </button>
@@ -640,7 +680,7 @@ export function Workspace({ isPublicOnly = false, isSearchPage = false }) {
                                             ) : (
                                                 <p className="text-xs text-gray-500 italic mb-3">No tags added yet.</p>
                                             )}
-                                            {getAccessLevel(selectedDoc) === 'Write' && (
+                                            {canUserEdit(selectedDoc) && (
                                                 <input
                                                     type="text"
                                                     value={tagInput}
@@ -651,7 +691,7 @@ export function Workspace({ isPublicOnly = false, isSearchPage = false }) {
                                                 />
                                             )}
                                         </div>
-                                        {getAccessLevel(selectedDoc) === 'Write' && (
+                                        {canUserEdit(selectedDoc) && (
                                             <button 
                                                 onClick={handleAITag} 
                                                 disabled={isTaggingAI}
@@ -664,10 +704,18 @@ export function Workspace({ isPublicOnly = false, isSearchPage = false }) {
                                 </div>
 
                                 <div className="p-4 border-t border-gray-100 dark:border-gray-800 bg-gray-50/50 dark:bg-gray-900/50 flex flex-col gap-2">
+                                    {!isPublicOnly && (getAccessLevel(selectedDoc) === 'owner' || getAccessLevel(selectedDoc) === 'manager') && (
+                                        <Button
+                                            className="w-full bg-blue-50 text-blue-600 hover:bg-blue-100 dark:bg-blue-900/20 dark:text-blue-400 shadow-sm border border-blue-200 dark:border-blue-800/50 transition-colors"
+                                            onClick={() => setIsShareOpen(true)}
+                                        >
+                                            <Share2 className="w-4 h-4 mr-2" /> Share
+                                        </Button>
+                                    )}
                                     <Button className="w-full shadow-sm" onClick={() => handleDownload(selectedDoc)}>
                                         <Download className="w-4 h-4 mr-2" /> Download
                                     </Button>
-                                    {!isPublicOnly && getAccessLevel(selectedDoc) === 'Write' && (
+                                    {!isPublicOnly && canUserEdit(selectedDoc) && (
                                         <>
                                             {!isMoving ? (
                                                 <Button
@@ -699,10 +747,12 @@ export function Workspace({ isPublicOnly = false, isSearchPage = false }) {
                                                     <Button className="w-full py-2 text-xs mt-1" onClick={handleMoveSpaceSubmit}>Confirm Move</Button>
                                                 </div>
                                             )}
-                                            <Button variant="danger" className="w-full shadow-sm" onClick={() => handleDelete(selectedDoc._id)}>
-                                                <Trash2 className="w-4 h-4 mr-2" /> Delete
-                                            </Button>
                                         </>
+                                    )}
+                                    {!isPublicOnly && canUserDelete(selectedDoc) && (
+                                        <Button variant="danger" className="w-full shadow-sm" onClick={() => handleDelete(selectedDoc._id)}>
+                                            <Trash2 className="w-4 h-4 mr-2" /> Delete
+                                        </Button>
                                     )}
                                 </div>
                             </div>
@@ -731,6 +781,15 @@ export function Workspace({ isPublicOnly = false, isSearchPage = false }) {
                 onUploadSuccess={() => fetchDocuments()}
                 defaultSpace={(activeSpace === 'shared' || isSearchPage) ? null : activeSpace}
                 defaultOrgId={selectedOrgId}
+            />
+            <ShareModal
+                isOpen={isShareOpen}
+                onClose={() => setIsShareOpen(false)}
+                document={selectedDoc}
+                onUpdate={(updatedDoc) => {
+                    setSelectedDoc(updatedDoc);
+                    setDocuments(docs => docs.map(d => d._id === updatedDoc._id ? updatedDoc : d));
+                }}
             />
         </div>
     );

@@ -37,6 +37,13 @@ const organizationSchema = new mongoose.Schema({
         required: true,
     },
     members: [memberSchema],
+    sharingPolicy: {
+        defaultRole: {
+            type: String,
+            enum: ['viewer', 'downloader', 'editor', 'sharer', 'manager'],
+            default: 'viewer',
+        },
+    },
     avatarColor: {
         type: String,
         default: function () {

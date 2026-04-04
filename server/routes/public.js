@@ -126,4 +126,59 @@ router.get('/documents/:id/download', async (req, res) => {
     }
 });
 
+/**
+ * GET /api/public/shared/:token
+ * Access a document via a share link token — no auth required for 'anyone' mode.
+ * Returns document info + download URL based on the link's role.
+ */
+router.get('/shared/:token', async (req, res) => {
+    try {
+        const doc = await Document.findOne({ 'linkSharing.token': req.params.token })
+            .populate('uploadedBy', 'name avatarColor');
+
+        if (!doc || !doc.linkSharing?.enabled) {
+            return res.status(404).json({ error: 'Shared link not found or has been disabled.' });
+        }
+
+        // For 'organization' mode, this route won't work without auth
+        // (the authenticated documents route + checkDocAccess handles that)
+        if (doc.linkSharing.mode === 'organization') {
+            return res.status(403).json({
+                error: 'This document is shared with organization members only. Please log in.',
+                requiresAuth: true,
+                documentId: doc._id,
+            });
+        }
+
+        // For 'anyone' mode, serve the document
+        const linkRole = doc.linkSharing.role || 'viewer';
+        const canDownload = linkRole === 'downloader' || linkRole === 'manager';
+
+        const result = {
+            document: {
+                _id: doc._id,
+                fileName: doc.fileName,
+                description: doc.description,
+                mimeType: doc.mimeType,
+                fileSize: doc.fileSize,
+                tags: doc.tags,
+                uploadDate: doc.uploadDate,
+                uploadedBy: doc.uploadedBy,
+            },
+            role: linkRole,
+            canDownload,
+        };
+
+        if (canDownload) {
+            const downloadUrl = await getDownloadUrl(doc.s3Key);
+            result.downloadUrl = downloadUrl;
+        }
+
+        res.json(result);
+    } catch (err) {
+        console.error('Shared link access error:', err);
+        res.status(500).json({ error: 'Failed to access shared document.' });
+    }
+});
+
 module.exports = router;

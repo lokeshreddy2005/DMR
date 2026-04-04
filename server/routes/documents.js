@@ -3,6 +3,7 @@ const multer = require('multer');
 const fs = require('fs');
 const path = require('path');
 const Document = require('../models/Document');
+const { ROLE_PRESETS, VALID_ROLES } = require('../models/Document');
 const Organization = require('../models/Organization');
 const User = require('../models/User');
 const { authMiddleware } = require('../middleware/auth');
@@ -107,7 +108,7 @@ router.post('/upload', upload.single('document'), async (req, res) => {
       s3Url,
       mimeType: req.file.mimetype,
       fileSize: req.file.size,
-      permissions: [{ user: req.user._id, level: 'owner' }],
+      permissions: [Document.buildPermission(req.user._id, 'owner', req.user._id)],
     });
 
     // Handle Initial Manual Tags
@@ -545,8 +546,8 @@ router.delete('/:id', async (req, res) => {
     const doc = await Document.findById(req.params.id);
     if (!doc) return res.status(404).json({ error: 'Document not found.' });
 
-    if (!doc.isOwner(req.user._id)) {
-      return res.status(403).json({ error: 'Only the owner can delete this document.' });
+    if (!doc.canDeleteDoc(req.user._id)) {
+      return res.status(403).json({ error: 'You do not have permission to delete this document.' });
     }
 
     try { await deleteFromS3(doc.s3Key); } catch (s3Err) {
@@ -573,6 +574,14 @@ router.get('/:id/download', async (req, res) => {
       return res.status(403).json({ error: 'You do not have access to this document.' });
     }
 
+    // For non-public docs, check canDownload flag
+    if (doc.space !== 'public' && !doc.canDownload(req.user._id)) {
+      // Also allow if user is an org member viewing org docs
+      if (!(doc.space === 'organization' && doc.organization)) {
+        return res.status(403).json({ error: 'You do not have download permission for this document.' });
+      }
+    }
+
     const downloadUrl = await getDownloadUrl(doc.s3Key);
     res.json({ downloadUrl, fileName: doc.fileName });
   } catch (err) {
@@ -589,11 +598,11 @@ router.post('/:id/permissions', async (req, res) => {
     const doc = await Document.findById(req.params.id);
     if (!doc) return res.status(404).json({ error: 'Document not found.' });
 
-    if (!doc.isOwner(req.user._id)) {
-      return res.status(403).json({ error: 'Only the owner can manage permissions.' });
+    if (!doc.canManageAccess(req.user._id)) {
+      return res.status(403).json({ error: 'You do not have permission to manage access.' });
     }
 
-    const { email, level } = req.body;
+    const { email, role, expiresIn } = req.body;
     if (!email) return res.status(400).json({ error: 'Email is required.' });
 
     const targetUser = await User.findOne({ email: email.toLowerCase() });
@@ -601,22 +610,148 @@ router.post('/:id/permissions', async (req, res) => {
       return res.status(404).json({ error: 'No user found with that email.' });
     }
 
+    // Prevent sharing to the document uploader (they already own it)
+    if (doc.uploadedBy.toString() === targetUser._id.toString()) {
+      return res.status(400).json({ error: 'Cannot share with the document owner — they already have full access.' });
+    }
+
+    // Determine role: use provided role, or org default, or fallback to viewer
+    let assignRole = role || 'viewer';
+    if (!role && doc.space === 'organization' && doc.organization) {
+      const org = await Organization.findById(doc.organization);
+      if (org?.sharingPolicy?.defaultRole) {
+        assignRole = org.sharingPolicy.defaultRole;
+      }
+    }
+
+    if (!VALID_ROLES.includes(assignRole)) {
+      return res.status(400).json({ error: `Invalid role. Valid roles: ${VALID_ROLES.join(', ')}` });
+    }
+
+    // Don't allow granting 'owner' role through this endpoint
+    if (assignRole === 'owner') {
+      return res.status(400).json({ error: 'Cannot grant owner role. Use transfer ownership instead.' });
+    }
+
+    // Enforce maxShares limit (0 = unlimited)
     const existingIdx = doc.permissions.findIndex(
-      (p) => p.user.toString() === targetUser._id.toString()
+      (p) => (p.user._id?.toString() || p.user.toString()) === targetUser._id.toString()
     );
+    if (existingIdx < 0) {
+      // This is a NEW share — check the limit
+      const maxShares = doc.sharingPolicy?.maxShares || 0;
+      if (maxShares > 0) {
+        const nonOwnerShares = doc.permissions.filter(p => p.role !== 'owner' && p.level !== 'owner').length;
+        if (nonOwnerShares >= maxShares) {
+          return res.status(400).json({
+            error: `Share limit reached. This document can be shared with at most ${maxShares} user(s). Remove existing shares to add new ones.`
+          });
+        }
+      }
+    }
+
+    // Compute expiry if expiresIn is provided (in hours)
+    let expiresAt = null;
+    if (expiresIn && Number(expiresIn) > 0) {
+      expiresAt = new Date(Date.now() + Number(expiresIn) * 60 * 60 * 1000);
+    }
+
+    const newPerm = Document.buildPermission(targetUser._id, assignRole, req.user._id, expiresAt);
+
     if (existingIdx >= 0) {
-      doc.permissions[existingIdx].level = level || 'viewer';
+      // Never allow modifying the owner's permission
+      const existingPerm = doc.permissions[existingIdx];
+      if (existingPerm.role === 'owner' || existingPerm.level === 'owner') {
+        return res.status(400).json({ error: 'Cannot modify the owner\'s permissions.' });
+      }
+      // Preserve grantedAt from original, update the rest
+      newPerm.grantedAt = doc.permissions[existingIdx].grantedAt;
+      doc.permissions[existingIdx] = newPerm;
     } else {
-      doc.permissions.push({ user: targetUser._id, level: level || 'viewer' });
+      doc.permissions.push(newPerm);
     }
 
     await doc.save();
     await doc.populate('permissions.user', 'name email avatarColor');
+    await doc.populate('permissions.grantedBy', 'name email');
 
-    res.json({ message: `Access granted to ${targetUser.name}!`, document: doc });
+    res.json({ message: `${assignRole} access granted to ${targetUser.name}!`, document: doc });
   } catch (err) {
     console.error('Grant permission error:', err);
     res.status(500).json({ error: 'Failed to grant permission.' });
+  }
+});
+
+/**
+ * PUT /api/documents/:id/sharing-policy
+ * Update document sharing policy (owner only).
+ */
+router.put('/:id/sharing-policy', async (req, res) => {
+  try {
+    const doc = await Document.findById(req.params.id);
+    if (!doc) return res.status(404).json({ error: 'Document not found.' });
+
+    // Only the owner can change sharing policy
+    if (doc.uploadedBy.toString() !== req.user._id.toString()) {
+      return res.status(403).json({ error: 'Only the document owner can change sharing policy.' });
+    }
+
+    const { maxShares } = req.body;
+    if (maxShares !== undefined) {
+      const val = Math.max(0, parseInt(maxShares) || 0);
+      if (!doc.sharingPolicy) doc.sharingPolicy = {};
+      doc.sharingPolicy.maxShares = val;
+    }
+
+    await doc.save();
+    res.json({ message: 'Sharing policy updated.', sharingPolicy: doc.sharingPolicy });
+  } catch (err) {
+    console.error('Update sharing policy error:', err);
+    res.status(500).json({ error: 'Failed to update sharing policy.' });
+  }
+});
+
+/**
+ * PUT /api/documents/:id/link-sharing
+ * Toggle and configure link-based sharing (owner/manager only).
+ */
+router.put('/:id/link-sharing', async (req, res) => {
+  try {
+    const doc = await Document.findById(req.params.id);
+    if (!doc) return res.status(404).json({ error: 'Document not found.' });
+
+    if (!doc.canManageAccess(req.user._id)) {
+      return res.status(403).json({ error: 'You do not have permission to manage link sharing.' });
+    }
+
+    const { enabled, mode, role } = req.body;
+    const crypto = require('crypto');
+
+    if (!doc.linkSharing) {
+      doc.linkSharing = { enabled: false, mode: 'restricted', role: 'viewer', token: null };
+    }
+
+    if (enabled !== undefined) doc.linkSharing.enabled = !!enabled;
+    if (mode && ['restricted', 'organization', 'anyone'].includes(mode)) doc.linkSharing.mode = mode;
+    if (role && ['viewer', 'downloader', 'manager'].includes(role)) doc.linkSharing.role = role;
+
+    // Generate token when enabling, clear when disabling
+    if (doc.linkSharing.enabled && !doc.linkSharing.token) {
+      doc.linkSharing.token = crypto.randomBytes(24).toString('hex');
+    }
+    if (!doc.linkSharing.enabled) {
+      doc.linkSharing.token = null;
+      doc.linkSharing.mode = 'restricted';
+    }
+
+    await doc.save();
+    res.json({
+      message: doc.linkSharing.enabled ? 'Link sharing enabled.' : 'Link sharing disabled.',
+      linkSharing: doc.linkSharing,
+    });
+  } catch (err) {
+    console.error('Update link sharing error:', err);
+    res.status(500).json({ error: 'Failed to update link sharing.' });
   }
 });
 
@@ -628,8 +763,16 @@ router.delete('/:id/permissions/:userId', async (req, res) => {
     const doc = await Document.findById(req.params.id);
     if (!doc) return res.status(404).json({ error: 'Document not found.' });
 
-    if (!doc.isOwner(req.user._id)) {
-      return res.status(403).json({ error: 'Only the owner can manage permissions.' });
+    if (!doc.canManageAccess(req.user._id)) {
+      return res.status(403).json({ error: 'You do not have permission to manage access.' });
+    }
+
+    // Cannot revoke owner permission
+    const targetPerm = doc.permissions.find(
+      (p) => (p.user._id?.toString() || p.user.toString()) === req.params.userId
+    );
+    if (targetPerm?.role === 'owner') {
+      return res.status(400).json({ error: 'Cannot revoke owner access.' });
     }
 
     if (req.params.userId === req.user._id.toString()) {
@@ -637,7 +780,7 @@ router.delete('/:id/permissions/:userId', async (req, res) => {
     }
 
     doc.permissions = doc.permissions.filter(
-      (p) => p.user.toString() !== req.params.userId
+      (p) => (p.user._id?.toString() || p.user.toString()) !== req.params.userId
     );
 
     await doc.save();
@@ -647,6 +790,38 @@ router.delete('/:id/permissions/:userId', async (req, res) => {
   } catch (err) {
     console.error('Revoke permission error:', err);
     res.status(500).json({ error: 'Failed to revoke permission.' });
+  }
+});
+
+/**
+ * GET /api/documents/:id/permissions
+ * Get all permissions for a document (for the sharing panel).
+ */
+router.get('/:id/permissions', async (req, res) => {
+  try {
+    const doc = await Document.findById(req.params.id)
+      .populate('permissions.user', 'name email avatarColor')
+      .populate('permissions.grantedBy', 'name email');
+    if (!doc) return res.status(404).json({ error: 'Document not found.' });
+
+    if (!doc.canManageAccess(req.user._id)) {
+      return res.status(403).json({ error: 'You do not have permission to view access details.' });
+    }
+
+    res.json({
+      permissions: doc.permissions,
+      availableRoles: VALID_ROLES.filter(r => r !== 'owner'),
+      roleDescriptions: {
+        viewer:     'Can view the document',
+        downloader: 'Can view and download',
+        editor:     'Can view, download, and edit',
+        sharer:     'Can view, download, and share with others',
+        manager:    'Can view, download, edit, share, and manage access',
+      },
+    });
+  } catch (err) {
+    console.error('Get permissions error:', err);
+    res.status(500).json({ error: 'Failed to fetch permissions.' });
   }
 });
 
@@ -664,6 +839,15 @@ async function checkDocAccess(doc, userId) {
     const orgId = doc.organization._id || doc.organization;
     const org = await Organization.findById(orgId);
     if (org && org.isMember(userId)) return true;
+  }
+  // Check link sharing mode
+  if (doc.linkSharing?.enabled) {
+    if (doc.linkSharing.mode === 'anyone') return true;
+    if (doc.linkSharing.mode === 'organization' && doc.space === 'organization' && doc.organization) {
+      const orgId = doc.organization._id || doc.organization;
+      const org = await Organization.findById(orgId);
+      if (org && org.isMember(userId)) return true;
+    }
   }
   return false;
 }
