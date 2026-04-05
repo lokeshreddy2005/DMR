@@ -16,7 +16,8 @@ router.get('/documents', async (req, res) => {
             minSize, maxSize, 
             startDate, endDate, 
             extension, tags,
-            isTagged, departmentOwner
+            isTagged, departmentOwner,
+            uploadedBy, academicYear, organizationId, sort
         } = req.query;
 
         const accessQuery = { space: 'public' };
@@ -54,12 +55,27 @@ router.get('/documents', async (req, res) => {
         }
 
         if (tags) {
-            const tagsArray = tags.split(',');
-            filterQuery.tags = { $in: tagsArray };
+            const tagsArray = tags.split(',').map(t => t.trim()).filter(Boolean);
+            filterQuery.tags = {
+                $in: tagsArray.map(t => new RegExp(`^${t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i'))
+            };
         }
 
         if (isTagged !== undefined) {
              filterQuery.isTagged = isTagged === 'true';
+        }
+
+        if (uploadedBy) {
+            const ids = uploadedBy.split(',').filter(Boolean);
+            filterQuery.uploadedBy = ids.length === 1 ? ids[0] : { $in: ids };
+        }
+
+        if (academicYear) {
+            filterQuery['metadata.academicYear'] = academicYear;
+        }
+
+        if (organizationId) {
+            filterQuery.organization = organizationId;
         }
 
         const finalQuery = Object.keys(filterQuery).length > 0 
@@ -69,11 +85,18 @@ router.get('/documents', async (req, res) => {
         const skip = (parseInt(page) - 1) * parseInt(limit);
         const limitNum = parseInt(limit);
 
+        let sortOption = { uploadDate: -1 };
+        if (sort === 'oldest') sortOption = { uploadDate: 1 };
+        else if (sort === 'sizeAsc') sortOption = { fileSize: 1 };
+        else if (sort === 'sizeDesc') sortOption = { fileSize: -1 };
+        else if (sort === 'nameAsc') sortOption = { fileName: 1 };
+        else if (sort === 'nameDesc') sortOption = { fileName: -1 };
+
         const [documents, totalCount] = await Promise.all([
             Document.find(finalQuery)
                 .populate('uploadedBy', 'name avatarColor')
                 .select('-permissions -s3Key')
-                .sort({ uploadDate: -1 })
+                .sort(sortOption)
                 .skip(skip)
                 .limit(limitNum),
             Document.countDocuments(finalQuery)

@@ -17,7 +17,8 @@ import {
   X,
   Users,
   FileText,
-  ChevronLeft
+  ChevronLeft,
+  Clock
 } from "lucide-react";
 import { useState, useEffect } from "react";
 import axios from "axios";
@@ -27,6 +28,7 @@ import { motion, AnimatePresence } from "framer-motion";
 
 const SIDEBAR_LINKS = [
   { name: "Dashboard", href: "/dashboard", icon: LayoutDashboard },
+  { name: "Recently Accessed", href: "/workspace/recent", icon: Clock },
   { name: "Public Space", href: "/workspace/public", icon: Globe },
   { name: "Private Space", href: "/workspace/private", icon: Lock },
   { name: "Shared with Me", href: "/workspace/shared", icon: Users },

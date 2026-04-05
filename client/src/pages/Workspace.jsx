@@ -4,7 +4,7 @@ import { useAuth } from '../context/AuthContext';
 import axios from 'axios';
 import API_URL from '../config/api';
 import { Button } from '../components/ui/Button';
-import { FileText, Download, Trash2, Search, Plus, FileUp, MoreVertical, Globe, Lock, Building2, Users, Edit3, Eye, X, LayoutGrid, List, ChevronLeft, ChevronRight, Share2 } from 'lucide-react';
+import { FileText, Download, Trash2, Search, Plus, FileUp, MoreVertical, Globe, Lock, Building2, Users, Edit3, Eye, X, LayoutGrid, List, ChevronLeft, ChevronRight, Share2, Clock } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import UploadModal from '../components/UploadModal';
 import ShareModal from '../components/ShareModal';
@@ -125,13 +125,15 @@ export function Workspace({ isPublicOnly = false, isSearchPage = false }) {
             if (!isPublicOnly && activeSpace === 'organization' && selectedOrgId) {
                 params.set('space', 'organization');
                 params.set('organizationId', selectedOrgId);
-            } else if (!isPublicOnly && activeSpace !== 'search' && activeSpace !== 'public') {
+            } else if (!isPublicOnly && activeSpace !== 'search' && activeSpace !== 'public' && activeSpace !== 'recent') {
                 params.set('space', activeSpace);
             }
 
             const queryStr = params.toString();
             const isPublicRequest = isPublicOnly || activeSpace === 'public';
-            const endpoint = isPublicRequest ? '/api/public/documents' : '/api/documents';
+            let endpoint = isPublicRequest ? '/api/public/documents' : '/api/documents';
+            if (activeSpace === 'recent') endpoint = '/api/documents/recent-activity';
+            
             const url = `${API_URL}${endpoint}${queryStr ? '?' + queryStr : ''}`;
 
             const res = await axios.get(url, isPublicRequest ? {} : { headers });
@@ -220,10 +222,13 @@ export function Workspace({ isPublicOnly = false, isSearchPage = false }) {
     const handleDownload = async (doc) => {
         try {
             const headers = getAuthHeaders();
-            const url = doc.space === 'public'
-                ? `${API_URL}/api/public/documents/${doc._id}/download`
-                : `${API_URL}/api/documents/${doc._id}/download`;
-            const res = await axios.get(url, { headers });
+            // Always use the authenticated endpoint when a token exists — this logs the
+            // RecentAccess entry. Fall back to the public endpoint only for anon users.
+            const useAuth = !!token;
+            const url = useAuth
+                ? `${API_URL}/api/documents/${doc._id}/download`
+                : `${API_URL}/api/public/documents/${doc._id}/download`;
+            const res = await axios.get(url, useAuth ? { headers } : {});
             window.open(res.data.downloadUrl, '_blank');
         } catch (err) { showToast('error', 'Download failed.'); }
     };
@@ -308,7 +313,7 @@ export function Workspace({ isPublicOnly = false, isSearchPage = false }) {
     const paginatedDocuments = documents;
     const startIndex = (currentPage - 1) * itemsPerPage;
 
-    const spaceLabel = isSearchPage ? 'Search Results' : activeSpace === 'shared' ? 'Shared with Me' : `${activeSpace.charAt(0).toUpperCase() + activeSpace.slice(1)} Space`;
+    const spaceLabel = isSearchPage ? 'Search Results' : activeSpace === 'shared' ? 'Shared with Me' : activeSpace === 'recent' ? 'Recently Accessed' : `${activeSpace.charAt(0).toUpperCase() + activeSpace.slice(1)} Space`;
 
     return (
         <div className="max-w-7xl mx-auto flex flex-col h-[calc(100vh-8rem)]">
@@ -320,6 +325,7 @@ export function Workspace({ isPublicOnly = false, isSearchPage = false }) {
                         {activeSpace === 'private' && <Lock className="w-8 h-8 text-blue-500" />}
                         {activeSpace === 'shared' && <Users className="w-8 h-8 text-orange-500" />}
                         {activeSpace === 'organization' && <Building2 className="w-8 h-8 text-purple-500" />}
+                        {activeSpace === 'recent' && <Clock className="w-8 h-8 text-rose-500" />}
                         {isSearchPage && <Search className="w-8 h-8 text-blue-500" />}
                         {spaceLabel}
                     </h1>
@@ -328,6 +334,7 @@ export function Workspace({ isPublicOnly = false, isSearchPage = false }) {
                         {activeSpace === 'private' && 'Documents you have uploaded privately.'}
                         {activeSpace === 'shared' && 'Documents others have shared with you.'}
                         {activeSpace === 'organization' && 'Documents within your organizations.'}
+                        {activeSpace === 'recent' && 'Documents you have recently viewed or modified.'}
                     </p>
                 </div>
 
@@ -345,7 +352,13 @@ export function Workspace({ isPublicOnly = false, isSearchPage = false }) {
                             {searchQuery && (
                                 <button
                                     type="button"
-                                    onClick={() => setSearchQuery('')}
+                                    onClick={() => {
+                                        setSearchQuery('');
+                                        const np = new URLSearchParams(searchParams);
+                                        np.delete('q');
+                                        np.set('page', '1');
+                                        setSearchParams(np, { replace: true });
+                                    }}
                                     className="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 rounded-md transition-colors"
                                 >
                                     <X className="w-4 h-4" />
@@ -455,7 +468,7 @@ export function Workspace({ isPublicOnly = false, isSearchPage = false }) {
                             <p className="text-sm text-gray-500 mb-4">{error}</p>
                             <Button onClick={fetchDocuments}>Retry</Button>
                         </div>
-                    ) : displayedDocuments.length > 0 ? (
+                    ) : paginatedDocuments.length > 0 ? (
                         <AnimatePresence mode="wait">
                             <motion.div
                                 key={viewMode}

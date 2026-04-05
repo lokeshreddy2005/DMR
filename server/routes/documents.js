@@ -322,7 +322,8 @@ router.get('/', async (req, res) => {
       startDate, endDate, 
       extension, tags,
       uploadedBy, permissionLevel,
-      isTagged, departmentOwner, isAITagged
+      isTagged, departmentOwner, isAITagged,
+      academicYear, sort
     } = req.query;
 
     let accessQuery = {};
@@ -395,15 +396,19 @@ router.get('/', async (req, res) => {
       filterQuery['metadata.departmentOwner'] = departmentOwner;
     }
     
-    // Array Subset Match
+    // Case-insensitive tag match so "neural networks" in URL still matches "Neural Networks" in DB
     if (tags) {
-      const tagsArray = tags.split(',');
-      filterQuery.tags = { $in: tagsArray };
+      const tagsArray = tags.split(',').map(t => t.trim()).filter(Boolean);
+      filterQuery.tags = {
+        $in: tagsArray.map(t => new RegExp(`^${t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i'))
+      };
     }
 
     // Phase 1B: Relational & Permission Filters
     if (uploadedBy) {
-      filterQuery.uploadedBy = uploadedBy;
+      // Support comma-separated list of user IDs for multi-select
+      const ids = uploadedBy.split(',').filter(Boolean);
+      filterQuery.uploadedBy = ids.length === 1 ? ids[0] : { $in: ids };
     }
     if (space !== 'organization' && organizationId) {
       filterQuery.organization = organizationId;
@@ -433,11 +438,22 @@ router.get('/', async (req, res) => {
     const skip = (parseInt(page) - 1) * parseInt(limit);
     const limitNum = parseInt(limit);
 
+    if (academicYear) {
+      filterQuery['metadata.academicYear'] = academicYear;
+    }
+
+    let sortOption = { uploadDate: -1 };
+    if (sort === 'oldest') sortOption = { uploadDate: 1 };
+    else if (sort === 'sizeAsc') sortOption = { fileSize: 1 };
+    else if (sort === 'sizeDesc') sortOption = { fileSize: -1 };
+    else if (sort === 'nameAsc') sortOption = { fileName: 1 };
+    else if (sort === 'nameDesc') sortOption = { fileName: -1 };
+
     const [documents, totalCount] = await Promise.all([
       Document.find(finalQuery)
         .populate('uploadedBy', 'name email avatarColor')
         .populate('organization', 'name avatarColor')
-        .sort({ uploadDate: -1 })
+        .sort(sortOption)
         .skip(skip)
         .limit(limitNum),
       Document.countDocuments(finalQuery)
@@ -482,7 +498,7 @@ router.get('/tags/search', async (req, res) => {
       { $match: { tags: { $regex: new RegExp(q, 'i') } } },
       { $unwind: '$tags' },
       { $match: { tags: { $regex: new RegExp(q, 'i') } } },
-      { $group: { _id: { $toLower: '$tags' }, count: { $sum: 1 } } },
+      { $group: { _id: '$tags', count: { $sum: 1 } } }, // preserve original casing
       { $sort: { count: -1 } },
       { $limit: 20 },
     ]);
