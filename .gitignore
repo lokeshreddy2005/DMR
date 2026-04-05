@@ -36,3 +36,8 @@ SWE__Sprint_0.pdf
 tagging_test/
 .venv
 .gitignore
+
+##
+implementation_plan.md
+implementation_plan_front.md
+implementation_plan_back.md
