@@ -153,7 +153,13 @@ const documentSchema = new mongoose.Schema({
   },
 });
 
-// Text index for tag search
+// ─── Indexes for Performance ───
+// Single Field Indexes for sorting/filtering
+documentSchema.index({ uploadDate: -1 });
+documentSchema.index({ 'metadata.extension': 1 });
+documentSchema.index({ 'metadata.departmentOwner': 1 });
+
+// Text & Array Indexes
 documentSchema.index({ tags: 1 });
 documentSchema.index({ fileName: 'text', tags: 'text' });
 

@@ -322,7 +322,7 @@ router.get('/', async (req, res) => {
       startDate, endDate, 
       extension, tags,
       uploadedBy, permissionLevel,
-      isTagged, departmentOwner
+      isTagged, departmentOwner, isAITagged
     } = req.query;
 
     let accessQuery = {};
@@ -409,11 +409,20 @@ router.get('/', async (req, res) => {
       filterQuery.organization = organizationId;
     }
     if (permissionLevel) {
-      filterQuery.permissions = { $elemMatch: { user: req.user._id, level: permissionLevel } };
+      filterQuery.permissions = { 
+        $elemMatch: { 
+          user: req.user._id, 
+          $or: [{ level: permissionLevel }, { role: permissionLevel }] 
+        } 
+      };  
     }
 
     if (isTagged !== undefined) {
       filterQuery.isTagged = isTagged === 'true';
+    }
+
+    if(isAITagged !== undefined) {
+      filterQuery.isAITagged = isAITagged === 'true';
     }
 
     // 3. Merge Queries & Execute
@@ -488,7 +497,7 @@ router.get('/tags/search', async (req, res) => {
 
 /**
  * GET /api/documents/recent-activity
- * Logged via Phase 1C recent access tracker
+ * Logged via recent access tracker
  */
 router.get('/recent-activity', async (req, res) => {
   try {
@@ -555,6 +564,52 @@ router.get('/departments/search', async (req, res) => {
   } catch (err) {
     console.error('Department search error:', err);
     res.status(500).json({ error: 'Failed to search departments.' });
+  }
+});
+
+/**
+ * GET /api/documents/users/search
+ * Search users who have uploaded documents accessible to the current user.
+ * Used for the "Uploaded By" autocomplete filter.
+ */
+router.get('/users/search', async (req, res) => {
+  try {
+    const { q } = req.query;
+    if (!q || q.trim().length < 2) {
+      return res.json({ users: [] });
+    }
+
+    const regex = new RegExp(q.trim(), 'i');
+
+    // 1. Establish the same access logic used in other search routes
+    const userOrgs = await Organization.find({ 'members.user': req.user._id }).select('_id');
+    const accessQuery = {
+      $or: [
+        { space: 'public' },
+        { space: 'private', uploadedBy: req.user._id },
+        { space: 'private', 'permissions.user': req.user._id },
+        { space: 'organization', organization: { $in: userOrgs.map(o => o._id) } },
+      ],
+    };
+
+    // 2. Find all unique user IDs who have uploaded accessible documents
+    const uploaderIds = await Document.distinct('uploadedBy', accessQuery);
+
+    // 3. Search for those specific users by name or email
+    const users = await User.find({
+      _id: { $in: uploaderIds },
+      $or: [
+        { name: { $regex: regex } },
+        { email: { $regex: regex } }
+      ]
+    })
+    .select('name email avatarColor')
+    .limit(10);
+
+    res.json({ users });
+  } catch (err) {
+    console.error('User search error:', err);
+    res.status(500).json({ error: 'Failed to search users.' });
   }
 });
 
@@ -783,7 +838,7 @@ router.get('/:id/download', async (req, res) => {
       }
     }
 
-    // Phase 1C: Usage Tracking Logging
+    // // Usage Tracking Logging
     await RecentAccess.findOneAndUpdate(
       { user: req.user._id, document: doc._id },
       { lastOpenedAt: new Date() },

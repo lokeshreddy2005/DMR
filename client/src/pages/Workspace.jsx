@@ -8,6 +8,7 @@ import { FileText, Download, Trash2, Search, Plus, FileUp, MoreVertical, Globe, 
 import { motion, AnimatePresence } from 'framer-motion';
 import UploadModal from '../components/UploadModal';
 import ShareModal from '../components/ShareModal';
+import AdvancedSearchPopover from '../components/AdvancedSearchPopover';
 
 export function Workspace({ isPublicOnly = false, isSearchPage = false }) {
     const { spaceId } = useParams();
@@ -29,7 +30,9 @@ export function Workspace({ isPublicOnly = false, isSearchPage = false }) {
     const [selectedDoc, setSelectedDoc] = useState(null);
     const [toast, setToast] = useState(null);
     const [viewMode, setViewMode] = useState('grid');
-    const [currentPage, setCurrentPage] = useState(1);
+    const currentPage = parseInt(searchParams.get('page') || '1', 10);
+    const [totalPages, setTotalPages] = useState(1);
+    const [totalCount, setTotalCount] = useState(0);
 
     // Tagging & Moving state
     const [tagInput, setTagInput] = useState('');
@@ -38,10 +41,6 @@ export function Workspace({ isPublicOnly = false, isSearchPage = false }) {
     const [moveOrg, setMoveOrg] = useState('');
     const [moveAutoTag, setMoveAutoTag] = useState(false);
     const [isTaggingAI, setIsTaggingAI] = useState(false);
-
-    useEffect(() => {
-        setCurrentPage(1);
-    }, [searchQuery, activeSpace]);
 
     const showToast = (type, message) => {
         setToast({ type, message });
@@ -116,43 +115,31 @@ export function Workspace({ isPublicOnly = false, isSearchPage = false }) {
         setIsLoading(true);
         setError(null);
         try {
-            // --- PUBLIC space: no auth required ---
-            if (isPublicOnly || activeSpace === 'public') {
-                let url = `${API_URL}/api/public/documents`;
-                if (searchQuery.trim()) {
-                    url = `${API_URL}/api/public/documents?q=${encodeURIComponent(searchQuery.trim())}`;
-                }
-                const res = await axios.get(url);
-                setDocuments(res.data.documents || []);
-                return;
-            }
-
-            // --- Authenticated spaces ---
             const headers = getAuthHeaders();
+            const params = new URLSearchParams(searchParams);
 
-            if (isSearchPage) {
-                const query = searchParams.get('q') || searchQuery || '';
-                const url = `${API_URL}/api/documents?q=${encodeURIComponent(query)}`;
-                const res = await axios.get(url, { headers });
-                setDocuments(res.data.documents || []);
-            } else if (activeSpace === 'organization') {
-                if (!selectedOrgId) {
-                    setDocuments([]);
-                    return;
-                }
-                const res = await axios.get(
-                    `${API_URL}/api/documents?space=organization&organizationId=${selectedOrgId}`,
-                    { headers }
-                );
-                setDocuments(res.data.documents || []);
-            } else {
-                // private | shared
-                const res = await axios.get(
-                    `${API_URL}/api/documents?space=${activeSpace}`,
-                    { headers }
-                );
-                setDocuments(res.data.documents || []);
+            if (searchQuery.trim()) {
+                params.set('q', searchQuery.trim());
             }
+
+            if (!isPublicOnly && activeSpace === 'organization' && selectedOrgId) {
+                params.set('space', 'organization');
+                params.set('organizationId', selectedOrgId);
+            } else if (!isPublicOnly && activeSpace !== 'search' && activeSpace !== 'public') {
+                params.set('space', activeSpace);
+            }
+
+            const queryStr = params.toString();
+            const isPublicRequest = isPublicOnly || activeSpace === 'public';
+            const endpoint = isPublicRequest ? '/api/public/documents' : '/api/documents';
+            const url = `${API_URL}${endpoint}${queryStr ? '?' + queryStr : ''}`;
+
+            const res = await axios.get(url, isPublicRequest ? {} : { headers });
+            
+            setDocuments(res.data.documents || []);
+            setTotalPages(res.data.totalPages || 1);
+            setTotalCount(res.data.totalCount || 0);
+
         } catch (err) {
             console.error('fetchDocuments error:', err);
             setError(err.response?.data?.error || 'Failed to load documents.');
@@ -161,7 +148,7 @@ export function Workspace({ isPublicOnly = false, isSearchPage = false }) {
             setIsLoading(false);
         }
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [activeSpace, selectedOrgId, isPublicOnly, searchQuery, token]);
+    }, [activeSpace, selectedOrgId, isPublicOnly, searchQuery, searchParams, token]);
 
     const fetchOrgs = useCallback(async () => {
         if (isPublicOnly || activeSpace !== 'organization') return;
@@ -177,7 +164,7 @@ export function Workspace({ isPublicOnly = false, isSearchPage = false }) {
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [isPublicOnly, activeSpace, token]);
 
-    // Effect to clear selection and fetch data when space changes
+    // Effect to clear selection when space changes
     useEffect(() => {
         if (searchQuery && activeSpace !== 'search') {
             skipSearchEffect.current = true;
@@ -188,19 +175,16 @@ export function Workspace({ isPublicOnly = false, isSearchPage = false }) {
         setIsMoving(false);
         if (!isPublicOnly && activeSpace === 'organization') {
             fetchOrgs();
-        } else {
-            fetchDocuments();
         }
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [activeSpace]);
 
-    // After org is selected, fetch documents for that org
+    // Fetch documents on activeSpace, searchParams, or selectedOrgId changes
     useEffect(() => {
-        if (activeSpace === 'organization' && selectedOrgId) {
-            fetchDocuments();
-        }
+        if (activeSpace === 'organization' && !selectedOrgId) return;
+        fetchDocuments();
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [selectedOrgId]);
+    }, [activeSpace, selectedOrgId, searchParams]);
 
     // Sync URL param to state if it changes externally
     useEffect(() => {
@@ -318,20 +302,11 @@ export function Workspace({ isPublicOnly = false, isSearchPage = false }) {
         return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
     };
 
-    // Local filter for authenticated spaces (instant search)
-    const displayedDocuments = (activeSpace === 'public' || activeSpace === 'search' || !searchQuery.trim())
-        ? documents
-        : documents.filter(doc =>
-            doc.fileName?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-            doc.tags?.some(tag => tag.toLowerCase().includes(searchQuery.toLowerCase())) ||
-            doc.description?.toLowerCase().includes(searchQuery.toLowerCase())
-        );
-
-    const itemsPerPage = 24;
-    const totalItems = displayedDocuments.length;
-    const totalPages = Math.ceil(totalItems / itemsPerPage) || 1;
+    const itemsPerPage = 20; // Server limit is default 20
+    const totalItems = totalCount;
+    // Client side slicing removed - server handles pagination
+    const paginatedDocuments = documents;
     const startIndex = (currentPage - 1) * itemsPerPage;
-    const paginatedDocuments = isSearchPage ? displayedDocuments.slice(startIndex, startIndex + itemsPerPage) : displayedDocuments;
 
     const spaceLabel = isSearchPage ? 'Search Results' : activeSpace === 'shared' ? 'Shared with Me' : `${activeSpace.charAt(0).toUpperCase() + activeSpace.slice(1)} Space`;
 
@@ -357,24 +332,28 @@ export function Workspace({ isPublicOnly = false, isSearchPage = false }) {
                 </div>
 
                 <div className="flex items-center gap-3 w-full md:w-auto">
-                    <div className="relative flex-1 md:w-72">
-                        <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
-                        <input
-                            type="text"
-                            placeholder={`Search in ${spaceLabel}...`}
-                            value={searchQuery}
-                            onChange={(e) => setSearchQuery(e.target.value)}
-                            className="w-full pl-9 pr-10 py-2.5 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none text-sm shadow-sm transition-all"
-                        />
-                        {searchQuery && (
-                            <button
-                                type="button"
-                                onClick={() => setSearchQuery('')}
-                                className="absolute right-3 top-1/2 -translate-y-1/2 p-1 text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 rounded-md transition-colors"
-                            >
-                                <X className="w-4 h-4" />
-                            </button>
-                        )}
+                    <div className="flex items-center gap-2 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-xl shadow-sm pr-1 focus-within:ring-2 focus-within:ring-blue-500 transition-all">
+                        <div className="relative flex-1 md:w-72">
+                            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+                            <input
+                                type="text"
+                                placeholder={`Search in ${spaceLabel}...`}
+                                value={searchQuery}
+                                onChange={(e) => setSearchQuery(e.target.value)}
+                                className="w-full pl-9 pr-9 py-2.5 bg-transparent border-none focus:ring-0 outline-none text-sm"
+                            />
+                            {searchQuery && (
+                                <button
+                                    type="button"
+                                    onClick={() => setSearchQuery('')}
+                                    className="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 rounded-md transition-colors"
+                                >
+                                    <X className="w-4 h-4" />
+                                </button>
+                            )}
+                        </div>
+                        <div className="h-6 w-px bg-gray-200 dark:bg-gray-800 mx-1"></div>
+                        <AdvancedSearchPopover activeSpace={activeSpace} isPublicOnly={isPublicOnly} />
                     </div>
                     <div className="flex bg-gray-100 dark:bg-gray-800 p-1 rounded-xl flex-shrink-0">
                         <button
@@ -424,7 +403,7 @@ export function Workspace({ isPublicOnly = false, isSearchPage = false }) {
             <div className="flex-1 flex gap-6 overflow-hidden relative">
                 {/* File Grid */}
                 <div className="flex-1 overflow-y-auto pr-2 pb-24">
-                    {!isLoading && !error && isSearchPage && totalItems > 0 && (
+                    {!isLoading && !error && totalItems > 0 && (
                         <div className="flex items-center justify-end mb-4 mt-1">
                             <div className="flex items-center gap-3">
                                 <span className="text-sm font-medium text-gray-500 dark:text-gray-400 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 px-3 py-1.5 rounded-lg shadow-sm tracking-wide">
@@ -434,16 +413,24 @@ export function Workspace({ isPublicOnly = false, isSearchPage = false }) {
                                 {totalPages > 1 && (
                                     <div className="flex items-center gap-1 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg shadow-sm">
                                         <button
-                                            onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
-                                            disabled={currentPage === 1}
+                                            onClick={() => {
+                                                const newParams = new URLSearchParams(searchParams);
+                                                newParams.set('page', Math.max(1, currentPage - 1).toString());
+                                                setSearchParams(newParams);
+                                            }}
+                                            disabled={currentPage <= 1}
                                             className="p-1.5 text-gray-500 hover:text-blue-600 disabled:opacity-30 disabled:hover:text-gray-500 transition-colors"
                                         >
                                             <ChevronLeft className="w-4 h-4" />
                                         </button>
                                         <div className="w-px h-5 bg-gray-200 dark:bg-gray-700"></div>
                                         <button
-                                            onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
-                                            disabled={currentPage === totalPages}
+                                            onClick={() => {
+                                                const newParams = new URLSearchParams(searchParams);
+                                                newParams.set('page', Math.min(totalPages, currentPage + 1).toString());
+                                                setSearchParams(newParams);
+                                            }}
+                                            disabled={currentPage >= totalPages}
                                             className="p-1.5 text-gray-500 hover:text-blue-600 disabled:opacity-30 disabled:hover:text-gray-500 transition-colors"
                                         >
                                             <ChevronRight className="w-4 h-4" />
