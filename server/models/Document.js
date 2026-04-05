@@ -70,7 +70,7 @@ const documentSchema = new mongoose.Schema({
   },
   // Sharing policy for this document
   sharingPolicy: {
-    maxShares: { type: Number, default: 0 }, // 0 = unlimited
+    maxShares: { type: Number, default: 1 },
   },
   // Link-based sharing (Google Docs style)
   linkSharing: {

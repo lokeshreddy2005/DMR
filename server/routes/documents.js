@@ -116,22 +116,22 @@ router.post('/upload', upload.single('document'), async (req, res) => {
     // Handle Initial Manual Tags
     let initialTags = [];
     if (manualTags) {
-        if (Array.isArray(manualTags)) {
-            initialTags = manualTags;
-        } else if (typeof manualTags === 'string') {
-            try {
-                const parsed = JSON.parse(manualTags);
-                if (Array.isArray(parsed)) {
-                    initialTags = parsed;
-                } else {
-                    initialTags = manualTags.split(',').map(s => s.trim()).filter(Boolean);
-                }
-            } catch (e) {
-                initialTags = manualTags.split(',').map(s => s.trim()).filter(Boolean);
-            }
+      if (Array.isArray(manualTags)) {
+        initialTags = manualTags;
+      } else if (typeof manualTags === 'string') {
+        try {
+          const parsed = JSON.parse(manualTags);
+          if (Array.isArray(parsed)) {
+            initialTags = parsed;
+          } else {
+            initialTags = manualTags.split(',').map(s => s.trim()).filter(Boolean);
+          }
+        } catch (e) {
+          initialTags = manualTags.split(',').map(s => s.trim()).filter(Boolean);
         }
+      }
     }
-    
+
     if (initialTags.length > 0) {
       doc.tags = initialTags;
       doc.isTagged = true;
@@ -207,12 +207,12 @@ router.put('/:id/change-space', async (req, res) => {
         return res.status(413).json({ error: 'Organization storage quota exceeded.' });
       }
       if (doc.space === 'organization' && doc.organization?.toString() === organizationId.toString()) {
-         return res.status(400).json({ error: 'Document is already in this organization.' });
+        return res.status(400).json({ error: 'Document is already in this organization.' });
       }
       doc.space = 'organization';
       doc.organization = organizationId;
     } else {
-       return res.status(400).json({ error: 'Invalid target space.' });
+      return res.status(400).json({ error: 'Invalid target space.' });
     }
 
     // Auto-tag the document
@@ -294,7 +294,7 @@ router.post('/:id/tags/ai', async (req, res) => {
     const response = await fetch(downloadUrl);
     const fileBuffer = Buffer.from(await response.arrayBuffer());
     const tagResult = await autoTagDocument(fileBuffer, doc.mimeType, doc.fileName);
-    
+
     doc.tags = [...new Set([...doc.tags, ...tagResult.tags])];
     // Merge — never replace outright, so metadata.extension (and other fields) are preserved
     doc.metadata = { ...doc.metadata, ...tagResult.metadata };
@@ -318,11 +318,11 @@ router.post('/:id/tags/ai', async (req, res) => {
  */
 router.get('/', async (req, res) => {
   try {
-    const { 
-      space, organizationId, 
-      q, page = 1, limit = 20, 
-      minSize, maxSize, 
-      startDate, endDate, 
+    const {
+      space, organizationId,
+      q, page = 1, limit = 20,
+      minSize, maxSize,
+      startDate, endDate,
       extension, tags, tagsMode,
       uploadedBy, permissionLevel,
       isTagged, departmentOwner, isAITagged,
@@ -337,7 +337,7 @@ router.get('/', async (req, res) => {
     } else if (space === 'private') {
       accessQuery = { space: 'private', uploadedBy: req.user._id };
     } else if (space === 'shared') {
-      accessQuery = { 
+      accessQuery = {
         uploadedBy: { $ne: req.user._id },
         'permissions.user': req.user._id
       };
@@ -431,25 +431,25 @@ router.get('/', async (req, res) => {
       filterQuery.organization = organizationId;
     }
     if (permissionLevel) {
-      filterQuery.permissions = { 
-        $elemMatch: { 
-          user: req.user._id, 
-          $or: [{ level: permissionLevel }, { role: permissionLevel }] 
-        } 
-      };  
+      filterQuery.permissions = {
+        $elemMatch: {
+          user: req.user._id,
+          $or: [{ level: permissionLevel }, { role: permissionLevel }]
+        }
+      };
     }
 
     if (isTagged !== undefined) {
       filterQuery.isTagged = isTagged === 'true';
     }
 
-    if(isAITagged !== undefined) {
+    if (isAITagged !== undefined) {
       filterQuery.isAITagged = isAITagged === 'true';
     }
 
     // 3. Merge Queries & Execute
-    const finalQuery = Object.keys(filterQuery).length > 0 
-      ? { $and: [accessQuery, filterQuery] } 
+    const finalQuery = Object.keys(filterQuery).length > 0
+      ? { $and: [accessQuery, filterQuery] }
       : accessQuery;
 
     const skip = (parseInt(page) - 1) * parseInt(limit);
@@ -478,7 +478,7 @@ router.get('/', async (req, res) => {
 
     const totalPages = Math.ceil(totalCount / limitNum);
 
-    res.json({ 
+    res.json({
       documents,
       totalCount,
       currentPage: parseInt(page),
@@ -636,8 +636,8 @@ router.get('/users/search', async (req, res) => {
         { email: { $regex: regex } }
       ]
     })
-    .select('name email avatarColor')
-    .limit(10);
+      .select('name email avatarColor')
+      .limit(10);
 
     res.json({ users });
   } catch (err) {
@@ -677,53 +677,53 @@ router.get('/recent', async (req, res) => {
   }
 });
 
-// /**
-//  * GET /api/documents/search
-//  * Search all documents user has access to by keyword
-//  */
-// router.get('/search', async (req, res) => {
-//   try {
-//     const { q } = req.query;
-//     if (!q || q.trim().length < 2) {
-//       return res.status(400).json({ error: 'Search query must be at least 2 characters.' });
-//     }
+/**
+ * GET /api/documents/search
+ * Search all documents user has access to by keyword
+ */
+router.get('/search', async (req, res) => {
+  try {
+    const { q } = req.query;
+    if (!q || q.trim().length < 2) {
+      return res.status(400).json({ error: 'Search query must be at least 2 characters.' });
+    }
 
-//     const regex = new RegExp(q.trim(), 'i');
-    
-//     const userOrgs = await Organization.find({ 'members.user': req.user._id }).select('_id');
-//     const orgIds = userOrgs.map((o) => o._id);
+    const regex = new RegExp(q.trim(), 'i');
 
-//     const accessQuery = {
-//       $or: [
-//         { space: 'public' },
-//         { space: 'private', uploadedBy: req.user._id },
-//         { space: 'private', 'permissions.user': req.user._id },
-//         { space: 'organization', organization: { $in: orgIds } },
-//       ],
-//     };
+    const userOrgs = await Organization.find({ 'members.user': req.user._id }).select('_id');
+    const orgIds = userOrgs.map((o) => o._id);
 
-//     const searchQuery = {
-//       $or: [
-//         { tags: { $elemMatch: { $regex: regex } } },
-//         { fileName: { $regex: regex } },
-//         { 'metadata.primaryDomain': { $regex: regex } },
-//         { 'metadata.typeTags': { $elemMatch: { $regex: regex } } },
-//         { description: { $regex: regex } },
-//       ],
-//     };
+    const accessQuery = {
+      $or: [
+        { space: 'public' },
+        { space: 'private', uploadedBy: req.user._id },
+        { space: 'private', 'permissions.user': req.user._id },
+        { space: 'organization', organization: { $in: orgIds } },
+      ],
+    };
 
-//     const documents = await Document.find({ $and: [accessQuery, searchQuery] })
-//       .populate('uploadedBy', 'name email avatarColor')
-//       .populate('organization', 'name avatarColor')
-//       .sort({ uploadDate: -1 })
-//       .limit(50);
+    const searchQuery = {
+      $or: [
+        { tags: { $elemMatch: { $regex: regex } } },
+        { fileName: { $regex: regex } },
+        { 'metadata.primaryDomain': { $regex: regex } },
+        { 'metadata.typeTags': { $elemMatch: { $regex: regex } } },
+        { description: { $regex: regex } },
+      ],
+    };
 
-//     res.json({ documents, query: q });
-//   } catch (err) {
-//     console.error('Search error:', err);
-//     res.status(500).json({ error: 'Search failed.' });
-//   }
-// });
+    const documents = await Document.find({ $and: [accessQuery, searchQuery] })
+      .populate('uploadedBy', 'name email avatarColor')
+      .populate('organization', 'name avatarColor')
+      .sort({ uploadDate: -1 })
+      .limit(50);
+
+    res.json({ documents, query: q });
+  } catch (err) {
+    console.error('Search error:', err);
+    res.status(500).json({ error: 'Search failed.' });
+  }
+});
 
 /**
  * GET /api/documents/stats
@@ -929,14 +929,14 @@ router.post('/:id/permissions', async (req, res) => {
       return res.status(400).json({ error: 'Cannot grant owner role. Use transfer ownership instead.' });
     }
 
-    // Enforce maxShares limit (0 = unlimited)
+    // Enforce maxShares limit
     const existingIdx = doc.permissions.findIndex(
       (p) => (p.user._id?.toString() || p.user.toString()) === targetUser._id.toString()
     );
     if (existingIdx < 0) {
       // This is a NEW share — check the limit
-      const maxShares = doc.sharingPolicy?.maxShares || 0;
-      if (maxShares > 0) {
+      const maxShares = doc.sharingPolicy?.maxShares ?? 1;
+      if (maxShares >= 0) {
         const nonOwnerShares = doc.permissions.filter(p => p.role !== 'owner' && p.level !== 'owner').length;
         if (nonOwnerShares >= maxShares) {
           return res.status(400).json({
@@ -1108,11 +1108,11 @@ router.get('/:id/permissions', async (req, res) => {
       permissions: doc.permissions,
       availableRoles: VALID_ROLES.filter(r => r !== 'owner'),
       roleDescriptions: {
-        viewer:     'Can view the document',
+        viewer: 'Can view the document',
         downloader: 'Can view and download',
-        editor:     'Can view, download, and edit',
-        sharer:     'Can view, download, and share with others',
-        manager:    'Can view, download, edit, share, and manage access',
+        editor: 'Can view, download, and edit',
+        sharer: 'Can view, download, and share with others',
+        manager: 'Can view, download, edit, share, and manage access',
       },
     });
   } catch (err) {

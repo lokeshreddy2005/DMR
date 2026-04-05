@@ -32,6 +32,7 @@ export default function ShareModal({ isOpen, onClose, document, onUpdate }) {
     const [email, setEmail] = useState('');
     const [selectedRole, setSelectedRole] = useState('viewer');
     const [isSubmitting, setIsSubmitting] = useState(false);
+    const [isSavingSettings, setIsSavingSettings] = useState(false);
     const [isLoading, setIsLoading] = useState(false);
     const [permissions, setPermissions] = useState([]);
     const [error, setError] = useState('');
@@ -40,7 +41,7 @@ export default function ShareModal({ isOpen, onClose, document, onUpdate }) {
     const [editingUserId, setEditingUserId] = useState(null);
     const [expiresIn, setExpiresIn] = useState('0');
     const [customDays, setCustomDays] = useState('');
-    const [maxShares, setMaxShares] = useState(0);
+    const [maxShares, setMaxShares] = useState(1);
     const [showSettings, setShowSettings] = useState(false);
     const [linkSharing, setLinkSharing] = useState({ enabled: false, mode: 'restricted', role: 'viewer', token: null });
     const [linkCopied, setLinkCopied] = useState(false);
@@ -74,7 +75,7 @@ export default function ShareModal({ isOpen, onClose, document, onUpdate }) {
             setSuccess('');
             setSelectedRole('viewer');
             setExpiresIn('0');
-            setMaxShares(document?.sharingPolicy?.maxShares || 0);
+            setMaxShares(document?.sharingPolicy?.maxShares ?? 1);
             setLinkSharing(document?.linkSharing || { enabled: false, mode: 'restricted', role: 'viewer', token: null });
             setLinkCopied(false);
         }
@@ -153,19 +154,9 @@ export default function ShareModal({ isOpen, onClose, document, onUpdate }) {
         }
     };
 
-    const handleUpdateMaxShares = async (value) => {
+    const handleUpdateMaxShares = (value) => {
         const newMax = Math.max(0, parseInt(value) || 0);
         setMaxShares(newMax);
-        try {
-            const headers = getAuthHeaders();
-            await axios.put(
-                `${API_URL}/api/documents/${document._id}/sharing-policy`,
-                { maxShares: newMax },
-                { headers }
-            );
-        } catch (err) {
-            setError(err.response?.data?.error || 'Failed to update share limit.');
-        }
     };
 
     const formatExpiry = (expiresAt) => {
@@ -186,19 +177,35 @@ export default function ShareModal({ isOpen, onClose, document, onUpdate }) {
         return pu?.toString() === currentUserId?.toString() || perm.role === 'owner';
     };
 
-    const handleLinkSharingUpdate = async (updates) => {
-        const newState = { ...linkSharing, ...updates };
-        setLinkSharing(newState);
+    const handleLinkSharingUpdate = (updates) => {
+        setLinkSharing({ ...linkSharing, ...updates });
+    };
+
+    const handleSaveSettings = async () => {
+        setIsSavingSettings(true);
+        setError('');
+        setSuccess('');
         try {
             const headers = getAuthHeaders();
-            const res = await axios.put(
-                `${API_URL}/api/documents/${document._id}/link-sharing`,
-                newState,
-                { headers }
-            );
-            setLinkSharing(res.data.linkSharing);
+            const [policyRes, linkRes] = await Promise.all([
+                axios.put(
+                    `${API_URL}/api/documents/${document._id}/sharing-policy`,
+                    { maxShares },
+                    { headers }
+                ),
+                axios.put(
+                    `${API_URL}/api/documents/${document._id}/link-sharing`,
+                    linkSharing,
+                    { headers }
+                )
+            ]);
+            setSuccess('Share settings saved successfully.');
+            if (onUpdate) onUpdate({ ...document, sharingPolicy: { maxShares }, linkSharing: linkRes.data.linkSharing });
+            setShowSettings(false);
         } catch (err) {
-            setError(err.response?.data?.error || 'Failed to update link sharing.');
+            setError(err.response?.data?.error || 'Failed to save settings.');
+        } finally {
+            setIsSavingSettings(false);
         }
     };
 
@@ -219,7 +226,6 @@ export default function ShareModal({ isOpen, onClose, document, onUpdate }) {
     const LINK_MODE_OPTIONS = [
         { value: 'restricted', label: 'Restricted', desc: 'Only people added above', icon: <X className="w-3.5 h-3.5" /> },
         ...(document?.space === 'organization' ? [{ value: 'organization', label: 'Anyone in organization', desc: 'All org members with the link', icon: <Building2 className="w-3.5 h-3.5" /> }] : []),
-        { value: 'anyone', label: 'Anyone with the link', desc: 'No sign-in required', icon: <Globe className="w-3.5 h-3.5" /> },
     ];
 
     if (!isOpen) return null;
@@ -264,65 +270,7 @@ export default function ShareModal({ isOpen, onClose, document, onUpdate }) {
                         </button>
                     </div>
 
-                    {/* Link Sharing Section */}
-                    <div className="p-5 border-b border-gray-100 dark:border-gray-800">
-                        <div className="flex items-center justify-between mb-3">
-                            <div className="flex items-center gap-2">
-                                <Link2 className="w-4 h-4 text-gray-500" />
-                                <p className="text-xs font-bold text-gray-400 uppercase tracking-widest">Link Sharing</p>
-                            </div>
-                            <button
-                                onClick={() => handleLinkSharingUpdate({ enabled: !linkSharing.enabled })}
-                                className={`relative w-10 h-5 rounded-full transition-colors ${linkSharing.enabled ? 'bg-blue-500' : 'bg-gray-300 dark:bg-gray-600'}`}
-                            >
-                                <span className={`absolute top-0.5 w-4 h-4 rounded-full bg-white shadow transition-transform ${linkSharing.enabled ? 'left-[22px]' : 'left-0.5'}`} />
-                            </button>
-                        </div>
 
-                        {linkSharing.enabled && (
-                            <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} className="space-y-3">
-                                {/* Mode selector */}
-                                <div className="space-y-1">
-                                    {LINK_MODE_OPTIONS.filter(o => o.value !== 'restricted').map((opt) => (
-                                        <button
-                                            key={opt.value}
-                                            onClick={() => handleLinkSharingUpdate({ mode: opt.value })}
-                                            className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg text-left transition-colors ${
-                                                linkSharing.mode === opt.value
-                                                    ? 'bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800'
-                                                    : 'hover:bg-gray-50 dark:hover:bg-gray-800 border border-transparent'
-                                            }`}
-                                        >
-                                            <span className={linkSharing.mode === opt.value ? 'text-blue-500' : 'text-gray-400'}>{opt.icon}</span>
-                                            <div className="flex-1">
-                                                <p className={`text-xs font-bold ${linkSharing.mode === opt.value ? 'text-blue-600 dark:text-blue-400' : 'text-gray-700 dark:text-gray-300'}`}>{opt.label}</p>
-                                                <p className="text-[10px] text-gray-500">{opt.desc}</p>
-                                            </div>
-                                        </button>
-                                    ))}
-                                </div>
-
-                                {/* Link role + copy */}
-                                <div className="flex items-center gap-2">
-                                    <select
-                                        value={linkSharing.role}
-                                        onChange={(e) => handleLinkSharingUpdate({ role: e.target.value })}
-                                        className="flex-1 text-xs px-2.5 py-2 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg text-gray-700 dark:text-gray-300 outline-none focus:ring-2 focus:ring-blue-500"
-                                    >
-                                        <option value="viewer">Viewer</option>
-                                        <option value="downloader">Viewer & Download</option>
-                                        <option value="manager">Full Access</option>
-                                    </select>
-                                    <button
-                                        onClick={copyLink}
-                                        className="flex items-center gap-1.5 px-3 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-bold transition-colors shadow-sm"
-                                    >
-                                        {linkCopied ? <><Check className="w-3.5 h-3.5" /> Copied!</> : <><Copy className="w-3.5 h-3.5" /> Copy Link</>}
-                                    </button>
-                                </div>
-                            </motion.div>
-                        )}
-                    </div>
 
                     {/* Share Form */}
                     <form onSubmit={handleShare} className="p-5 border-b border-gray-100 dark:border-gray-800 relative overflow-visible">
@@ -454,7 +402,7 @@ export default function ShareModal({ isOpen, onClose, document, onUpdate }) {
                                                 <Users className="w-3.5 h-3.5 text-gray-400" />
                                                 <div>
                                                     <p className="text-xs font-bold text-gray-700 dark:text-gray-300">Max Users</p>
-                                                    <p className="text-[10px] text-gray-500 dark:text-gray-400">0 = unlimited</p>
+                                                    <p className="text-[10px] text-gray-500 dark:text-gray-400">Limit how many users can access</p>
                                                 </div>
                                             </div>
                                             <input
@@ -465,6 +413,57 @@ export default function ShareModal({ isOpen, onClose, document, onUpdate }) {
                                                 onChange={(e) => handleUpdateMaxShares(e.target.value.replace(/\D/g, '') || '0')}
                                                 className="w-14 text-center text-xs font-bold px-2 py-1.5 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg outline-none focus:ring-2 focus:ring-blue-500"
                                             />
+                                        </div>
+
+                                        {/* Organization Access */}
+                                        <>
+                                            <div className="border-t border-gray-200 dark:border-gray-700" />
+                                            <div className="flex items-center justify-between mt-3">
+                                                <div className="flex items-center gap-2">
+                                                    <Building2 className="w-3.5 h-3.5 text-gray-400" />
+                                                    <div>
+                                                        <p className="text-xs font-bold text-gray-700 dark:text-gray-300">Organization Access</p>
+                                                        <p className="text-[10px] text-gray-500 dark:text-gray-400">Organization members have access</p>
+                                                    </div>
+                                                </div>
+                                                <div className="flex items-center gap-2">
+                                                    {linkSharing.enabled && linkSharing.mode === 'organization' && (
+                                                        <select
+                                                            value={linkSharing.role}
+                                                            onChange={(e) => handleLinkSharingUpdate({ role: e.target.value })}
+                                                            className="text-xs font-semibold px-2 py-1 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg outline-none focus:ring-2 focus:ring-blue-500 text-gray-700 dark:text-gray-300"
+                                                        >
+                                                            <option value="viewer">Viewer</option>
+                                                            <option value="downloader">Viewer & Download</option>
+                                                            <option value="manager">Full Access</option>
+                                                        </select>
+                                                    )}
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => handleLinkSharingUpdate({ 
+                                                            enabled: !(linkSharing.enabled && linkSharing.mode === 'organization'), 
+                                                            mode: (linkSharing.enabled && linkSharing.mode === 'organization') ? 'restricted' : 'organization',
+                                                            role: linkSharing.role || 'viewer'
+                                                        })}
+                                                        className={`relative w-8 h-4 rounded-full transition-colors ${linkSharing.enabled && linkSharing.mode === 'organization' ? 'bg-blue-500' : 'bg-gray-300 dark:bg-gray-600'}`}
+                                                    >
+                                                        <span className={`absolute top-0.5 w-3 h-3 rounded-full bg-white shadow transition-transform ${linkSharing.enabled && linkSharing.mode === 'organization' ? 'left-[18px]' : 'left-0.5'}`} />
+                                                    </button>
+                                                </div>
+                                            </div>
+                                        </>
+
+                                        {/* Save Settings Button */}
+                                        <div className="flex justify-end pt-2">
+                                            <button
+                                                type="button"
+                                                onClick={handleSaveSettings}
+                                                disabled={isSavingSettings}
+                                                className="flex items-center gap-1.5 px-3 py-1.5 bg-gray-900 hover:bg-gray-800 dark:bg-gray-100 dark:hover:bg-white text-white dark:text-gray-900 rounded-lg text-xs font-bold transition-colors disabled:opacity-50"
+                                            >
+                                                {isSavingSettings ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Check className="w-3.5 h-3.5" />}
+                                                Save Settings
+                                            </button>
                                         </div>
                                     </div>
                                 </motion.div>
