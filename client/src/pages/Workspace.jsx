@@ -111,7 +111,7 @@ export function Workspace({ isPublicOnly = false, isSearchPage = false }) {
         return perm.level === 'owner';
     };
 
-    const fetchDocuments = useCallback(async () => {
+    const fetchDocuments = useCallback(async (abortController) => {
         setIsLoading(true);
         setError(null);
         try {
@@ -136,13 +136,17 @@ export function Workspace({ isPublicOnly = false, isSearchPage = false }) {
             
             const url = `${API_URL}${endpoint}${queryStr ? '?' + queryStr : ''}`;
 
-            const res = await axios.get(url, isPublicRequest ? {} : { headers });
+            const res = await axios.get(url, {
+                ...(isPublicRequest ? {} : { headers }),
+                signal: abortController?.signal
+            });
             
             setDocuments(res.data.documents || []);
             setTotalPages(res.data.totalPages || 1);
             setTotalCount(res.data.totalCount || 0);
 
         } catch (err) {
+            if (axios.isCancel(err)) return;
             console.error('fetchDocuments error:', err);
             setError(err.response?.data?.error || 'Failed to load documents.');
             setDocuments([]);
@@ -184,17 +188,20 @@ export function Workspace({ isPublicOnly = false, isSearchPage = false }) {
     // Fetch documents on activeSpace, searchParams, or selectedOrgId changes
     useEffect(() => {
         if (activeSpace === 'organization' && !selectedOrgId) return;
-        fetchDocuments();
+        const controller = new AbortController();
+        fetchDocuments(controller);
+        return () => controller.abort();
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [activeSpace, selectedOrgId, searchParams]);
 
     // Sync URL param to state if it changes externally
     useEffect(() => {
-        if (isSearchPage && searchParams.get('q') !== searchQuery) {
-            setSearchQuery(searchParams.get('q') || '');
+        const urlQ = searchParams.get('q') || '';
+        if (urlQ !== searchQuery) {
+            setSearchQuery(urlQ);
         }
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [searchParams.get('q')]);
+    }, [searchParams]);
 
     const isFirstSearchRun = useRef(true);
     const skipSearchEffect = useRef(false);

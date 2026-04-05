@@ -100,6 +100,27 @@ export default function AdvancedSearchPopover({ activeSpace, isPublicOnly }) {
     setSearchParams(newParams);
   };
 
+  // ── Sync with URL ──────────────────────────────────────────────────────────
+  useEffect(() => {
+    setFilters({
+      // extension:       searchParams.get('extension') || '',
+      minSize:         searchParams.get('minSize') || '',
+      maxSize:         searchParams.get('maxSize') || '',
+      startDate:       searchParams.get('startDate') || '',
+      endDate:         searchParams.get('endDate') || '',
+      isTagged:        searchParams.get('isTagged') || '',
+      tags:            searchParams.get('tags') || '',
+      tagsMode:        searchParams.get('tagsMode') || 'any',
+      academicYear:    searchParams.get('academicYear') || '',
+      departmentOwner: searchParams.get('departmentOwner') || '',
+      permissionLevel: searchParams.get('permissionLevel') || '',
+    });
+    const userIds = searchParams.get('uploadedBy');
+    if (!userIds) setSelectedUsers([]);
+    // Note: selectedUsers names might be lost if we only have IDs in the URL,
+    // but the ID is what matters for the filter. In a real app we'd fetch names.
+  }, [searchParams]);
+
   // ── Click outside ──────────────────────────────────────────────────────────
   useEffect(() => {
     const handler = (e) => {
@@ -116,40 +137,45 @@ export default function AdvancedSearchPopover({ activeSpace, isPublicOnly }) {
   // ── Tag autocomplete ───────────────────────────────────────────────────────
   useEffect(() => {
     if (!tagInput || tagInput.length < 1) { setTagSuggestions([]); return; }
+    let ignore = false;
     const fetchTags = async () => {
       setIsTagging(true);
       try {
         if (isPublicOnly || activeSpace === 'public') {
           const res = await axios.get(`${API_URL}/api/public/documents/tags`);
-          setTagSuggestions((res.data.tags || []).filter(t => t.tag.toLowerCase().includes(tagInput.toLowerCase())).slice(0, 10));
+          if (ignore) return;
+          setTagSuggestions((res.data.tags || []).filter(t => t.tag.toLowerCase().includes(tagInput.toLowerCase())).slice(0, 15));
         } else {
           const headers = token ? { Authorization: `Bearer ${token}` } : {};
           const res = await axios.get(`${API_URL}/api/documents/tags/search?q=${encodeURIComponent(tagInput)}`, { headers });
+          if (ignore) return;
           setTagSuggestions(res.data.tags || []);
         }
       } catch (err) {
-        console.error('Tag suggestion error:', err);
-      } finally { setIsTagging(false); }
+        if (!ignore) console.error('Tag suggestion error:', err);
+      } finally { if (!ignore) setIsTagging(false); }
     };
     const t = setTimeout(fetchTags, 300);
-    return () => clearTimeout(t);
+    return () => { ignore = true; clearTimeout(t); };
   }, [tagInput, activeSpace, isPublicOnly, token]);
 
   // ── User autocomplete ──────────────────────────────────────────────────────
   useEffect(() => {
     if (!userInput || userInput.length < 2 || !token) { setUserSuggestions([]); return; }
+    let ignore = false;
     const fetchUsers = async () => {
       setIsUserSearch(true);
       try {
         const headers = { Authorization: `Bearer ${token}` };
         const res = await axios.get(`${API_URL}/api/documents/users/search?q=${encodeURIComponent(userInput)}`, { headers });
+        if (ignore) return;
         setUserSuggestions(res.data.users || []);
       } catch (err) {
-        console.error('User suggestion error:', err);
-      } finally { setIsUserSearch(false); }
+        if (!ignore) console.error('User suggestion error:', err);
+      } finally { if (!ignore) setIsUserSearch(false); }
     };
     const t = setTimeout(fetchUsers, 300);
-    return () => clearTimeout(t);
+    return () => { ignore = true; clearTimeout(t); };
   }, [userInput, token]);
 
   const addTag = (tag) => {

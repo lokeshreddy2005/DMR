@@ -517,7 +517,7 @@ router.get('/tags/search', async (req, res) => {
       { $match: { tags: { $regex: new RegExp(q, 'i') } } },
       { $group: { _id: '$tags', count: { $sum: 1 } } }, // preserve original casing
       { $sort: { count: -1 } },
-      { $limit: 20 },
+      { $limit: 50 },
     ]);
 
     const tags = tagAgg.map((t) => ({ tag: t._id }));

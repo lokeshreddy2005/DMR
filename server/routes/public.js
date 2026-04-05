@@ -132,7 +132,7 @@ router.get('/documents/tags', async (req, res) => {
             { $unwind: '$tags' },
             { $group: { _id: { $toLower: '$tags' }, count: { $sum: 1 } } },
             { $sort: { count: -1 } },
-            { $limit: 100 },
+            { $limit: 500 },
         ]);
 
         const tags = tagAgg.map((t) => ({ tag: t._id, count: t.count }));
