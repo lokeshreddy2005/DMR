@@ -143,7 +143,8 @@ router.post('/upload', upload.single('document'), async (req, res) => {
         console.log(`🏷️  Auto-tagging "${req.file.originalname}"...`);
         const tagResult = await autoTagDocument(fileBuffer, req.file.mimetype, req.file.originalname);
         doc.tags = [...new Set([...initialTags, ...tagResult.tags])];
-        doc.metadata = tagResult.metadata;
+        // Merge metadata — don't replace outright so extension is preserved
+        doc.metadata = { ...doc.metadata, ...tagResult.metadata };
         doc.isTagged = doc.tags.length > 0;
         doc.isAITagged = true;
         console.log(`✅ Tagged with ${tagResult.tags.length} keywords`);
@@ -223,7 +224,8 @@ router.put('/:id/change-space', async (req, res) => {
         const fileBuffer = Buffer.from(await response.arrayBuffer());
         const tagResult = await autoTagDocument(fileBuffer, doc.mimeType, doc.fileName);
         doc.tags = [...new Set([...doc.tags, ...tagResult.tags])];
-        if (!doc.metadata?.primaryDomain) doc.metadata = tagResult.metadata;
+        // Merge — never replace outright, so metadata.extension (and other fields) are preserved
+        doc.metadata = { ...doc.metadata, ...tagResult.metadata };
         doc.isTagged = doc.tags.length > 0;
         doc.isAITagged = true;
         console.log(`✅ Tagged with ${tagResult.tags.length} keywords`);
@@ -294,7 +296,8 @@ router.post('/:id/tags/ai', async (req, res) => {
     const tagResult = await autoTagDocument(fileBuffer, doc.mimeType, doc.fileName);
     
     doc.tags = [...new Set([...doc.tags, ...tagResult.tags])];
-    if (!doc.metadata?.primaryDomain) doc.metadata = tagResult.metadata;
+    // Merge — never replace outright, so metadata.extension (and other fields) are preserved
+    doc.metadata = { ...doc.metadata, ...tagResult.metadata };
     doc.isTagged = doc.tags.length > 0;
     doc.isAITagged = true;
 
@@ -320,7 +323,7 @@ router.get('/', async (req, res) => {
       q, page = 1, limit = 20, 
       minSize, maxSize, 
       startDate, endDate, 
-      extension, tags,
+      extension, tags, tagsMode,
       uploadedBy, permissionLevel,
       isTagged, departmentOwner, isAITagged,
       academicYear, sort
@@ -387,21 +390,35 @@ router.get('/', async (req, res) => {
       if (endDate) filterQuery.uploadDate.$lte = new Date(endDate);
     }
 
-    // Exact String Filters
+    // Exact String Filters — fallback to fileName regex for docs where metadata.extension is empty
     if (extension) {
-      filterQuery['metadata.extension'] = extension.toLowerCase();
+      const extLower = extension.toLowerCase().startsWith('.')
+        ? extension.toLowerCase()
+        : `.${extension.toLowerCase()}`;
+      // Escape the dot and anchor to end of string, e.g. \.pdf$
+      const extRegex = new RegExp(`\\${extLower.replace(/\./g, '\\.')}$`, 'i');
+      // Use $and wrapper so this doesn't overwrite any $or from the text-search block above
+      filterQuery.$and = [
+        ...(filterQuery.$and || []),
+        { $or: [{ 'metadata.extension': extLower }, { fileName: extRegex }] }
+      ];
     }
-    
+
     if (departmentOwner) {
       filterQuery['metadata.departmentOwner'] = departmentOwner;
     }
-    
-    // Case-insensitive tag match so "neural networks" in URL still matches "Neural Networks" in DB
+
+    // Case-insensitive tag match; tagsMode=all requires ALL tags, default is ANY (or)
     if (tags) {
       const tagsArray = tags.split(',').map(t => t.trim()).filter(Boolean);
-      filterQuery.tags = {
-        $in: tagsArray.map(t => new RegExp(`^${t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i'))
-      };
+      const tagRegexes = tagsArray.map(t => new RegExp(`^${t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i'));
+      if (tagsMode === 'all') {
+        // Must have ALL listed tags
+        filterQuery.tags = { $all: tagRegexes };
+      } else {
+        // Default: must have ANY of the listed tags
+        filterQuery.tags = { $in: tagRegexes };
+      }
     }
 
     // Phase 1B: Relational & Permission Filters

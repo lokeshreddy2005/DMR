@@ -7,7 +7,7 @@ import { useAuth } from '../context/AuthContext';
 import { Button } from './ui/Button';
 import { motion, AnimatePresence } from 'framer-motion';
 
-const FILTER_KEYS = ['extension', 'minSize', 'maxSize', 'startDate', 'endDate', 'isTagged', 'tags', 'uploadedBy', 'academicYear', 'departmentOwner', 'permissionLevel'];
+const FILTER_KEYS = [/*'extension',*/ 'minSize', 'maxSize', 'startDate', 'endDate', 'isTagged', 'tags', 'tagsMode', 'uploadedBy', 'academicYear', 'departmentOwner', 'permissionLevel'];
 
 export default function AdvancedSearchPopover({ activeSpace, isPublicOnly }) {
   const [searchParams, setSearchParams] = useSearchParams();
@@ -17,41 +17,45 @@ export default function AdvancedSearchPopover({ activeSpace, isPublicOnly }) {
 
   // ── Form State ──────────────────────────────────────────────────────────────
   const [filters, setFilters] = useState({
-    extension:       searchParams.get('extension') || '',
+    // extension:       searchParams.get('extension') || '',
     minSize:         searchParams.get('minSize') || '',
     maxSize:         searchParams.get('maxSize') || '',
     startDate:       searchParams.get('startDate') || '',
     endDate:         searchParams.get('endDate') || '',
     isTagged:        searchParams.get('isTagged') || '',
     tags:            searchParams.get('tags') || '',
+    tagsMode:        searchParams.get('tagsMode') || 'any',  // 'any' (OR) | 'all' (AND)
     academicYear:    searchParams.get('academicYear') || '',
     departmentOwner: searchParams.get('departmentOwner') || '',
     permissionLevel: searchParams.get('permissionLevel') || '',
   });
 
-  // Tags autocomplete
+  // Tags autocomplete — kept outside overflow-clipped area via state
   const [tagInput, setTagInput] = useState('');
   const [tagSuggestions, setTagSuggestions] = useState([]);
   const [isTagging, setIsTagging] = useState(false);
+  const [showTagSuggestions, setShowTagSuggestions] = useState(false);
 
-  // Multi-select users: array of { _id, name }
+  // Multi-select users
   const [selectedUsers, setSelectedUsers] = useState(() => {
     const ids = searchParams.get('uploadedBy');
-    // We only have IDs from URL on mount — names will be blank; they'll be shown on next open
     return ids ? ids.split(',').filter(Boolean).map(id => ({ _id: id, name: id })) : [];
   });
   const [userInput, setUserInput] = useState('');
   const [userSuggestions, setUserSuggestions] = useState([]);
   const [isUserSearch, setIsUserSearch] = useState(false);
+  const [showUserSuggestions, setShowUserSuggestions] = useState(false);
 
-  // Whether any filter is active (to show badge on trigger)
-  const hasActiveFilters = FILTER_KEYS.some(k => searchParams.get(k));
+  const hasActiveFilters = FILTER_KEYS.some(k => {
+    const v = searchParams.get(k);
+    return v && v !== 'any'; // tagsMode='any' is the default, not a real "active" filter
+  });
 
   // ── Apply ──────────────────────────────────────────────────────────────────
   const applyFilters = () => {
     const newParams = new URLSearchParams(searchParams);
 
-    // Flush any still-typed tagInput
+    // Flush any pending tagInput
     const finalTags = (() => {
       const current = filters.tags ? filters.tags.split(',').filter(Boolean) : [];
       if (tagInput.trim() && !current.includes(tagInput.trim())) current.push(tagInput.trim());
@@ -62,14 +66,14 @@ export default function AdvancedSearchPopover({ activeSpace, isPublicOnly }) {
 
     FILTER_KEYS.forEach(key => {
       let val = finalFilters[key];
-      // Convert MB → bytes for size fields
       if (key === 'minSize' && val) val = String(Math.round(parseFloat(val) * 1024 * 1024));
       if (key === 'maxSize' && val) val = String(Math.round(parseFloat(val) * 1024 * 1024));
-      if (val) newParams.set(key, val);
+      // Don't send tagsMode if there are no tags — it's irrelevant
+      if (key === 'tagsMode' && !finalTags) { newParams.delete(key); return; }
+      if (val && val !== 'any') newParams.set(key, val);
       else newParams.delete(key);
     });
 
-    // Encode selected users as comma-separated IDs
     const userIds = selectedUsers.map(u => u._id).join(',');
     if (userIds) newParams.set('uploadedBy', userIds);
     else newParams.delete('uploadedBy');
@@ -77,26 +81,33 @@ export default function AdvancedSearchPopover({ activeSpace, isPublicOnly }) {
     newParams.set('page', '1');
     setSearchParams(newParams);
     setTagInput('');
+    setShowTagSuggestions(false);
+    setShowUserSuggestions(false);
     setIsOpen(false);
   };
 
   // ── Clear ──────────────────────────────────────────────────────────────────
   const clearFilters = () => {
-    setFilters({ extension: '', minSize: '', maxSize: '', startDate: '', endDate: '', isTagged: '', tags: '', academicYear: '', departmentOwner: '', permissionLevel: '' });
+    setFilters({ /*extension: '',*/ minSize: '', maxSize: '', startDate: '', endDate: '', isTagged: '', tags: '', tagsMode: 'any', academicYear: '', departmentOwner: '', permissionLevel: '' });
     setTagInput('');
     setUserInput('');
     setSelectedUsers([]);
-
+    setShowTagSuggestions(false);
+    setShowUserSuggestions(false);
     const newParams = new URLSearchParams(searchParams);
     [...FILTER_KEYS, 'uploadedBy'].forEach(k => newParams.delete(k));
     newParams.set('page', '1');
-    setSearchParams(newParams); // triggers fetchDocuments via useEffect in Workspace
+    setSearchParams(newParams);
   };
 
   // ── Click outside ──────────────────────────────────────────────────────────
   useEffect(() => {
     const handler = (e) => {
-      if (popoverRef.current && !popoverRef.current.contains(e.target)) setIsOpen(false);
+      if (popoverRef.current && !popoverRef.current.contains(e.target)) {
+        setIsOpen(false);
+        setShowTagSuggestions(false);
+        setShowUserSuggestions(false);
+      }
     };
     document.addEventListener('mousedown', handler);
     return () => document.removeEventListener('mousedown', handler);
@@ -110,9 +121,7 @@ export default function AdvancedSearchPopover({ activeSpace, isPublicOnly }) {
       try {
         if (isPublicOnly || activeSpace === 'public') {
           const res = await axios.get(`${API_URL}/api/public/documents/tags`);
-          // Filter locally but preserve original casing from backend
-          const filtered = (res.data.tags || []).filter(t => t.tag.toLowerCase().includes(tagInput.toLowerCase())).slice(0, 10);
-          setTagSuggestions(filtered);
+          setTagSuggestions((res.data.tags || []).filter(t => t.tag.toLowerCase().includes(tagInput.toLowerCase())).slice(0, 10));
         } else {
           const headers = token ? { Authorization: `Bearer ${token}` } : {};
           const res = await axios.get(`${API_URL}/api/documents/tags/search?q=${encodeURIComponent(tagInput)}`, { headers });
@@ -148,6 +157,7 @@ export default function AdvancedSearchPopover({ activeSpace, isPublicOnly }) {
     if (!current.includes(tag)) setFilters(f => ({ ...f, tags: [...current, tag].join(',') }));
     setTagInput('');
     setTagSuggestions([]);
+    setShowTagSuggestions(false);
   };
 
   const removeTag = (tag) => {
@@ -160,37 +170,27 @@ export default function AdvancedSearchPopover({ activeSpace, isPublicOnly }) {
     }
     setUserInput('');
     setUserSuggestions([]);
+    setShowUserSuggestions(false);
   };
 
   const removeUser = (id) => setSelectedUsers(prev => prev.filter(u => u._id !== id));
 
   return (
     <div className="relative" ref={popoverRef}>
-      {/* Trigger button — shows orange dot when filters active */}
+      {/* Trigger */}
       <button
         type="button"
         onClick={() => setIsOpen(!isOpen)}
-        className={`relative p-2 rounded-xl transition-colors ${
-          hasActiveFilters
-            ? 'text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-900/30'
-            : 'text-gray-500 hover:text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-900/30'
-        }`}
+        className={`relative p-2 rounded-xl transition-colors ${hasActiveFilters ? 'text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-900/30' : 'text-gray-500 hover:text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-900/30'}`}
         title={hasActiveFilters ? 'Filters active — click to edit' : 'Advanced Filters'}
       >
         <SlidersHorizontal className="w-5 h-5" />
-        {hasActiveFilters && (
-          <span className="absolute top-1 right-1 w-2 h-2 bg-orange-500 rounded-full" />
-        )}
+        {hasActiveFilters && <span className="absolute top-1 right-1 w-2 h-2 bg-orange-500 rounded-full" />}
       </button>
 
-      {/* Clear-all icon — visible when filters are active, outside popover */}
+      {/* Quick-clear icon when filters are active */}
       {hasActiveFilters && (
-        <button
-          type="button"
-          onClick={clearFilters}
-          className="absolute -top-1 -left-7 p-1.5 text-orange-500 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition-colors"
-          title="Clear all filters"
-        >
+        <button type="button" onClick={clearFilters} className="absolute -top-1 -left-7 p-1.5 text-orange-500 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition-colors" title="Clear all filters">
           <FilterX className="w-4 h-4" />
         </button>
       )}
@@ -201,10 +201,11 @@ export default function AdvancedSearchPopover({ activeSpace, isPublicOnly }) {
             initial={{ opacity: 0, y: 10 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, scale: 0.95 }}
-            className="absolute right-0 top-full mt-2 w-[360px] md:w-[480px] bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-2xl shadow-2xl z-50 overflow-hidden flex flex-col"
+            className="absolute right-0 top-full mt-2 w-[360px] md:w-[500px] bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-2xl shadow-2xl z-50 flex flex-col"
+            style={{ maxHeight: 'min(80vh, 640px)' }}
           >
-            {/* Header */}
-            <div className="p-4 border-b border-gray-100 dark:border-gray-800 flex items-center justify-between bg-gray-50/50 dark:bg-gray-800/50">
+            {/* Header — sticky */}
+            <div className="flex-shrink-0 p-4 border-b border-gray-100 dark:border-gray-800 flex items-center justify-between bg-gray-50/50 dark:bg-gray-800/50 rounded-t-2xl">
               <h3 className="font-bold text-gray-900 dark:text-white flex items-center gap-2">
                 <SlidersHorizontal className="w-4 h-4 text-blue-500" />
                 Advanced Filters
@@ -212,17 +213,14 @@ export default function AdvancedSearchPopover({ activeSpace, isPublicOnly }) {
               <button onClick={() => setIsOpen(false)} className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200"><X className="w-4 h-4" /></button>
             </div>
 
-            <div className="p-5 overflow-y-auto max-h-[65vh] space-y-5">
+            {/* Scrollable body */}
+            <div className="flex-1 overflow-y-auto p-5 space-y-5 min-h-0">
 
               {/* File Type & Tag Status */}
               <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-1.5">
+                {/* <div className="space-y-1.5">
                   <label className="text-xs font-bold text-gray-500 uppercase tracking-wider">File Type</label>
-                  <select
-                    value={filters.extension}
-                    onChange={e => setFilters(f => ({ ...f, extension: e.target.value }))}
-                    className="w-full text-sm p-2 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg outline-none focus:ring-2 focus:ring-blue-500 text-gray-900 dark:text-white"
-                  >
+                  <select value={filters.extension} onChange={e => setFilters(f => ({ ...f, extension: e.target.value }))} className="w-full text-sm p-2 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg outline-none focus:ring-2 focus:ring-blue-500 text-gray-900 dark:text-white">
                     <option value="">Any type</option>
                     <option value=".pdf">PDF (.pdf)</option>
                     <option value=".docx">Word (.docx)</option>
@@ -234,14 +232,10 @@ export default function AdvancedSearchPopover({ activeSpace, isPublicOnly }) {
                     <option value=".jpeg">Image (.jpeg)</option>
                     <option value=".zip">Archive (.zip)</option>
                   </select>
-                </div>
+                </div> */}
                 <div className="space-y-1.5">
                   <label className="text-xs font-bold text-gray-500 uppercase tracking-wider">Tag Status</label>
-                  <select
-                    value={filters.isTagged}
-                    onChange={e => setFilters(f => ({ ...f, isTagged: e.target.value }))}
-                    className="w-full text-sm p-2 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg outline-none focus:ring-2 focus:ring-blue-500 text-gray-900 dark:text-white"
-                  >
+                  <select value={filters.isTagged} onChange={e => setFilters(f => ({ ...f, isTagged: e.target.value }))} className="w-full text-sm p-2 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg outline-none focus:ring-2 focus:ring-blue-500 text-gray-900 dark:text-white">
                     <option value="">Any</option>
                     <option value="true">AI Tagged</option>
                     <option value="false">Untagged</option>
@@ -269,47 +263,81 @@ export default function AdvancedSearchPopover({ activeSpace, isPublicOnly }) {
                 </div>
               </div>
 
-              {/* Tags */}
-              <div className="space-y-1.5 relative">
-                <label className="text-xs font-bold text-gray-500 uppercase tracking-wider flex items-center gap-1"><Tag className="w-3.5 h-3.5" /> Has Tag</label>
-                <div className="flex gap-2">
-                  <div className="relative flex-1">
-                    <input
-                      type="text"
-                      placeholder="Type to search tags..."
-                      value={tagInput}
-                      onChange={e => setTagInput(e.target.value)}
-                      onKeyDown={e => { if (e.key === 'Enter' && tagInput.trim()) { e.preventDefault(); addTag(tagInput.trim()); } }}
-                      className="w-full text-sm p-2 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg outline-none focus:ring-2 focus:ring-blue-500 text-gray-900 dark:text-white"
-                    />
-                    {isTagging && <span className="absolute right-2 top-2.5 text-xs text-gray-400">...</span>}
-                    {tagSuggestions.length > 0 && (
-                      <div className="absolute z-20 w-full mt-1 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg shadow-lg max-h-40 overflow-y-auto">
-                        {tagSuggestions.map(s => (
-                          <div key={s.tag} onMouseDown={e => { e.preventDefault(); addTag(s.tag); }} className="p-2.5 text-sm hover:bg-blue-50 dark:hover:bg-blue-900/30 cursor-pointer text-gray-800 dark:text-gray-200">
-                            {s.tag}
-                          </div>
-                        ))}
-                      </div>
-                    )}
+              {/* Tags with AND/OR toggle */}
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <label className="text-xs font-bold text-gray-500 uppercase tracking-wider flex items-center gap-1"><Tag className="w-3.5 h-3.5" /> Has Tag</label>
+                  {/* AND / OR mode toggle — only meaningful with multiple tags */}
+                  <div className="flex items-center gap-1 bg-gray-100 dark:bg-gray-800 rounded-lg p-0.5">
+                    <button
+                      type="button"
+                      onClick={() => setFilters(f => ({ ...f, tagsMode: 'any' }))}
+                      className={`text-[10px] font-bold px-2 py-0.5 rounded-md transition-all ${filters.tagsMode === 'any' ? 'bg-white dark:bg-gray-700 text-blue-600 shadow-sm' : 'text-gray-500 dark:text-gray-400'}`}
+                    >
+                      ANY (OR)
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setFilters(f => ({ ...f, tagsMode: 'all' }))}
+                      className={`text-[10px] font-bold px-2 py-0.5 rounded-md transition-all ${filters.tagsMode === 'all' ? 'bg-white dark:bg-gray-700 text-orange-600 shadow-sm' : 'text-gray-500 dark:text-gray-400'}`}
+                    >
+                      ALL (AND)
+                    </button>
                   </div>
-                  <Button type="button" variant="secondary" onClick={() => tagInput.trim() && addTag(tagInput.trim())} className="shrink-0 text-sm py-1.5 px-3 h-auto">Add</Button>
                 </div>
+
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    placeholder="Type to search tags..."
+                    value={tagInput}
+                    onChange={e => { setTagInput(e.target.value); setShowTagSuggestions(true); }}
+                    onFocus={() => setShowTagSuggestions(true)}
+                    onBlur={() => setTimeout(() => setShowTagSuggestions(false), 150)}
+                    onKeyDown={e => { if (e.key === 'Enter' && tagInput.trim()) { e.preventDefault(); addTag(tagInput.trim()); } }}
+                    className="flex-1 text-sm p-2 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg outline-none focus:ring-2 focus:ring-blue-500 text-gray-900 dark:text-white"
+                  />
+                  {isTagging && <span className="self-center text-xs text-gray-400">…</span>}
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    onMouseDown={e => { e.preventDefault(); if (tagInput.trim()) addTag(tagInput.trim()); }}
+                    className="shrink-0 text-sm py-1.5 px-3 h-auto"
+                  >Add</Button>
+                </div>
+
+                {/* Suggestions rendered in flow (not absolute) — avoids overflow clipping */}
+                {showTagSuggestions && tagSuggestions.length > 0 && (
+                  <div className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg shadow-sm max-h-36 overflow-y-auto">
+                    {tagSuggestions.map(s => (
+                      <div key={s.tag} onMouseDown={e => { e.preventDefault(); e.stopPropagation(); addTag(s.tag); }} className="px-3 py-2 text-sm hover:bg-blue-50 dark:hover:bg-blue-900/30 cursor-pointer text-gray-800 dark:text-gray-200">
+                        {s.tag}
+                      </div>
+                    ))}
+                  </div>
+                )}
+
                 {filters.tags && (
-                  <div className="flex flex-wrap gap-1.5 mt-2">
+                  <div className="flex flex-wrap gap-1.5">
                     {filters.tags.split(',').filter(Boolean).map(t => (
                       <span key={t} className="px-2 py-0.5 bg-blue-50 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300 text-xs rounded-md border border-blue-200 dark:border-blue-700 flex items-center gap-1">
                         {t}
-                        <button type="button" onMouseDown={() => removeTag(t)}><X className="w-3 h-3 hover:text-red-500" /></button>
+                        <button type="button" onClick={() => removeTag(t)}><X className="w-3 h-3 hover:text-red-500" /></button>
                       </span>
                     ))}
                   </div>
                 )}
+
+                {filters.tagsMode === 'all' && filters.tags && filters.tags.split(',').filter(Boolean).length > 1 && (
+                  <p className="text-[10px] text-orange-600 dark:text-orange-400 font-medium">
+                    ALL mode: documents must contain every listed tag
+                  </p>
+                )}
               </div>
 
-              {/* Uploaded By — multi-select, shows names */}
+              {/* Uploaded By — multi-select */}
               {activeSpace !== 'private' && (
-                <div className="space-y-1.5 relative">
+                <div className="space-y-2">
                   <label className="text-xs font-bold text-gray-500 uppercase tracking-wider flex items-center gap-1"><User className="w-3.5 h-3.5" /> Uploaded By</label>
                   <div className="relative">
                     <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400" />
@@ -318,40 +346,45 @@ export default function AdvancedSearchPopover({ activeSpace, isPublicOnly }) {
                       placeholder={token ? "Search by name or email..." : "Login to filter by user"}
                       disabled={!token}
                       value={userInput}
-                      onChange={e => setUserInput(e.target.value)}
+                      onChange={e => { setUserInput(e.target.value); setShowUserSuggestions(true); }}
+                      onFocus={() => setShowUserSuggestions(true)}
+                      onBlur={() => setTimeout(() => setShowUserSuggestions(false), 150)}
                       className="w-full pl-8 text-sm p-2 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg outline-none focus:ring-2 focus:ring-blue-500 text-gray-900 dark:text-white disabled:opacity-50"
                     />
-                    {isUserSearch && <span className="absolute right-2 top-2.5 text-xs text-gray-400">...</span>}
-                    {userSuggestions.length > 0 && (
-                      <div className="absolute z-20 w-full mt-1 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg shadow-lg max-h-48 overflow-y-auto">
-                        {userSuggestions.map(u => {
-                          const already = selectedUsers.some(s => s._id === u._id);
-                          return (
-                            <div
-                              key={u._id}
-                              onMouseDown={e => { e.preventDefault(); if (!already) addUser(u); }}
-                              className={`p-2.5 text-sm flex items-center gap-2.5 transition-colors ${already ? 'opacity-40 cursor-not-allowed' : 'hover:bg-blue-50 dark:hover:bg-blue-900/30 cursor-pointer'}`}
-                            >
-                              <div className="w-6 h-6 rounded-full flex items-center justify-center text-[11px] font-bold text-white flex-shrink-0" style={{ backgroundColor: u.avatarColor || '#3b82f6' }}>
-                                {u.name?.charAt(0).toUpperCase()}
-                              </div>
-                              <div className="min-w-0">
-                                <p className="font-semibold text-gray-900 dark:text-white truncate">{u.name}</p>
-                                <p className="text-xs text-gray-400 truncate">{u.email}</p>
-                              </div>
-                              {already && <span className="ml-auto text-[10px] text-gray-400 font-bold">ADDED</span>}
-                            </div>
-                          );
-                        })}
-                      </div>
-                    )}
+                    {isUserSearch && <span className="absolute right-2 top-2.5 text-xs text-gray-400">…</span>}
                   </div>
+
+                  {/* Suggestions rendered in flow */}
+                  {showUserSuggestions && userSuggestions.length > 0 && (
+                    <div className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg shadow-sm max-h-44 overflow-y-auto">
+                      {userSuggestions.map(u => {
+                        const already = selectedUsers.some(s => s._id === u._id);
+                        return (
+                          <div
+                            key={u._id}
+                            onMouseDown={e => { e.preventDefault(); e.stopPropagation(); if (!already) addUser(u); }}
+                            className={`px-3 py-2 text-sm flex items-center gap-2.5 transition-colors ${already ? 'opacity-40 cursor-not-allowed' : 'hover:bg-blue-50 dark:hover:bg-blue-900/30 cursor-pointer'}`}
+                          >
+                            <div className="w-6 h-6 rounded-full flex items-center justify-center text-[11px] font-bold text-white flex-shrink-0" style={{ backgroundColor: u.avatarColor || '#3b82f6' }}>
+                              {u.name?.charAt(0).toUpperCase()}
+                            </div>
+                            <div className="min-w-0">
+                              <p className="font-semibold text-gray-900 dark:text-white truncate">{u.name}</p>
+                              <p className="text-xs text-gray-400 truncate">{u.email}</p>
+                            </div>
+                            {already && <span className="ml-auto text-[10px] text-gray-400 font-bold flex-shrink-0">ADDED</span>}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+
                   {selectedUsers.length > 0 && (
-                    <div className="flex flex-wrap gap-1.5 mt-2">
+                    <div className="flex flex-wrap gap-1.5">
                       {selectedUsers.map(u => (
-                        <span key={u._id} className="px-2 py-0.5 bg-indigo-50 dark:bg-indigo-900/40 text-indigo-700 dark:text-indigo-300 text-xs rounded-md border border-indigo-200 dark:border-indigo-700 flex items-center gap-1 max-w-[180px]">
+                        <span key={u._id} className="px-2 py-0.5 bg-indigo-50 dark:bg-indigo-900/40 text-indigo-700 dark:text-indigo-300 text-xs rounded-md border border-indigo-200 dark:border-indigo-700 flex items-center gap-1 max-w-[200px]">
                           <span className="truncate">{u.name}</span>
-                          <button type="button" onMouseDown={() => removeUser(u._id)}><X className="w-3 h-3 hover:text-red-500 flex-shrink-0" /></button>
+                          <button type="button" onClick={() => removeUser(u._id)}><X className="w-3 h-3 hover:text-red-500 flex-shrink-0" /></button>
                         </span>
                       ))}
                     </div>
@@ -371,7 +404,7 @@ export default function AdvancedSearchPopover({ activeSpace, isPublicOnly }) {
                 </div>
               </div>
 
-              {/* Permission level (shared/org only) */}
+              {/* Permission (shared / org only) */}
               {(activeSpace === 'shared' || activeSpace === 'organization') && (
                 <div className="space-y-1.5">
                   <label className="text-xs font-bold text-gray-500 uppercase tracking-wider">My Permission Role</label>
@@ -387,8 +420,8 @@ export default function AdvancedSearchPopover({ activeSpace, isPublicOnly }) {
 
             </div>
 
-            {/* Footer */}
-            <div className="p-4 bg-gray-50/50 dark:bg-gray-800/50 border-t border-gray-100 dark:border-gray-800 flex gap-3">
+            {/* Footer — sticky */}
+            <div className="flex-shrink-0 p-4 bg-gray-50/50 dark:bg-gray-800/50 border-t border-gray-100 dark:border-gray-800 flex gap-3 rounded-b-2xl">
               <Button onClick={clearFilters} variant="secondary" className="flex-1 bg-white dark:bg-gray-800 shadow-sm border border-gray-200 dark:border-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700">
                 Clear All
               </Button>

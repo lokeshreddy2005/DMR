@@ -15,7 +15,7 @@ router.get('/documents', async (req, res) => {
             q, page = 1, limit = 20, 
             minSize, maxSize, 
             startDate, endDate, 
-            extension, tags,
+            extension, tags, tagsMode,
             isTagged, departmentOwner,
             uploadedBy, academicYear, organizationId, sort
         } = req.query;
@@ -47,7 +47,13 @@ router.get('/documents', async (req, res) => {
         }
 
         if (extension) {
-            filterQuery['metadata.extension'] = extension.toLowerCase();
+            const extLower = extension.toLowerCase();
+            const extRegex = new RegExp(`\\${extLower.replace('.', '\\.')}$`, 'i');
+            // Wrap in $and so it doesn't overwrite the $or from text search
+            filterQuery.$and = [
+                ...(filterQuery.$and || []),
+                { $or: [{ 'metadata.extension': extLower }, { fileName: extRegex }] }
+            ];
         }
         
         if (departmentOwner) {
@@ -56,9 +62,8 @@ router.get('/documents', async (req, res) => {
 
         if (tags) {
             const tagsArray = tags.split(',').map(t => t.trim()).filter(Boolean);
-            filterQuery.tags = {
-                $in: tagsArray.map(t => new RegExp(`^${t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i'))
-            };
+            const tagRegexes = tagsArray.map(t => new RegExp(`^${t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i'));
+            filterQuery.tags = tagsMode === 'all' ? { $all: tagRegexes } : { $in: tagRegexes };
         }
 
         if (isTagged !== undefined) {
