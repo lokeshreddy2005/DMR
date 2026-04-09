@@ -6,6 +6,7 @@ import { ThemeProvider } from './context/ThemeContext';
 import { AuthLayout } from './components/layout/AuthLayout';
 import { AppLayout } from './components/layout/AppLayout';
 import { PublicLayout } from './components/layout/PublicLayout';
+import { EmbedLayout } from './components/layout/EmbedLayout';
 
 // Pages
 import { Home } from './pages/Home';
@@ -14,6 +15,8 @@ import { Signup } from './pages/Signup';
 import { Dashboard } from './pages/Dashboard';
 import { Workspace } from './pages/Workspace';
 import { Profile } from './pages/Profile';
+import { EmbedUpload } from './pages/EmbedUpload';
+import { EmbedRetrieve } from './pages/EmbedRetrieve';
 
 // Route Guards
 const ProtectedRoute = ({ children }) => {
@@ -38,6 +41,12 @@ function App() {
                 <Route element={<PublicLayout />}>
                     <Route path="/" element={<Home />} />
                     <Route path="/public" element={<Workspace isPublicOnly={true} />} />
+                </Route>
+
+                {/* Micro Frontend Embed Routes */}
+                <Route element={<EmbedLayout />}>
+                    <Route path="/embed/upload" element={<EmbedUpload />} />
+                    <Route path="/embed/documents/:id" element={<EmbedRetrieve />} />
                 </Route>
 
                 {/* Authentication Routes */}

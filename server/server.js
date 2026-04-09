@@ -7,6 +7,7 @@ const documentRoutes = require('./routes/documents');
 const organizationRoutes = require('./routes/organizations');
 const publicRoutes = require('./routes/public');
 const apiKeyRoutes = require('./routes/apiKeys');
+const externalRoutes = require('./routes/external');
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -43,6 +44,7 @@ app.use('/api/documents', documentRoutes);
 app.use('/api/orgs', organizationRoutes);
 app.use('/api/public', publicRoutes); // No auth required
 app.use('/api/api-keys', apiKeyRoutes);
+app.use('/api/external', externalRoutes); // External API
 
 // Health check
 app.get('/api/health', (req, res) => {
@@ -61,7 +63,7 @@ async function start() {
 
   app.listen(PORT, () => {
     console.log(`🚀 DMR Server running on http://localhost:${PORT}`);
-    console.log(`📡 Routes: /api/auth, /api/documents, /api/orgs, /api/public, /api/health`);
+    console.log(`📡 Routes: /api/auth, /api/documents, /api/orgs, /api/public, /api/api-keys, /api/external, /api/health`);
   });
 }
 
