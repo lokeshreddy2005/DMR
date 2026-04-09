@@ -11,6 +11,8 @@ const { uploadToS3, getDownloadUrl, deleteFromS3 } = require('../services/s3');
 const { checkQuota, getStorageSummary } = require('../services/storageQuota');
 const { autoTagDocument } = require('../services/autoTagger');
 const RecentAccess = require('../models/RecentAccess');
+const { routeDocumentToVaults } = require('../services/vaultRouter');
+const { VAULTS } = require('../constants/vaults');
 
 const router = express.Router();
 const SHAREABLE_ROLES = ['previewer', 'viewer', 'downloader', 'manager'];
@@ -277,6 +279,20 @@ router.post('/upload', upload.single('document'), async (req, res) => {
       }
     }
 
+    // Vault routing — runs for any upload that has tags (manual, AI, or both)
+    if (doc.tags.length > 0) {
+      try {
+        console.log(`🗂️  Routing "${req.file.originalname}" to vaults...`);
+        const vaults = await routeDocumentToVaults(doc.tags, doc.metadata, doc.fileName);
+        doc.metadata.vaults = vaults;
+        doc.isVaultRouted = true;
+        console.log(`✅ Routed to ${vaults.length} vault(s): ${vaults.map(v => v.label).join(', ')}`);
+      } catch (vaultErr) {
+        console.error('Vault routing warning (non-blocking):', vaultErr.message);
+      }
+    }
+
+
     await doc.save();
     await doc.populate('uploadedBy', 'name email avatarColor');
 
@@ -387,7 +403,25 @@ router.put('/:id/tags', async (req, res) => {
 
     doc.tags = tags;
     doc.isTagged = doc.tags.length > 0;
-    if (doc.tags.length === 0) doc.isAITagged = false;
+    if (doc.tags.length === 0) {
+      doc.isAITagged = false;
+      // Clear vault routing when all tags are removed
+      doc.metadata.vaults = [];
+      doc.isVaultRouted = false;
+    }
+
+    // Re-run vault routing whenever tags change (non-blocking)
+    if (doc.tags.length > 0) {
+      try {
+        console.log(`🗂️  Re-routing "${doc.fileName}" to vaults after manual tag update...`);
+        const vaults = await routeDocumentToVaults(doc.tags, doc.metadata, doc.fileName);
+        doc.metadata.vaults = vaults;
+        doc.isVaultRouted = true;
+        console.log(`✅ Routed to ${vaults.length} vault(s): ${vaults.map(v => v.label).join(', ')}`);
+      } catch (vaultErr) {
+        console.error('Vault routing warning (non-blocking):', vaultErr.message);
+      }
+    }
 
     await doc.save();
     await doc.populate('uploadedBy', 'name email avatarColor');
@@ -399,6 +433,7 @@ router.put('/:id/tags', async (req, res) => {
     res.status(500).json({ error: 'Failed to update tags.' });
   }
 });
+
 
 /**
  * POST /api/documents/:id/tags/ai
@@ -425,6 +460,17 @@ router.post('/:id/tags/ai', async (req, res) => {
     doc.isTagged = doc.tags.length > 0;
     doc.isAITagged = true;
 
+    // Re-run vault routing so vaults stay in sync with updated tags
+    try {
+      console.log(`🗂️  Re-routing to vaults...`);
+      const vaults = await routeDocumentToVaults(doc.tags, doc.metadata, doc.fileName);
+      doc.metadata.vaults = vaults;
+      doc.isVaultRouted = true;
+      console.log(`✅ Routed to ${vaults.length} vault(s): ${vaults.map(v => v.label).join(', ')}`);
+    } catch (vaultErr) {
+      console.error('Vault routing warning (non-blocking):', vaultErr.message);
+    }
+
     await doc.save();
     await doc.populate('uploadedBy', 'name email avatarColor');
     if (doc.organization) await doc.populate('organization', 'name avatarColor');
@@ -437,9 +483,52 @@ router.post('/:id/tags/ai', async (req, res) => {
 });
 
 /**
+ * POST /api/documents/:id/vault-route
+ * Manually (re-)run vault routing for an existing document.
+ * Uses the document's current tags and metadata — no re-tagging.
+ * Requires edit permission.
+ */
+router.post('/:id/vault-route', async (req, res) => {
+  try {
+    const doc = await Document.findById(req.params.id);
+    if (!doc) return res.status(404).json({ error: 'Document not found.' });
+
+    if (!doc.canEdit(req.user._id)) {
+      return res.status(403).json({ error: 'You do not have edit access to this document.' });
+    }
+
+    if (!doc.tags || doc.tags.length === 0) {
+      return res.status(400).json({
+        error: 'Document has no tags yet. Run AI tagging first (POST /:id/tags/ai) before routing to vaults.',
+      });
+    }
+
+    console.log(`🗂️  Manual vault routing triggered for "${doc.fileName}"...`);
+    const vaults = await routeDocumentToVaults(doc.tags, doc.metadata, doc.fileName);
+    doc.metadata.vaults = vaults;
+    doc.isVaultRouted = true;
+
+    await doc.save();
+    await doc.populate('uploadedBy', 'name email avatarColor');
+    if (doc.organization) await doc.populate('organization', 'name avatarColor');
+
+    console.log(`✅ Routed "${doc.fileName}" to: ${vaults.map((v) => `${v.label} (${v.score})`).join(', ')}`);
+    res.json({
+      message: `Document routed to ${vaults.length} vault(s).`,
+      vaults,
+      document: doc,
+    });
+  } catch (err) {
+    console.error('Vault route error:', err);
+    res.status(500).json({ error: 'Failed to route document to vaults.' });
+  }
+});
+
+/**
  * GET /api/documents
  * List documents with advanced filtering, search, and pagination.
  */
+
 router.get('/', async (req, res) => {
   try {
     const {
@@ -450,7 +539,7 @@ router.get('/', async (req, res) => {
       extension, tags, tagsMode,
       uploadedBy, permissionLevel,
       isTagged, departmentOwner, isAITagged,
-      academicYear, sort
+      academicYear, sort, vault
     } = req.query;
 
     let accessQuery = {};
@@ -575,6 +664,11 @@ router.get('/', async (req, res) => {
 
     if (isAITagged !== undefined) {
       filterQuery.isAITagged = isAITagged === 'true';
+    }
+
+    // Vault filter — match any document assigned to this vaultId
+    if (vault) {
+      filterQuery['metadata.vaults.vaultId'] = vault;
     }
 
     // 3. Merge Queries & Execute
@@ -856,6 +950,108 @@ router.get('/search', async (req, res) => {
   } catch (err) {
     console.error('Search error:', err);
     res.status(500).json({ error: 'Search failed.' });
+  }
+});
+
+/**
+ * GET /api/documents/vaults/list
+ * Return all vault definitions (id, label, description).
+ * Useful for populating vault filter UIs or navigation sidebars.
+ */
+router.get('/vaults/list', (req, res) => {
+  const vaultList = VAULTS.map(({ id, label, description }) => ({ id, label, description }));
+  res.json({ vaults: vaultList });
+});
+
+/**
+ * GET /api/documents/vault/:vaultId
+ * List all documents in a specific vault that the user can access.
+ * Supports: ?page, ?limit, ?sort
+ */
+router.get('/vault/:vaultId', async (req, res) => {
+  try {
+    const { VAULT_MAP } = require('../constants/vaults');
+    const { vaultId } = req.params;
+
+    if (!VAULT_MAP[vaultId]) {
+      return res.status(404).json({ error: `Unknown vault: "${vaultId}". Valid vault IDs can be retrieved from GET /api/documents/vaults/list` });
+    }
+
+    const { page = 1, limit = 20, sort } = req.query;
+    const skip = (parseInt(page) - 1) * parseInt(limit);
+    const limitNum = parseInt(limit);
+
+    // Build access query (same logic as the main GET / route)
+    const userOrgs = await Organization.find({ 'members.user': req.user._id }).select('_id');
+    const accessQuery = {
+      $or: [
+        { space: 'public' },
+        { space: 'private', uploadedBy: req.user._id },
+        { space: 'private', 'permissions.user': req.user._id },
+        { space: 'organization', organization: { $in: userOrgs.map((o) => o._id) } },
+      ],
+    };
+
+    const vaultFilter = { 'metadata.vaults.vaultId': vaultId };
+    const finalQuery = { $and: [accessQuery, vaultFilter] };
+
+    let sortOption = { uploadDate: -1 };
+    if (sort === 'oldest') sortOption = { uploadDate: 1 };
+    else if (sort === 'sizeAsc') sortOption = { fileSize: 1 };
+    else if (sort === 'sizeDesc') sortOption = { fileSize: -1 };
+    else if (sort === 'nameAsc') sortOption = { fileName: 1 };
+    else if (sort === 'nameDesc') sortOption = { fileName: -1 };
+
+    const [documents, totalCount] = await Promise.all([
+      Document.find(finalQuery)
+        .populate('uploadedBy', 'name email avatarColor')
+        .populate('organization', 'name avatarColor')
+        .sort(sortOption)
+        .skip(skip)
+        .limit(limitNum),
+      Document.countDocuments(finalQuery),
+    ]);
+
+    res.json({
+      vault: VAULT_MAP[vaultId],
+      documents,
+      totalCount,
+      currentPage: parseInt(page),
+      totalPages: Math.ceil(totalCount / limitNum),
+    });
+  } catch (err) {
+    console.error('Vault filter error:', err);
+    res.status(500).json({ error: 'Failed to fetch documents for vault.' });
+  }
+});
+
+/**
+ * POST /api/documents/vaults/list
+ * Stats: document count per vault for the current user.
+ */
+router.get('/vaults/stats', async (req, res) => {
+  try {
+    const userOrgs = await Organization.find({ 'members.user': req.user._id }).select('_id');
+    const accessQuery = {
+      $or: [
+        { space: 'public' },
+        { space: 'private', uploadedBy: req.user._id },
+        { space: 'private', 'permissions.user': req.user._id },
+        { space: 'organization', organization: { $in: userOrgs.map((o) => o._id) } },
+      ],
+    };
+
+    const agg = await Document.aggregate([
+      { $match: { ...accessQuery, isVaultRouted: true } },
+      { $unwind: '$metadata.vaults' },
+      { $group: { _id: '$metadata.vaults.vaultId', count: { $sum: 1 }, label: { $first: '$metadata.vaults.label' } } },
+      { $sort: { count: -1 } },
+    ]);
+
+    res.json({ vaultStats: agg.map((a) => ({ vaultId: a._id, label: a.label, count: a.count })) });
+  } catch (err) {
+    console.error('Vault stats error:', err);
+    res.status(500).json({ error: 'Failed to fetch vault stats.' });
   }
 });
 

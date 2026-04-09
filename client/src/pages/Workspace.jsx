@@ -818,12 +818,22 @@ export function Workspace({ isPublicOnly = false, isSearchPage = false }) {
                                                 <span>{formatSize(doc.fileSize)}</span>
                                                 <span>{new Date(doc.uploadDate).toLocaleDateString()}</span>
                                             </div>
-                                            {doc.isTagged && doc.metadata?.typeTags?.length > 0 && (
+                                            {/* {doc.isTagged && doc.metadata?.typeTags?.length > 0 && (
                                                 <div className="mt-3 flex flex-wrap gap-1.5 overflow-hidden max-h-6">
                                                     {doc.metadata.typeTags.slice(0, 2).map((tag, i) => (
                                                         <span key={i} className="px-2 py-0.5 rounded-md bg-blue-50 dark:bg-blue-500/10 text-blue-600 dark:text-blue-400 text-[10px] font-bold uppercase tracking-wider truncate">{tag}</span>
                                                     ))}
                                                     {doc.metadata.typeTags.length > 2 && <span className="text-[10px] text-gray-400 font-bold">+{doc.metadata.typeTags.length - 2}</span>}
+                                                </div>
+                                            )} */}
+                                            {doc.isVaultRouted && doc.metadata?.vaults?.length > 0 && (
+                                                <div className="mt-2 flex flex-wrap gap-1.5 overflow-hidden max-h-5">
+                                                    {doc.metadata.vaults.slice(0, 2).map((v, i) => (
+                                                        <span key={i} className="px-2 py-0.5 rounded-md bg-blue-50 dark:bg-blue-500/10 text-blue-600 dark:text-blue-400 text-[10px] font-bold tracking-wide truncate flex items-center gap-1">
+                                                            🗂 {v.label}
+                                                        </span>
+                                                    ))}
+                                                    {doc.metadata.vaults.length > 2 && <span className="text-[10px] text-gray-400 font-bold">+{doc.metadata.vaults.length - 2}</span>}
                                                 </div>
                                             )}
                                         </motion.div>
@@ -853,11 +863,19 @@ export function Workspace({ isPublicOnly = false, isSearchPage = false }) {
 
                                             <div className="flex items-center gap-4 flex-shrink-0">
                                                 {doc.isTagged && doc.metadata?.typeTags?.length > 0 && (
-                                                    <div className="hidden md:flex flex-wrap gap-1.5 max-w-[200px] overflow-hidden">
+                                                    <div className="hidden md:flex flex-wrap gap-1.5 max-w-[160px] overflow-hidden">
                                                         {doc.metadata.typeTags.slice(0, 1).map((tag, i) => (
                                                             <span key={i} className="px-2 py-0.5 rounded-md bg-blue-50 dark:bg-blue-500/10 text-blue-600 dark:text-blue-400 text-[10px] font-bold uppercase tracking-wider truncate">{tag}</span>
                                                         ))}
                                                         {doc.metadata.typeTags.length > 1 && <span className="text-[10px] text-gray-400 font-bold">+{doc.metadata.typeTags.length - 1}</span>}
+                                                    </div>
+                                                )}
+                                                {doc.isVaultRouted && doc.metadata?.vaults?.length > 0 && (
+                                                    <div className="hidden lg:flex flex-wrap gap-1.5 max-w-[160px] overflow-hidden">
+                                                        <span className="px-2 py-0.5 rounded-md bg-emerald-50 dark:bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 text-[10px] font-bold truncate flex items-center gap-1">
+                                                            🗂 {doc.metadata.vaults[0].label}
+                                                        </span>
+                                                        {doc.metadata.vaults.length > 1 && <span className="text-[10px] text-gray-400 font-bold">+{doc.metadata.vaults.length - 1}</span>}
                                                     </div>
                                                 )}
 
@@ -999,6 +1017,32 @@ export function Workspace({ isPublicOnly = false, isSearchPage = false }) {
                                                 <p className="text-sm text-gray-700 dark:text-gray-300 leading-relaxed font-medium">{selectedDoc.description || 'No description provided.'}</p>
                                             </div>
                                             
+                                    {/* Vaults Section */}
+                                    {selectedDoc.isVaultRouted && selectedDoc.metadata?.vaults?.length > 0 && (
+                                        <div>
+                                            <div className="flex items-center justify-between mb-2">
+                                                <p className="text-xs font-bold text-gray-400 uppercase tracking-widest">Vaults</p>
+                                                <span className="text-[10px] font-bold text-blue-600 bg-blue-100 dark:bg-blue-900/30 dark:text-blue-400 px-1.5 py-0.5 rounded uppercase tracking-wider">AI Routed</span>
+                                            </div>
+                                            <div className="flex flex-col gap-2">
+                                                {selectedDoc.metadata.vaults.map((v, i) => (
+                                                    <div key={i} className="flex flex-col gap-1">
+                                                        <div className="flex justify-between items-center">
+                                                            <span className="text-xs font-semibold text-gray-700 dark:text-gray-300 flex items-center gap-1.5">🗂 {v.label}</span>
+                                                            <span className="text-[11px] font-bold text-blue-600 dark:text-blue-400">{Math.round(v.score * 100)}%</span>
+                                                        </div>
+                                                        <div className="w-full bg-gray-100 dark:bg-gray-800 rounded-full h-1.5">
+                                                            <div
+                                                                className="bg-blue-500 h-1.5 rounded-full transition-all"
+                                                                style={{ width: `${Math.round(v.score * 100)}%` }}
+                                                            />
+                                                        </div>
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        </div>
+                                    )}
+
                                             <div>
                                                 <div className="flex items-center justify-between mb-2">
                                                     <p className="text-xs font-bold text-gray-400 uppercase tracking-widest">Metadata Tags</p>

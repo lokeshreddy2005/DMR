@@ -3,12 +3,12 @@ const mongoose = require('mongoose');
 // ─── Role Presets ───────────────────────────────────────────────
 const ROLE_PRESETS = {
   previewer:  { canView: true,  canDownload: false, canEdit: false, canShare: false, canDelete: false, canManageAccess: false },
-  viewer:     { canView: true,  canDownload: false, canEdit: false, canShare: false, canDelete: false, canManageAccess: false },
-  downloader: { canView: true,  canDownload: true,  canEdit: false, canShare: false, canDelete: false, canManageAccess: false },
-  editor:     { canView: true,  canDownload: true,  canEdit: true,  canShare: false, canDelete: false, canManageAccess: false },
-  sharer:     { canView: true,  canDownload: true,  canEdit: false, canShare: true,  canDelete: false, canManageAccess: false },
-  manager:    { canView: true,  canDownload: true,  canEdit: true,  canShare: true,  canDelete: false, canManageAccess: true  },
-  owner:      { canView: true,  canDownload: true,  canEdit: true,  canShare: true,  canDelete: true,  canManageAccess: true  },
+  viewer: { canView: true, canDownload: false, canEdit: false, canShare: false, canDelete: false, canManageAccess: false },
+  downloader: { canView: true, canDownload: true, canEdit: false, canShare: false, canDelete: false, canManageAccess: false },
+  editor: { canView: true, canDownload: true, canEdit: true, canShare: false, canDelete: false, canManageAccess: false },
+  sharer: { canView: true, canDownload: true, canEdit: false, canShare: true, canDelete: false, canManageAccess: false },
+  manager: { canView: true, canDownload: true, canEdit: true, canShare: true, canDelete: false, canManageAccess: true },
+  owner: { canView: true, canDownload: true, canEdit: true, canShare: true, canDelete: true, canManageAccess: true },
 };
 
 // Map old level values to new role names (backward compat)
@@ -33,11 +33,11 @@ const permissionSchema = new mongoose.Schema({
     default: 'viewer',
   },
   // Granular permission flags
-  canView:         { type: Boolean, default: true },
-  canDownload:     { type: Boolean, default: false },
-  canEdit:         { type: Boolean, default: false },
-  canShare:        { type: Boolean, default: false },
-  canDelete:       { type: Boolean, default: false },
+  canView: { type: Boolean, default: true },
+  canDownload: { type: Boolean, default: false },
+  canEdit: { type: Boolean, default: false },
+  canShare: { type: Boolean, default: false },
+  canDelete: { type: Boolean, default: false },
   canManageAccess: { type: Boolean, default: false },
   expiresAt: {
     type: Date,
@@ -204,7 +204,17 @@ const documentSchema = new mongoose.Schema({
   metadata: {
     primaryDomain: { type: String, default: '' },
     sensitivity: { type: String, default: '' },
-    vaultTarget: { type: String, default: '' },
+    vaults: {
+      type: [
+        {
+          vaultId: { type: String, required: true },
+          label: { type: String, default: '' },
+          score: { type: Number, min: 0, max: 1, default: 0 },
+          routedAt: { type: Date, default: Date.now },
+        },
+      ],
+      default: [],
+    },
     typeTags: { type: [String], default: [] },
     departmentOwner: { type: String, default: '' },
     academicYear: { type: String, default: '' },
@@ -215,6 +225,10 @@ const documentSchema = new mongoose.Schema({
     default: false,
   },
   isAITagged: {
+    type: Boolean,
+    default: false,
+  },
+  isVaultRouted: {
     type: Boolean,
     default: false,
   },
@@ -235,6 +249,7 @@ const documentSchema = new mongoose.Schema({
 documentSchema.index({ uploadDate: -1 });
 documentSchema.index({ 'metadata.extension': 1 });
 documentSchema.index({ 'metadata.departmentOwner': 1 });
+documentSchema.index({ 'metadata.vaults.vaultId': 1 });
 
 // Text & Array Indexes
 documentSchema.index({ tags: 1 });
