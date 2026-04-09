@@ -41,7 +41,6 @@ export default function ShareModal({ isOpen, onClose, document, onUpdate }) {
     const [editingUserId, setEditingUserId] = useState(null);
     const [expiresIn, setExpiresIn] = useState('0');
     const [customDays, setCustomDays] = useState('');
-    const [maxShares, setMaxShares] = useState(1);
     const [showSettings, setShowSettings] = useState(false);
     const [linkSharing, setLinkSharing] = useState({ enabled: false, mode: 'restricted', role: 'viewer', token: null });
     const [linkCopied, setLinkCopied] = useState(false);
@@ -75,7 +74,6 @@ export default function ShareModal({ isOpen, onClose, document, onUpdate }) {
             setSuccess('');
             setSelectedRole('viewer');
             setExpiresIn('0');
-            setMaxShares(document?.sharingPolicy?.maxShares ?? 1);
             setLinkSharing(document?.linkSharing || { enabled: false, mode: 'restricted', role: 'viewer', token: null });
             setLinkCopied(false);
         }
@@ -154,10 +152,7 @@ export default function ShareModal({ isOpen, onClose, document, onUpdate }) {
         }
     };
 
-    const handleUpdateMaxShares = (value) => {
-        const newMax = Math.max(0, parseInt(value) || 0);
-        setMaxShares(newMax);
-    };
+    const handleUpdateMaxShares = () => {};  // no-op, max users limit removed
 
     const formatExpiry = (expiresAt) => {
         if (!expiresAt) return null;
@@ -187,20 +182,13 @@ export default function ShareModal({ isOpen, onClose, document, onUpdate }) {
         setSuccess('');
         try {
             const headers = getAuthHeaders();
-            const [policyRes, linkRes] = await Promise.all([
-                axios.put(
-                    `${API_URL}/api/documents/${document._id}/sharing-policy`,
-                    { maxShares },
-                    { headers }
-                ),
-                axios.put(
-                    `${API_URL}/api/documents/${document._id}/link-sharing`,
-                    linkSharing,
-                    { headers }
-                )
-            ]);
+            const linkRes = await axios.put(
+                `${API_URL}/api/documents/${document._id}/link-sharing`,
+                linkSharing,
+                { headers }
+            );
             setSuccess('Share settings saved successfully.');
-            if (onUpdate) onUpdate({ ...document, sharingPolicy: { maxShares }, linkSharing: linkRes.data.linkSharing });
+            if (onUpdate) onUpdate({ ...document, linkSharing: linkRes.data.linkSharing });
             setShowSettings(false);
         } catch (err) {
             setError(err.response?.data?.error || 'Failed to save settings.');
@@ -394,26 +382,6 @@ export default function ShareModal({ isOpen, onClose, document, onUpdate }) {
                                             </div>
                                         </div>
 
-                                        <div className="border-t border-gray-200 dark:border-gray-700" />
-
-                                        {/* Max Users */}
-                                        <div className="flex items-center justify-between">
-                                            <div className="flex items-center gap-2">
-                                                <Users className="w-3.5 h-3.5 text-gray-400" />
-                                                <div>
-                                                    <p className="text-xs font-bold text-gray-700 dark:text-gray-300">Max Users</p>
-                                                    <p className="text-[10px] text-gray-500 dark:text-gray-400">Limit how many users can access</p>
-                                                </div>
-                                            </div>
-                                            <input
-                                                type="text"
-                                                inputMode="numeric"
-                                                pattern="[0-9]*"
-                                                value={maxShares}
-                                                onChange={(e) => handleUpdateMaxShares(e.target.value.replace(/\D/g, '') || '0')}
-                                                className="w-14 text-center text-xs font-bold px-2 py-1.5 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg outline-none focus:ring-2 focus:ring-blue-500"
-                                            />
-                                        </div>
 
                                         {/* Organization Access */}
                                         <>
@@ -490,8 +458,7 @@ export default function ShareModal({ isOpen, onClose, document, onUpdate }) {
                         <div className="flex items-center justify-between mb-3">
                             <p className="text-xs font-bold text-gray-400 uppercase tracking-widest">People with access</p>
                             <span className="text-[10px] font-bold text-gray-400">
-                                {permissions.filter(p => p.role !== 'owner' && p.level !== 'owner').length}
-                                {maxShares > 0 ? ` / ${maxShares}` : ''} shared
+                                {permissions.filter(p => p.role !== 'owner' && p.level !== 'owner').length} shared
                             </span>
                         </div>
 

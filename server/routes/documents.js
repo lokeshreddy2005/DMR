@@ -341,6 +341,12 @@ router.get('/', async (req, res) => {
         uploadedBy: { $ne: req.user._id },
         'permissions.user': req.user._id
       };
+    } else if (space === 'shared-to-others') {
+      // Documents owned by the user that have been shared with at least one other person
+      accessQuery = {
+        uploadedBy: req.user._id,
+        'permissions.1': { $exists: true }, // has at least 2 permissions entries (owner + someone else)
+      };
     } else if (space === 'organization' && organizationId) {
       const org = await Organization.findById(organizationId);
       if (!org || !org.isMember(req.user._id)) {
@@ -927,24 +933,10 @@ router.post('/:id/permissions', async (req, res) => {
     // Don't allow granting 'owner' role through this endpoint
     if (assignRole === 'owner') {
       return res.status(400).json({ error: 'Cannot grant owner role. Use transfer ownership instead.' });
-    }
-
-    // Enforce maxShares limit
+    }    // Find if user already has permissions
     const existingIdx = doc.permissions.findIndex(
       (p) => (p.user._id?.toString() || p.user.toString()) === targetUser._id.toString()
     );
-    if (existingIdx < 0) {
-      // This is a NEW share — check the limit
-      const maxShares = doc.sharingPolicy?.maxShares ?? 1;
-      if (maxShares >= 0) {
-        const nonOwnerShares = doc.permissions.filter(p => p.role !== 'owner' && p.level !== 'owner').length;
-        if (nonOwnerShares >= maxShares) {
-          return res.status(400).json({
-            error: `Share limit reached. This document can be shared with at most ${maxShares} user(s). Remove existing shares to add new ones.`
-          });
-        }
-      }
-    }
 
     // Compute expiry if expiresIn is provided (in hours)
     let expiresAt = null;

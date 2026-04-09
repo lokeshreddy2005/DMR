@@ -18,13 +18,20 @@ import {
   Users,
   FileText,
   ChevronLeft,
-  Clock
+  Clock,
+  Share2,
+  Trash2,
+  Edit3,
+  Eye,
+  Download,
+  UserCheck
 } from "lucide-react";
 import { useState, useEffect } from "react";
 import axios from "axios";
 import API_URL from "../../config/api";
 import { cn } from "../../utils/cn";
 import { motion, AnimatePresence } from "framer-motion";
+import ShareModal from "../ShareModal";
 
 const SIDEBAR_LINKS = [
   { name: "Dashboard", href: "/dashboard", icon: LayoutDashboard },
@@ -32,6 +39,7 @@ const SIDEBAR_LINKS = [
   { name: "Public Space", href: "/workspace/public", icon: Globe },
   { name: "Private Space", href: "/workspace/private", icon: Lock },
   { name: "Shared with Me", href: "/workspace/shared", icon: Users },
+  { name: "Shared to Others", href: "/workspace/shared-to-others", icon: UserCheck },
   { name: "Organizations", href: "/workspace/organization", icon: Building2 },
 ];
 
@@ -72,6 +80,55 @@ export function AppLayout() {
       alert('Download failed.');
     }
   };
+
+  const getAccessLevel = (doc) => {
+    if (!user) return 'none';
+    if (doc.owner && doc.owner._id === user.id) return 'owner';
+    if (doc.uploadedBy && doc.uploadedBy._id === user.id) return 'owner';
+    if (doc.organization?.members) {
+      const member = doc.organization.members.find(m => m.user === user.id);
+      if (member) return member.role;
+    }
+    if (doc.sharedWith && Array.isArray(doc.sharedWith)) {
+      const share = doc.sharedWith.find(s => s.user === user.id);
+      if (share) return share.permission;
+    }
+    return doc.space === 'public' ? 'viewer' : 'none';
+  };
+
+  const canUserDelete = (doc) => {
+    const role = getAccessLevel(doc);
+    return role === 'owner' || role === 'manager';
+  };
+
+  const handleDeletePreview = async (docId) => {
+    if (!confirm('Permanently delete this document?')) return;
+    try {
+      const token = localStorage.getItem('dmr_token');
+      const headers = { Authorization: `Bearer ${token}` };
+      await axios.delete(`${API_URL}/api/documents/${docId}`, { headers });
+      setPreviewDoc(null);
+      // Removed from global results
+      setGlobalResults(prev => prev.filter(d => d._id !== docId));
+    } catch (err) {
+      alert('Delete failed.');
+    }
+  };
+
+  const [isShareOpen, setIsShareOpen] = useState(false);
+
+  // Escape key to close global search preview
+  useEffect(() => {
+    const handleKeyDown = (e) => {
+      if (e.key === 'Escape') {
+        if (isShareOpen) { setIsShareOpen(false); return; }
+        if (previewDoc) { setPreviewDoc(null); return; }
+        if (showGlobalResults) { setShowGlobalResults(false); setGlobalSearch(''); return; }
+      }
+    };
+    document.addEventListener('keydown', handleKeyDown);
+    return () => document.removeEventListener('keydown', handleKeyDown);
+  }, [previewDoc, isShareOpen, showGlobalResults]);
 
   useEffect(() => {
     if (!globalSearch.trim()) {
@@ -140,7 +197,7 @@ export function AppLayout() {
         {/* Navigation Links */}
         <nav className="flex-1 px-4 py-6 space-y-1 overflow-y-auto overflow-x-hidden">
           {SIDEBAR_LINKS.map((link) => {
-            const isActive = location.pathname.startsWith(link.href) && (link.href !== '/dashboard' || location.pathname === '/dashboard');
+            const isActive = location.pathname === link.href;
             return (
               <Link
                 key={link.name}
@@ -364,6 +421,12 @@ export function AppLayout() {
                           {previewDoc.organization.name}
                         </span>
                       )}
+                      {(() => { const role = getAccessLevel(previewDoc); return (
+                        <span className="flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider bg-gray-200/60 dark:bg-gray-800 text-gray-700 dark:text-gray-300" title={`${role} access`}>
+                          {role === 'owner' || role === 'manager' || role === 'editor' ? <Edit3 className="w-3 h-3" /> : <Eye className="w-3 h-3" />}
+                          {role}
+                        </span>
+                      ); })()}
                     </div>
                   </div>
                 </div>
@@ -381,16 +444,26 @@ export function AppLayout() {
                       <p className="text-xs font-bold text-gray-400 uppercase tracking-widest mb-1.5">Description</p>
                       <p className="text-sm text-gray-700 dark:text-gray-300 leading-relaxed font-medium">{previewDoc.description || 'No description provided.'}</p>
                     </div>
-                    {previewDoc.isTagged && previewDoc.metadata?.typeTags?.length > 0 && (
-                      <div>
-                        <p className="text-xs font-bold text-gray-400 uppercase tracking-widest mb-2">Metadata Tags</p>
-                        <div className="flex flex-wrap gap-1.5">
-                          {previewDoc.metadata.typeTags.map((tag, i) => (
-                            <span key={i} className="px-2 py-1 bg-blue-50 dark:bg-blue-500/10 border border-blue-100 dark:border-blue-500/20 text-blue-600 dark:text-blue-400 rounded-lg text-xs font-bold uppercase tracking-wider">{tag}</span>
-                          ))}
-                        </div>
+                    
+                    <div>
+                      <div className="flex items-center justify-between mb-2">
+                          <p className="text-xs font-bold text-gray-400 uppercase tracking-widest">Metadata Tags</p>
+                          {previewDoc.isAITagged && (
+                              <span className="text-[10px] font-bold text-purple-600 bg-purple-100 dark:bg-purple-900/30 dark:text-purple-400 px-1.5 py-0.5 rounded uppercase tracking-wider">AI Tagged</span>
+                          )}
                       </div>
-                    )}
+                      {(previewDoc.tags?.length > 0) ? (
+                          <div className="flex flex-wrap gap-1.5 mb-3">
+                              {previewDoc.tags.map((t, i) => (
+                                  <span key={i} className="flex items-center gap-1.5 px-2 py-1 bg-blue-50 dark:bg-blue-500/10 border border-blue-100 dark:border-blue-500/20 text-blue-600 dark:text-blue-400 rounded-lg text-xs font-bold uppercase tracking-wider group">
+                                      {t}
+                                  </span>
+                              ))}
+                          </div>
+                      ) : (
+                          <p className="text-xs text-gray-500 italic mb-3">No tags added yet.</p>
+                      )}
+                    </div>
                   </div>
 
                   {/* Metadata Column */}
@@ -411,18 +484,47 @@ export function AppLayout() {
               </div>
 
               {/* Footer */}
-              <div className="p-6 border-t border-gray-100 dark:border-gray-800/60 bg-gray-50/50 dark:bg-gray-800/20 flex flex-col sm:flex-row justify-end gap-3 sm:gap-4">
-                <Button className="w-full sm:w-auto bg-gray-200 text-gray-800 hover:bg-gray-300 border-none shadow-none dark:bg-gray-800 dark:text-white dark:hover:bg-gray-700" onClick={() => { setPreviewDoc(null); navigate(`/workspace/${previewDoc.space}`); }}>
-                  Go to Workspace
+              <div className="p-6 border-t border-gray-100 dark:border-gray-800/60 bg-gray-50/50 dark:bg-gray-800/20 flex flex-wrap justify-end gap-3 sm:gap-4">
+                <Button className="flex-1 sm:flex-none border-none shadow-lg shadow-blue-500/20" onClick={() => handleDownloadPreview(previewDoc)}>
+                  <Download className="w-4 h-4 mr-2" /> Download
                 </Button>
-                <Button className="w-full sm:w-auto border-none shadow-lg shadow-blue-500/20" onClick={() => handleDownloadPreview(previewDoc)}>
-                  Download Document
+
+                {(getAccessLevel(previewDoc) === 'owner' || getAccessLevel(previewDoc) === 'manager') && previewDoc.space !== 'public' && (
+                  <Button
+                    className="flex-1 sm:flex-none bg-blue-50 text-blue-600 hover:bg-blue-100 dark:bg-blue-900/20 dark:text-blue-400 shadow-sm border border-blue-200 dark:border-blue-800/50 transition-colors"
+                    onClick={() => setIsShareOpen(true)}
+                  >
+                    <Share2 className="w-4 h-4 mr-2" /> Share
+                  </Button>
+                )}
+
+                {canUserDelete(previewDoc) && previewDoc.space !== 'public' && (
+                  <Button variant="danger" className="flex-1 sm:flex-none sm:mr-auto shadow-sm" onClick={() => handleDeletePreview(previewDoc._id)}>
+                    <Trash2 className="w-4 h-4 mr-2" /> Delete
+                  </Button>
+                )}
+
+                <Button className="flex-1 sm:flex-none bg-gray-200 text-gray-800 hover:bg-gray-300 border-none shadow-none dark:bg-gray-800 dark:text-white dark:hover:bg-gray-700" onClick={() => { setPreviewDoc(null); navigate(`/workspace/${previewDoc.space}`); }}>
+                  Go to Workspace
                 </Button>
               </div>
             </motion.div>
           </div>
         )}
       </AnimatePresence>
+
+      {/* Share Modal for Global Search */}
+      {previewDoc && isShareOpen && (
+        <ShareModal
+          isOpen={isShareOpen}
+          onClose={() => setIsShareOpen(false)}
+          document={previewDoc}
+          onUpdate={(updatedDoc) => {
+            setPreviewDoc(updatedDoc);
+            setGlobalResults(docs => docs.map(d => d._id === updatedDoc._id ? updatedDoc : d));
+          }}
+        />
+      )}
     </div>
   );
 }

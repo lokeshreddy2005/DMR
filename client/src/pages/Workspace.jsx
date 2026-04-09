@@ -55,12 +55,12 @@ export function Workspace({ isPublicOnly = false, isSearchPage = false }) {
 
     // ─── Role colors for badges ───
     const ROLE_COLORS = {
-        owner:      { bg: 'bg-amber-100 dark:bg-amber-900/30', text: 'text-amber-700 dark:text-amber-400', border: 'border-amber-200 dark:border-amber-800' },
-        manager:    { bg: 'bg-purple-100 dark:bg-purple-900/30', text: 'text-purple-700 dark:text-purple-400', border: 'border-purple-200 dark:border-purple-800' },
-        editor:     { bg: 'bg-blue-100 dark:bg-blue-900/30', text: 'text-blue-700 dark:text-blue-400', border: 'border-blue-200 dark:border-blue-800' },
-        sharer:     { bg: 'bg-green-100 dark:bg-green-900/30', text: 'text-green-700 dark:text-green-400', border: 'border-green-200 dark:border-green-800' },
+        owner: { bg: 'bg-amber-100 dark:bg-amber-900/30', text: 'text-amber-700 dark:text-amber-400', border: 'border-amber-200 dark:border-amber-800' },
+        manager: { bg: 'bg-purple-100 dark:bg-purple-900/30', text: 'text-purple-700 dark:text-purple-400', border: 'border-purple-200 dark:border-purple-800' },
+        editor: { bg: 'bg-blue-100 dark:bg-blue-900/30', text: 'text-blue-700 dark:text-blue-400', border: 'border-blue-200 dark:border-blue-800' },
+        sharer: { bg: 'bg-green-100 dark:bg-green-900/30', text: 'text-green-700 dark:text-green-400', border: 'border-green-200 dark:border-green-800' },
         downloader: { bg: 'bg-teal-100 dark:bg-teal-900/30', text: 'text-teal-700 dark:text-teal-400', border: 'border-teal-200 dark:border-teal-800' },
-        viewer:     { bg: 'bg-gray-100 dark:bg-gray-800', text: 'text-gray-600 dark:text-gray-400', border: 'border-gray-200 dark:border-gray-700' },
+        viewer: { bg: 'bg-gray-100 dark:bg-gray-800', text: 'text-gray-600 dark:text-gray-400', border: 'border-gray-200 dark:border-gray-700' },
     };
 
     const getUserPerm = (doc) => {
@@ -88,6 +88,25 @@ export function Workspace({ isPublicOnly = false, isSearchPage = false }) {
         return 'viewer';
     };
 
+    // Get current user's permission entry including expiry
+    const getUserPermExpiry = (doc) => {
+        if (!user) return null;
+        const uid = user._id || user.id;
+        const perm = doc.permissions?.find(p => {
+            const pu = p.user?._id || p.user?.id || p.user;
+            return pu?.toString() === uid?.toString();
+        });
+        if (!perm?.expiresAt) return null;
+        const exp = new Date(perm.expiresAt);
+        const now = new Date();
+        if (exp <= now) return { label: 'Expired', isExpired: true };
+        const diffMs = exp - now;
+        const hours = Math.floor(diffMs / (60 * 60 * 1000));
+        if (hours < 1) return { label: `${Math.ceil(diffMs / (60 * 1000))}m left`, isExpired: false };
+        if (hours < 24) return { label: `${hours}h left`, isExpired: false };
+        return { label: `${Math.floor(hours / 24)}d left`, isExpired: false };
+    };
+
     const canUserEdit = (doc) => {
         if (!user) return false;
         const uid = user._id || user.id;
@@ -111,36 +130,42 @@ export function Workspace({ isPublicOnly = false, isSearchPage = false }) {
         return perm.level === 'owner';
     };
 
-    const fetchDocuments = useCallback(async (abortController) => {
+    const fetchDocuments = useCallback(async (abortController, forceSearchQuery = null) => {
         setIsLoading(true);
         setError(null);
         try {
             const headers = getAuthHeaders();
             const params = new URLSearchParams(searchParams);
 
-            if (searchQuery.trim()) {
-                params.set('q', searchQuery.trim());
+            const qToUse = forceSearchQuery !== null ? forceSearchQuery : searchQuery;
+            
+            if (qToUse && qToUse.trim()) {
+                params.set('q', qToUse.trim());
+            } else {
+                params.delete('q');
             }
 
             if (!isPublicOnly && activeSpace === 'organization' && selectedOrgId) {
                 params.set('space', 'organization');
                 params.set('organizationId', selectedOrgId);
             } else if (!isPublicOnly && activeSpace !== 'search' && activeSpace !== 'public' && activeSpace !== 'recent') {
-                params.set('space', activeSpace);
+                params.set('space', activeSpace); // handles 'private', 'shared', 'shared-to-others'
+            } else if (activeSpace === 'public' || activeSpace === 'search' || activeSpace === 'recent') {
+                params.delete('organizationId');
             }
 
             const queryStr = params.toString();
             const isPublicRequest = isPublicOnly || activeSpace === 'public';
             let endpoint = isPublicRequest ? '/api/public/documents' : '/api/documents';
             if (activeSpace === 'recent') endpoint = '/api/documents/recent-activity';
-            
+
             const url = `${API_URL}${endpoint}${queryStr ? '?' + queryStr : ''}`;
 
             const res = await axios.get(url, {
                 ...(isPublicRequest ? {} : { headers }),
                 signal: abortController?.signal
             });
-            
+
             setDocuments(res.data.documents || []);
             setTotalPages(res.data.totalPages || 1);
             setTotalCount(res.data.totalCount || 0);
@@ -185,11 +210,34 @@ export function Workspace({ isPublicOnly = false, isSearchPage = false }) {
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [activeSpace]);
 
+    // Escape key to close document modal
+    useEffect(() => {
+        const handleKeyDown = (e) => {
+            if (e.key === 'Escape') {
+                if (isShareOpen) { setIsShareOpen(false); return; }
+                if (isUploadOpen) { setIsUploadOpen(false); return; }
+                if (selectedDoc) { setSelectedDoc(null); return; }
+            }
+        };
+        document.addEventListener('keydown', handleKeyDown);
+        return () => document.removeEventListener('keydown', handleKeyDown);
+    }, [selectedDoc, isShareOpen, isUploadOpen]);
+
     // Fetch documents on activeSpace, searchParams, or selectedOrgId changes
     useEffect(() => {
         if (activeSpace === 'organization' && !selectedOrgId) return;
         const controller = new AbortController();
-        fetchDocuments(controller);
+        
+        // Use the query directly from searchParams if possible, to avoid stale state
+        const urlQ = searchParams.get('q');
+        
+        // If we just mapped away from search, or the URL search is different from state, prioritize URL/None
+        if (activeSpace !== 'search' && !urlQ) {
+            fetchDocuments(controller, '');
+        } else {
+            fetchDocuments(controller, urlQ !== null ? urlQ : null);
+        }
+
         return () => controller.abort();
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [activeSpace, selectedOrgId, searchParams]);
@@ -422,7 +470,7 @@ export function Workspace({ isPublicOnly = false, isSearchPage = false }) {
             {/* Main Content Area */}
             <div className="flex-1 flex gap-6 overflow-hidden relative">
                 {/* File Grid */}
-                <div className="flex-1 overflow-y-auto pr-2 pb-24">
+                <div className="flex-1 min-w-0 overflow-y-auto pr-2 pb-24">
                     {!isLoading && !error && totalItems > 0 && (
                         <div className="flex items-center justify-end mb-4 mt-1">
                             <div className="flex items-center gap-3">
@@ -503,18 +551,30 @@ export function Workspace({ isPublicOnly = false, isSearchPage = false }) {
                                                 <div className="w-12 h-12 rounded-xl bg-blue-50 dark:bg-blue-500/10 text-blue-600 dark:text-blue-400 flex items-center justify-center flex-shrink-0 group-hover:scale-110 transition-transform">
                                                     <FileText className="w-6 h-6" />
                                                 </div>
-                                                <div className="flex items-center gap-1.5">
+                                                <div className="flex items-center gap-1.5 flex-wrap justify-end">
                                                     {isSearchPage && (
                                                         <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-gray-100 text-gray-800 dark:bg-gray-800 dark:text-gray-200 uppercase tracking-wider border border-gray-200 dark:border-gray-700">
                                                             {doc.space}
                                                         </span>
                                                     )}
-                                                    {(() => { const rc = ROLE_COLORS[accessLevel] || ROLE_COLORS.viewer; return (
-                                                        <span className={`flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider border ${rc.bg} ${rc.text} ${rc.border}`} title={`${accessLevel} access`}>
-                                                            {accessLevel === 'owner' || accessLevel === 'manager' || accessLevel === 'editor' ? <Edit3 className="w-3 h-3" /> : <Eye className="w-3 h-3" />}
-                                                            {accessLevel}
-                                                        </span>
-                                                    ); })()}
+                                                    {(() => {
+                                                        const expiry = getUserPermExpiry(doc);
+                                                        if (!expiry) return null;
+                                                        return (
+                                                            <span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider ${expiry.isExpired ? 'bg-red-100 text-red-600 dark:bg-red-900/30 dark:text-red-400 border border-red-200 dark:border-red-800' : 'bg-orange-100 text-orange-600 dark:bg-orange-900/30 dark:text-orange-400 border border-orange-200 dark:border-orange-800'}`}
+                                                                title="Access time remaining">
+                                                                ⏱ {expiry.label}
+                                                            </span>
+                                                        );
+                                                    })()}
+                                                    {(() => {
+                                                        const rc = ROLE_COLORS[accessLevel] || ROLE_COLORS.viewer; return (
+                                                            <span className={`flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider border ${rc.bg} ${rc.text} ${rc.border}`} title={`${accessLevel} access`}>
+                                                                {accessLevel === 'owner' || accessLevel === 'manager' || accessLevel === 'editor' ? <Edit3 className="w-3 h-3" /> : <Eye className="w-3 h-3" />}
+                                                                {accessLevel}
+                                                            </span>
+                                                        );
+                                                    })()}
                                                     <button
                                                         className="text-gray-400 hover:text-gray-900 dark:hover:text-white transition-colors"
                                                         onClick={(e) => {
@@ -581,11 +641,13 @@ export function Workspace({ isPublicOnly = false, isSearchPage = false }) {
                                                             {doc.space}
                                                         </span>
                                                     )}
-                                                    {(() => { const rc = ROLE_COLORS[accessLevel] || ROLE_COLORS.viewer; return (
-                                                        <span className={`hidden sm:inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider border ${rc.bg} ${rc.text} ${rc.border}`} title={`${accessLevel} access`}>
-                                                            {accessLevel}
-                                                        </span>
-                                                    ); })()}
+                                                    {(() => {
+                                                        const rc = ROLE_COLORS[accessLevel] || ROLE_COLORS.viewer; return (
+                                                            <span className={`hidden sm:inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider border ${rc.bg} ${rc.text} ${rc.border}`} title={`${accessLevel} access`}>
+                                                                {accessLevel}
+                                                            </span>
+                                                        );
+                                                    })()}
                                                     <button
                                                         className="p-1 text-gray-400 hover:text-gray-900 dark:hover:text-white transition-colors rounded hover:bg-gray-100 dark:hover:bg-gray-800"
                                                         onClick={(e) => {
@@ -619,130 +681,134 @@ export function Workspace({ isPublicOnly = false, isSearchPage = false }) {
                     )}
                 </div>
 
-                {/* Details Sidebar */}
+                {/* Details Modal — hidden while ShareModal is open */}
                 <AnimatePresence>
-                    {selectedDoc && (
-                        <motion.div
-                            initial={{ width: 0, opacity: 0 }}
-                            animate={{ width: 320, opacity: 1 }}
-                            exit={{ width: 0, opacity: 0 }}
-                            transition={{ type: "spring", stiffness: 300, damping: 30 }}
-                            className="hidden lg:flex flex-shrink-0 flex-col overflow-hidden h-full"
-                        >
-                            <div className="w-80 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-2xl shadow-sm flex-col h-full flex flex-shrink-0">
-                                <div className="p-5 border-b border-gray-100 dark:border-gray-800 flex justify-between items-center bg-gray-50/50 dark:bg-gray-800/20">
-                                    <h4 className="font-bold text-gray-900 dark:text-white">Document Details</h4>
-                                    <button onClick={() => setSelectedDoc(null)} className="p-1 text-gray-400 hover:text-gray-900 dark:hover:text-white rounded-md hover:bg-gray-200 dark:hover:bg-gray-800 transition-colors">
-                                        <X className="w-4 h-4" />
+                    {selectedDoc && !isShareOpen && (
+                        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 sm:p-6">
+                            {/* Modal Overlay Backdrop */}
+                            <motion.div
+                                initial={{ opacity: 0 }}
+                                animate={{ opacity: 1 }}
+                                exit={{ opacity: 0 }}
+                                onClick={() => setSelectedDoc(null)}
+                                className="absolute inset-0 bg-gray-900/60 backdrop-blur-sm cursor-pointer"
+                            />
+                            
+                            <motion.div
+                                initial={{ opacity: 0, scale: 0.95, y: 20 }}
+                                animate={{ opacity: 1, scale: 1, y: 0 }}
+                                exit={{ opacity: 0, scale: 0.95, y: 20 }}
+                                className="relative w-full max-w-2xl bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-3xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh]"
+                            >
+                                {/* Header */}
+                                <div className="flex items-start sm:items-center justify-between p-6 border-b border-gray-100 dark:border-gray-800/60 bg-gray-50/50 dark:bg-gray-800/20">
+                                    <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4">
+                                        <div className="w-12 h-12 rounded-xl bg-blue-50 dark:bg-blue-500/10 flex items-center justify-center text-blue-600 dark:text-blue-400 flex-shrink-0">
+                                            <FileText className="w-6 h-6" />
+                                        </div>
+                                        <div>
+                                            <h3 className="text-xl font-bold text-gray-900 dark:text-white line-clamp-2 sm:truncate max-w-md" title={selectedDoc.fileName}>{selectedDoc.fileName}</h3>
+                                            <div className="flex flex-wrap items-center gap-2 mt-1.5">
+                                                <span className="px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider bg-gray-200/60 dark:bg-gray-800 text-gray-700 dark:text-gray-300">
+                                                    {selectedDoc.space} Space
+                                                </span>
+                                                {(() => { const role = getAccessLevel(selectedDoc); const rc = ROLE_COLORS[role] || ROLE_COLORS.viewer; return (
+                                                    <span className={`flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider border ${rc.bg} ${rc.text} ${rc.border}`} title={`${role} access`}>
+                                                        {role === 'owner' || role === 'manager' || role === 'editor' ? <Edit3 className="w-3 h-3" /> : <Eye className="w-3 h-3" />}
+                                                        {role}
+                                                    </span>
+                                                ); })()}
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <button onClick={() => setSelectedDoc(null)} className="flex-shrink-0 p-2 text-gray-400 hover:text-gray-900 dark:hover:text-white rounded-xl hover:bg-gray-200 dark:hover:bg-gray-800 transition-colors ml-4 sm:ml-0">
+                                        <X className="w-5 h-5" />
                                     </button>
                                 </div>
 
-                                <div className="flex-1 overflow-y-auto p-6 space-y-6">
-                                    <div className="flex justify-center p-6 bg-blue-50 dark:bg-blue-900/10 rounded-xl border border-blue-100 dark:border-blue-800/30">
-                                        <FileText className="w-16 h-16 text-blue-500" />
-                                    </div>
-
-                                    <div>
-                                        <h3 className="font-extrabold text-lg text-gray-900 dark:text-white leading-tight mb-2">{selectedDoc.fileName}</h3>
-                                        <p className="text-sm text-gray-500 dark:text-gray-400 leading-relaxed">{selectedDoc.description || 'No description provided.'}</p>
-                                    </div>
-
-                                    <div className="space-y-0 divide-y divide-gray-100 dark:divide-gray-800">
-                                        {[
-                                            { label: 'Role', value: (() => { const role = getAccessLevel(selectedDoc); return role.charAt(0).toUpperCase() + role.slice(1); })() },
-                                            { label: 'Space', value: selectedDoc.space },
-                                            { label: 'Type', value: selectedDoc.mimeType },
-                                            { label: 'Size', value: formatSize(selectedDoc.fileSize) },
-                                            { label: 'Uploaded', value: new Date(selectedDoc.uploadDate).toLocaleDateString() },
-                                            { label: 'Uploaded By', value: selectedDoc.uploadedBy?.name || 'Unknown' },
-                                        ].map(({ label, value }) => (
-                                            <div key={label} className="flex justify-between py-2.5">
-                                                <span className="text-xs font-bold text-gray-400 uppercase tracking-widest">{label}</span>
-                                                <span className="text-sm font-semibold text-gray-900 dark:text-white capitalize truncate max-w-[140px]">{value}</span>
+                                {/* Body */}
+                                <div className="p-6 overflow-y-auto">
+                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                                        {/* Info Column */}
+                                        <div className="space-y-6">
+                                            <div>
+                                                <p className="text-xs font-bold text-gray-400 uppercase tracking-widest mb-1.5">Description</p>
+                                                <p className="text-sm text-gray-700 dark:text-gray-300 leading-relaxed font-medium">{selectedDoc.description || 'No description provided.'}</p>
                                             </div>
-                                        ))}
-                                    </div>
-
-                                    <div className="space-y-4 pt-2">
-                                        <div>
-                                            <div className="flex items-center justify-between mb-2">
-                                                <p className="text-xs font-bold text-gray-400 uppercase tracking-widest">Tags</p>
-                                                {selectedDoc.isAITagged && (
-                                                    <span className="text-[10px] font-bold text-purple-600 bg-purple-100 dark:bg-purple-900/30 dark:text-purple-400 px-1.5 py-0.5 rounded uppercase tracking-wider">AI Tagged</span>
+                                            
+                                            <div>
+                                                <div className="flex items-center justify-between mb-2">
+                                                    <p className="text-xs font-bold text-gray-400 uppercase tracking-widest">Metadata Tags</p>
+                                                    {selectedDoc.isAITagged && (
+                                                        <span className="text-[10px] font-bold text-purple-600 bg-purple-100 dark:bg-purple-900/30 dark:text-purple-400 px-1.5 py-0.5 rounded uppercase tracking-wider">AI Tagged</span>
+                                                    )}
+                                                </div>
+                                                {(selectedDoc.tags?.length > 0) ? (
+                                                    <div className="flex flex-wrap gap-1.5 mb-3">
+                                                        {selectedDoc.tags.map((t, i) => (
+                                                            <span key={i} className="flex items-center gap-1.5 px-2 py-1 bg-blue-50 dark:bg-blue-500/10 border border-blue-100 dark:border-blue-500/20 text-blue-600 dark:text-blue-400 rounded-lg text-[11px] font-bold uppercase tracking-wider group">
+                                                                {t}
+                                                                {canUserEdit(selectedDoc) && (
+                                                                    <button type="button" onClick={() => handleRemoveTag(t)} className="opacity-50 hover:opacity-100 hover:text-blue-800 dark:hover:text-blue-200 transition-opacity">
+                                                                        <X className="w-3 h-3" />
+                                                                    </button>
+                                                                )}
+                                                            </span>
+                                                        ))}
+                                                    </div>
+                                                ) : (
+                                                    <p className="text-xs text-gray-500 italic mb-3">No tags added yet.</p>
+                                                )}
+                                                {canUserEdit(selectedDoc) && (
+                                                    <div className="flex flex-col gap-2 relative">
+                                                        <input
+                                                            type="text"
+                                                            value={tagInput}
+                                                            onChange={e => setTagInput(e.target.value)}
+                                                            onKeyDown={handleAddTag}
+                                                            placeholder="Type tag & Enter..."
+                                                            className="w-full text-xs px-3 py-2 bg-gray-50 dark:bg-gray-800/80 border border-gray-200 dark:border-gray-700 rounded-lg focus:outline-none focus:ring-1 focus:ring-blue-500 text-gray-900 dark:text-white"
+                                                        />
+                                                        <button
+                                                            onClick={handleAITag}
+                                                            disabled={isTaggingAI}
+                                                            className="w-full flex items-center justify-center gap-2 text-xs font-bold py-2 bg-purple-50 hover:bg-purple-100 text-purple-600 dark:bg-purple-900/20 dark:hover:bg-purple-900/40 dark:text-purple-400 rounded-lg transition-colors border border-purple-100 dark:border-purple-800/50 shadow-sm"
+                                                        >
+                                                            {isTaggingAI ? <span className="animate-pulse flex items-center gap-2"><div className="w-3 h-3 border-2 border-purple-500 border-t-transparent rounded-full animate-spin"></div> Analyzing...</span> : <>✨ Auto-tag with AI</>}
+                                                        </button>
+                                                    </div>
                                                 )}
                                             </div>
-                                            {(selectedDoc.tags?.length > 0) ? (
-                                                <div className="flex flex-wrap gap-1.5 mb-3">
-                                                    {selectedDoc.tags.map((t, i) => (
-                                                        <span key={i} className="flex items-center gap-1.5 px-2 py-1 bg-blue-50 dark:bg-blue-500/10 border border-blue-200 dark:border-blue-800/50 rounded-md text-[11px] font-bold text-blue-600 dark:text-blue-400 group">
-                                                            {t}
-                                                            {canUserEdit(selectedDoc) && (
-                                                                <button type="button" onClick={() => handleRemoveTag(t)} className="opacity-50 hover:opacity-100 hover:text-blue-800 dark:hover:text-blue-200 transition-opacity">
-                                                                    <X className="w-3 h-3" />
-                                                                </button>
-                                                            )}
-                                                        </span>
-                                                    ))}
-                                                </div>
-                                            ) : (
-                                                <p className="text-xs text-gray-500 italic mb-3">No tags added yet.</p>
-                                            )}
-                                            {canUserEdit(selectedDoc) && (
-                                                <input
-                                                    type="text"
-                                                    value={tagInput}
-                                                    onChange={e => setTagInput(e.target.value)}
-                                                    onKeyDown={handleAddTag}
-                                                    placeholder="Type tag & Enter..."
-                                                    className="w-full text-xs px-3 py-2 bg-gray-50 dark:bg-gray-800/80 border border-gray-200 dark:border-gray-700 rounded-lg focus:outline-none focus:ring-1 focus:ring-blue-500 text-gray-900 dark:text-white"
-                                                />
-                                            )}
                                         </div>
-                                        {canUserEdit(selectedDoc) && (
-                                            <button
-                                                onClick={handleAITag}
-                                                disabled={isTaggingAI}
-                                                className="w-full flex items-center justify-center gap-2 text-xs font-bold py-2 bg-purple-50 hover:bg-purple-100 text-purple-600 dark:bg-purple-900/20 dark:hover:bg-purple-900/40 dark:text-purple-400 rounded-lg transition-colors border border-purple-100 dark:border-purple-800/50 shadow-sm"
-                                            >
-                                                {isTaggingAI ? <span className="animate-pulse flex items-center gap-2"><div className="w-3 h-3 border-2 border-purple-500 border-t-transparent rounded-full animate-spin"></div> Analyzing...</span> : <>✨ Auto-tag with AI</>}
-                                            </button>
-                                        )}
-                                    </div>
-                                </div>
 
-                                <div className="p-4 border-t border-gray-100 dark:border-gray-800 bg-gray-50/50 dark:bg-gray-900/50 flex flex-col gap-2">
-                                    {!isPublicOnly && (getAccessLevel(selectedDoc) === 'owner' || getAccessLevel(selectedDoc) === 'manager') && (
-                                        <Button
-                                            className="w-full bg-blue-50 text-blue-600 hover:bg-blue-100 dark:bg-blue-900/20 dark:text-blue-400 shadow-sm border border-blue-200 dark:border-blue-800/50 transition-colors"
-                                            onClick={() => setIsShareOpen(true)}
-                                        >
-                                            <Share2 className="w-4 h-4 mr-2" /> Share
-                                        </Button>
-                                    )}
-                                    <Button className="w-full shadow-sm" onClick={() => handleDownload(selectedDoc)}>
-                                        <Download className="w-4 h-4 mr-2" /> Download
-                                    </Button>
-                                    {!isPublicOnly && canUserEdit(selectedDoc) && (
-                                        <>
-                                            {!isMoving ? (
-                                                <Button
-                                                    className="w-full bg-emerald-50 text-emerald-600 hover:bg-emerald-100 dark:bg-emerald-900/20 dark:text-emerald-400 shadow-sm border border-emerald-200 dark:border-emerald-800/50 transition-colors"
-                                                    onClick={() => setIsMoving(true)}
-                                                >
-                                                    <Globe className="w-4 h-4 mr-2" /> Move Document
-                                                </Button>
-                                            ) : (
-                                                <div className="p-3 bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 shadow-md space-y-3 animate-fade-in-up">
+                                        {/* Metadata Column */}
+                                        <div className="flex flex-col gap-4">
+                                            <div className="bg-gray-50/50 dark:bg-gray-800/40 rounded-3xl p-6 border border-gray-100 dark:border-gray-800/60 space-y-4">
+                                                {[
+                                                    { label: 'Uploader', value: selectedDoc.uploadedBy?.name || 'Unknown' },
+                                                    { label: 'Upload Date', value: new Date(selectedDoc.uploadDate).toLocaleDateString() },
+                                                    { label: 'File Size', value: formatSize(selectedDoc.fileSize) },
+                                                    { label: 'File Type', value: selectedDoc.mimeType },
+                                                ].map(item => (
+                                                    <div key={item.label} className="flex justify-between items-center py-1.5">
+                                                        <span className="text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-widest">{item.label}</span>
+                                                        <span className="text-sm font-semibold text-gray-900 dark:text-white truncate max-w-[140px]">{item.value}</span>
+                                                    </div>
+                                                ))}
+                                            </div>
+
+                                            {isMoving && (
+                                                <div className="p-4 bg-white dark:bg-gray-800 rounded-2xl border border-gray-200 dark:border-gray-700 shadow-sm space-y-3 animate-fade-in-up">
                                                     <div className="flex justify-between items-center mb-1">
                                                         <span className="text-xs font-bold uppercase tracking-wider text-gray-500 dark:text-gray-400">Move To</span>
                                                         <button onClick={() => setIsMoving(false)} className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 bg-gray-100 hover:bg-gray-200 dark:bg-gray-700 dark:hover:bg-gray-600 rounded p-1 transition-colors"><X className="w-3 h-3" /></button>
                                                     </div>
-                                                    <select value={moveSpace} onChange={e => setMoveSpace(e.target.value)} className="w-full text-sm p-2 rounded-lg bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-700 outline-none focus:ring-2 focus:ring-blue-500">
+                                                    <select value={moveSpace} onChange={e => setMoveSpace(e.target.value)} className="w-full text-sm p-2.5 rounded-xl bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-700 outline-none focus:ring-2 focus:ring-blue-500">
                                                         <option value="public">Public Space</option>
                                                         {orgs.length > 0 && <option value="organization">Organization Space</option>}
                                                     </select>
                                                     {moveSpace === 'organization' && (
-                                                        <select value={moveOrg} onChange={e => setMoveOrg(e.target.value)} className="w-full text-sm p-2 rounded-lg bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-700 outline-none focus:ring-2 focus:ring-blue-500">
+                                                        <select value={moveOrg} onChange={e => setMoveOrg(e.target.value)} className="w-full text-sm p-2.5 rounded-xl bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-700 outline-none focus:ring-2 focus:ring-blue-500">
                                                             <option value="">Select Organization...</option>
                                                             {orgs.map(o => <option key={o._id} value={o._id}>{o.name}</option>)}
                                                         </select>
@@ -751,19 +817,44 @@ export function Workspace({ isPublicOnly = false, isSearchPage = false }) {
                                                         <input type="checkbox" checked={moveAutoTag} onChange={e => setMoveAutoTag(e.target.checked)} className="rounded text-blue-600 border-gray-300 dark:border-gray-600 dark:bg-gray-700" />
                                                         Run AI Auto-tagging
                                                     </label>
-                                                    <Button className="w-full py-2 text-xs mt-1" onClick={handleMoveSpaceSubmit}>Confirm Move</Button>
+                                                    <Button className="w-full py-2.5 mt-1 text-sm shadow-sm" onClick={handleMoveSpaceSubmit}>Confirm Move</Button>
                                                 </div>
                                             )}
-                                        </>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                {/* Footer Actions */}
+                                <div className="p-6 border-t border-gray-100 dark:border-gray-800/60 bg-gray-50/50 dark:bg-gray-800/20 flex flex-wrap gap-3">
+                                    <Button className="flex-1 sm:flex-none border-none shadow-lg shadow-blue-500/20" onClick={() => handleDownload(selectedDoc)}>
+                                        <Download className="w-4 h-4 mr-2" /> Download Document
+                                    </Button>
+
+                                    {!isPublicOnly && (getAccessLevel(selectedDoc) === 'owner' || getAccessLevel(selectedDoc) === 'manager') && (
+                                        <Button
+                                            className="flex-1 sm:flex-none bg-blue-50 text-blue-600 hover:bg-blue-100 dark:bg-blue-900/20 dark:text-blue-400 shadow-sm border border-blue-200 dark:border-blue-800/50 transition-colors"
+                                            onClick={() => setIsShareOpen(true)}
+                                        >
+                                            <Share2 className="w-4 h-4 mr-2" /> Share
+                                        </Button>
                                     )}
+                                    {!isPublicOnly && canUserEdit(selectedDoc) && !isMoving && (
+                                        <Button
+                                            className="flex-1 sm:flex-none bg-emerald-50 text-emerald-600 hover:bg-emerald-100 dark:bg-emerald-900/20 dark:text-emerald-400 shadow-sm border border-emerald-200 dark:border-emerald-800/50 transition-colors"
+                                            onClick={() => setIsMoving(true)}
+                                        >
+                                            <Globe className="w-4 h-4 mr-2" /> Move
+                                        </Button>
+                                    )}
+
                                     {!isPublicOnly && canUserDelete(selectedDoc) && (
-                                        <Button variant="danger" className="w-full shadow-sm" onClick={() => handleDelete(selectedDoc._id)}>
-                                            <Trash2 className="w-4 h-4 mr-2" /> Delete
+                                        <Button variant="danger" className="flex-1 sm:flex-none sm:ml-auto shadow-sm" onClick={() => handleDelete(selectedDoc._id)}>
+                                            <Trash2 className="w-4 h-4 sm:mr-2" /> <span className="hidden sm:inline">Delete</span>
                                         </Button>
                                     )}
                                 </div>
-                            </div>
-                        </motion.div>
+                            </motion.div>
+                        </div>
                     )}
                 </AnimatePresence>
             </div>
