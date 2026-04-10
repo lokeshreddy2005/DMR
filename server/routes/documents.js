@@ -11,8 +11,8 @@ const { uploadToS3, getDownloadUrl, deleteFromS3 } = require('../services/s3');
 const { checkQuota, getStorageSummary } = require('../services/storageQuota');
 const { autoTagDocument } = require('../services/autoTagger');
 const RecentAccess = require('../models/RecentAccess');
-const { routeDocumentToVaults } = require('../services/vaultRouter');
-const { VAULTS } = require('../constants/vaults');
+const { routeDocumentToVaults, VAULT_THRESHOLD } = require('../services/vaultRouter');
+const { VAULTS, VAULT_MAP } = require('../constants/vaults');
 
 const router = express.Router();
 const SHAREABLE_ROLES = ['previewer', 'viewer', 'downloader', 'manager'];
@@ -668,7 +668,12 @@ router.get('/', async (req, res) => {
 
     // Vault filter — match any document assigned to this vaultId
     if (vault) {
-      filterQuery['metadata.vaults.vaultId'] = vault;
+      filterQuery['metadata.vaults'] = {
+        $elemMatch: {
+          vaultId: vault,
+          score: { $gte: VAULT_THRESHOLD },
+        },
+      };
     }
 
     // 3. Merge Queries & Execute
@@ -970,7 +975,6 @@ router.get('/vaults/list', (req, res) => {
  */
 router.get('/vault/:vaultId', async (req, res) => {
   try {
-    const { VAULT_MAP } = require('../constants/vaults');
     const { vaultId } = req.params;
 
     if (!VAULT_MAP[vaultId]) {
@@ -992,8 +996,15 @@ router.get('/vault/:vaultId', async (req, res) => {
       ],
     };
 
-    const vaultFilter = { 'metadata.vaults.vaultId': vaultId };
-    const finalQuery = { $and: [accessQuery, vaultFilter] };
+    const normalizedVaultFilter = {
+      'metadata.vaults': {
+        $elemMatch: {
+          vaultId,
+          score: { $gte: VAULT_THRESHOLD },
+        },
+      },
+    };
+    const finalQuery = { $and: [accessQuery, normalizedVaultFilter] };
 
     let sortOption = { uploadDate: -1 };
     if (sort === 'oldest') sortOption = { uploadDate: 1 };
@@ -1042,8 +1053,9 @@ router.get('/vaults/stats', async (req, res) => {
     };
 
     const agg = await Document.aggregate([
-      { $match: { ...accessQuery, isVaultRouted: true } },
+      { $match: { $and: [accessQuery, { isVaultRouted: true }] } },
       { $unwind: '$metadata.vaults' },
+      { $match: { 'metadata.vaults.score': { $gte: VAULT_THRESHOLD } } },
       { $group: { _id: '$metadata.vaults.vaultId', count: { $sum: 1 }, label: { $first: '$metadata.vaults.label' } } },
       { $sort: { count: -1 } },
     ]);

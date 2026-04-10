@@ -1,5 +1,5 @@
 const Groq = require('groq-sdk');
-const { VAULTS, VAULT_MAP, VAULT_THRESHOLD } = require('../constants/vaults');
+const { VAULTS, VAULT_THRESHOLD } = require('../constants/vaults');
 
 //Vault Router Service
 
@@ -72,45 +72,55 @@ RULES:
         const parsed = JSON.parse(responseText);
         const rawScores = parsed.vault_scores || {};
 
-        // Filter to vaults above threshold, map to full objects
-        const routed = VAULTS.filter((v) => {
-            const score = parseFloat(rawScores[v.id]);
-            return !isNaN(score) && score >= VAULT_THRESHOLD;
-        }).map((v) => ({
-            vaultId: v.id,
-            label: v.label,
-            score: Math.round(parseFloat(rawScores[v.id]) * 100) / 100,
-            routedAt: new Date(),
-        }));
+        // Keep all 13 vaults and normalize across all of them so probabilities sum to 1.0 (100%).
+        const allVaults = VAULTS.map((v) => {
+            const value = parseFloat(rawScores[v.id]);
+            const safeValue = Number.isFinite(value) ? Math.max(0, Math.min(1, value)) : 0;
+            return {
+                vaultId: v.id,
+                label: v.label,
+                score: safeValue,
+                routedAt: new Date(),
+            };
+        });
 
-        // Sort by score descending
-        routed.sort((a, b) => b.score - a.score);
-
-        // Fallback: if nothing qualifies, assign miscellaneous
-        if (routed.length === 0) {
-            console.warn('⚠️  Vault router: no vault met threshold — falling back to miscellaneous');
-            return [
-                {
-                    vaultId: 'miscellaneous',
-                    label: VAULT_MAP['miscellaneous'].label,
-                    score: 1.0,
-                    routedAt: new Date(),
-                },
-            ];
+        const total = allVaults.reduce((sum, v) => sum + v.score, 0);
+        if (total > 0) {
+            allVaults.forEach((v) => {
+                v.score = v.score / total;
+            });
+        } else {
+            // If model returns unusable scores, default to miscellaneous with full probability.
+            allVaults.forEach((v) => {
+                v.score = v.vaultId === 'miscellaneous' ? 1 : 0;
+            });
         }
 
-        return routed;
+        // Stabilize rounding drift while keeping sum exactly 1.0.
+        allVaults.forEach((v) => {
+            v.score = Number(v.score.toFixed(6));
+        });
+        const roundedSum = allVaults.reduce((sum, v) => sum + v.score, 0);
+        const drift = Number((1 - roundedSum).toFixed(6));
+        if (drift !== 0) {
+            const topIdx = allVaults.reduce((bestIdx, current, idx, arr) => (
+                current.score > arr[bestIdx].score ? idx : bestIdx
+            ), 0);
+            allVaults[topIdx].score = Number(Math.max(0, allVaults[topIdx].score + drift).toFixed(6));
+        }
+
+        // Keep highest-confidence vaults first for UI readability.
+        allVaults.sort((a, b) => b.score - a.score);
+        return allVaults;
     } catch (err) {
         console.error('Vault router error:', err.message);
-        // On any error, fall back to miscellaneous so docs are never un-routed
-        return [
-            {
-                vaultId: 'miscellaneous',
-                label: VAULT_MAP['miscellaneous'].label,
-                score: 1.0,
-                routedAt: new Date(),
-            },
-        ];
+        // On any error, return a valid probability distribution across all vaults.
+        return VAULTS.map((v) => ({
+            vaultId: v.id,
+            label: v.label,
+            score: v.id === 'miscellaneous' ? 1 : 0,
+            routedAt: new Date(),
+        }));
     }
 }
 

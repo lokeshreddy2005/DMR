@@ -17,6 +17,7 @@ import { Workspace } from './pages/Workspace';
 import { Profile } from './pages/Profile';
 import { EmbedUpload } from './pages/EmbedUpload';
 import { EmbedRetrieve } from './pages/EmbedRetrieve';
+import { VaultBrowser } from './pages/VaultBrowser';
 
 // Route Guards
 const ProtectedRoute = ({ children }) => {
@@ -61,6 +62,8 @@ function App() {
                     <Route path="/search" element={<Workspace isSearchPage={true} />} />
                     <Route path="/workspace/:spaceId" element={<Workspace />} />
                     <Route path="/profile" element={<Profile />} />
+                    <Route path="/vaults" element={<VaultBrowser />} />
+                    <Route path="/vaults/:vaultId" element={<VaultBrowser />} />
                 </Route>
 
                 {/* Catch all */}

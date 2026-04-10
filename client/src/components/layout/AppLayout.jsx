@@ -24,7 +24,8 @@ import {
   Edit3,
   Eye,
   Download,
-  UserCheck
+  UserCheck,
+  Vault
 } from "lucide-react";
 import { useState, useEffect } from "react";
 import axios from "axios";
@@ -43,6 +44,7 @@ const SIDEBAR_LINKS = [
   { name: "Shared with Me", href: "/workspace/shared", icon: Users },
   { name: "Shared to Others", href: "/workspace/shared-to-others", icon: UserCheck },
   { name: "Organizations", href: "/workspace/organization", icon: Building2 },
+  { name: "Vault Browser", href: "/vaults", icon: Vault },
 ];
 
 export function AppLayout() {
@@ -237,7 +239,9 @@ export function AppLayout() {
         {/* Navigation Links */}
         <nav className="flex-1 px-4 py-6 space-y-1 overflow-y-auto overflow-x-hidden">
           {SIDEBAR_LINKS.map((link) => {
-            const isActive = location.pathname === link.href;
+            const isActive = link.href === '/vaults'
+              ? location.pathname.startsWith('/vaults')
+              : location.pathname === link.href;
             return (
               <Link
                 key={link.name}

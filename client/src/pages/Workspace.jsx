@@ -608,6 +608,7 @@ export function Workspace({ isPublicOnly = false, isSearchPage = false }) {
         const i = Math.floor(Math.log(bytes) / Math.log(k));
         return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
     };
+    const formatVaultPercent = (score) => `${(score * 100).toFixed(2)}%`;
 
     const itemsPerPage = 20; // Server limit is default 20
     const totalItems = totalCount;
@@ -829,9 +830,18 @@ export function Workspace({ isPublicOnly = false, isSearchPage = false }) {
                                             {doc.isVaultRouted && doc.metadata?.vaults?.length > 0 && (
                                                 <div className="mt-2 flex flex-wrap gap-1.5 overflow-hidden max-h-5">
                                                     {doc.metadata.vaults.slice(0, 2).map((v, i) => (
-                                                        <span key={i} className="px-2 py-0.5 rounded-md bg-blue-50 dark:bg-blue-500/10 text-blue-600 dark:text-blue-400 text-[10px] font-bold tracking-wide truncate flex items-center gap-1">
+                                                        <button
+                                                            key={i}
+                                                            type="button"
+                                                            onClick={(e) => {
+                                                                e.stopPropagation();
+                                                                navigate(`/vaults/${v.vaultId}?page=1`);
+                                                            }}
+                                                            className="px-2 py-0.5 rounded-md bg-blue-50 dark:bg-blue-500/10 text-blue-600 dark:text-blue-400 text-[10px] font-bold tracking-wide truncate flex items-center gap-1 hover:bg-blue-100 dark:hover:bg-blue-500/20 transition-colors"
+                                                            title={`View documents in ${v.label}`}
+                                                        >
                                                             🗂 {v.label}
-                                                        </span>
+                                                        </button>
                                                     ))}
                                                     {doc.metadata.vaults.length > 2 && <span className="text-[10px] text-gray-400 font-bold">+{doc.metadata.vaults.length - 2}</span>}
                                                 </div>
@@ -872,9 +882,17 @@ export function Workspace({ isPublicOnly = false, isSearchPage = false }) {
                                                 )}
                                                 {doc.isVaultRouted && doc.metadata?.vaults?.length > 0 && (
                                                     <div className="hidden lg:flex flex-wrap gap-1.5 max-w-[160px] overflow-hidden">
-                                                        <span className="px-2 py-0.5 rounded-md bg-emerald-50 dark:bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 text-[10px] font-bold truncate flex items-center gap-1">
+                                                        <button
+                                                            type="button"
+                                                            onClick={(e) => {
+                                                                e.stopPropagation();
+                                                                navigate(`/vaults/${doc.metadata.vaults[0].vaultId}?page=1`);
+                                                            }}
+                                                            className="px-2 py-0.5 rounded-md bg-emerald-50 dark:bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 text-[10px] font-bold truncate flex items-center gap-1 hover:bg-emerald-100 dark:hover:bg-emerald-500/20 transition-colors"
+                                                            title={`View documents in ${doc.metadata.vaults[0].label}`}
+                                                        >
                                                             🗂 {doc.metadata.vaults[0].label}
-                                                        </span>
+                                                        </button>
                                                         {doc.metadata.vaults.length > 1 && <span className="text-[10px] text-gray-400 font-bold">+{doc.metadata.vaults.length - 1}</span>}
                                                     </div>
                                                 )}
@@ -1022,19 +1040,25 @@ export function Workspace({ isPublicOnly = false, isSearchPage = false }) {
                                         <div>
                                             <div className="flex items-center justify-between mb-2">
                                                 <p className="text-xs font-bold text-gray-400 uppercase tracking-widest">Vaults</p>
-                                                <span className="text-[10px] font-bold text-blue-600 bg-blue-100 dark:bg-blue-900/30 dark:text-blue-400 px-1.5 py-0.5 rounded uppercase tracking-wider">AI Routed</span>
                                             </div>
                                             <div className="flex flex-col gap-2">
                                                 {selectedDoc.metadata.vaults.map((v, i) => (
                                                     <div key={i} className="flex flex-col gap-1">
                                                         <div className="flex justify-between items-center">
                                                             <span className="text-xs font-semibold text-gray-700 dark:text-gray-300 flex items-center gap-1.5">🗂 {v.label}</span>
-                                                            <span className="text-[11px] font-bold text-blue-600 dark:text-blue-400">{Math.round(v.score * 100)}%</span>
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => navigate(`/vaults/${v.vaultId}?page=1`)}
+                                                                className="text-[11px] font-bold text-blue-600 dark:text-blue-400 hover:underline"
+                                                                title={`View documents in ${v.label}`}
+                                                            >
+                                                                {formatVaultPercent(v.score)}
+                                                            </button>
                                                         </div>
                                                         <div className="w-full bg-gray-100 dark:bg-gray-800 rounded-full h-1.5">
                                                             <div
                                                                 className="bg-blue-500 h-1.5 rounded-full transition-all"
-                                                                style={{ width: `${Math.round(v.score * 100)}%` }}
+                                                                style={{ width: formatVaultPercent(v.score) }}
                                                             />
                                                         </div>
                                                     </div>
