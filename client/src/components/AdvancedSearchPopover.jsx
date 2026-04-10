@@ -9,7 +9,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 
 const FILTER_KEYS = [/*'extension',*/ 'minSize', 'maxSize', 'startDate', 'endDate', 'isTagged', 'tags', 'tagsMode', 'uploadedBy', 'academicYear', 'departmentOwner', 'permissionLevel'];
 
-export default function AdvancedSearchPopover({ activeSpace, isPublicOnly }) {
+export default function AdvancedSearchPopover({ activeSpace, isPublicOnly, applySearchCallback }) {
   const [searchParams, setSearchParams] = useSearchParams();
   const [isOpen, setIsOpen] = useState(false);
   const popoverRef = useRef(null);
@@ -79,7 +79,13 @@ export default function AdvancedSearchPopover({ activeSpace, isPublicOnly }) {
     else newParams.delete('uploadedBy');
 
     newParams.set('page', '1');
-    setSearchParams(newParams);
+    
+    if (applySearchCallback) {
+      applySearchCallback(newParams);
+    } else {
+      setSearchParams(newParams);
+    }
+    
     setTagInput('');
     setShowTagSuggestions(false);
     setShowUserSuggestions(false);
@@ -97,7 +103,12 @@ export default function AdvancedSearchPopover({ activeSpace, isPublicOnly }) {
     const newParams = new URLSearchParams(searchParams);
     [...FILTER_KEYS, 'uploadedBy'].forEach(k => newParams.delete(k));
     newParams.set('page', '1');
-    setSearchParams(newParams);
+    
+    if (applySearchCallback) {
+      applySearchCallback(newParams);
+    } else {
+      setSearchParams(newParams);
+    }
   };
 
   // ── Sync with URL ──────────────────────────────────────────────────────────
@@ -206,12 +217,12 @@ export default function AdvancedSearchPopover({ activeSpace, isPublicOnly }) {
       {/* Trigger */}
       <button
         type="button"
-        onClick={() => setIsOpen(!isOpen)}
-        className={`relative p-2 rounded-xl transition-colors ${hasActiveFilters ? 'text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-900/30' : 'text-gray-500 hover:text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-900/30'}`}
-        title={hasActiveFilters ? 'Filters active — click to edit' : 'Advanced Filters'}
+        onClick={(e) => { e.preventDefault(); setIsOpen(!isOpen); }}
+        className={`relative p-1.5 rounded-lg transition-colors ${hasActiveFilters ? 'text-blue-600 dark:text-blue-400 bg-blue-50/50 dark:bg-blue-900/30 font-bold' : 'text-gray-400 hover:text-gray-700 hover:bg-gray-100 dark:hover:bg-gray-800'}`}
+        title={hasActiveFilters ? 'Filters active — click to edit' : 'Advanced Search Filters'}
       >
-        <SlidersHorizontal className="w-5 h-5" />
-        {hasActiveFilters && <span className="absolute top-1 right-1 w-2 h-2 bg-orange-500 rounded-full" />}
+        <SlidersHorizontal className="w-4 h-4" />
+        {hasActiveFilters && <span className="absolute top-0.5 right-0.5 w-1.5 h-1.5 bg-orange-500 rounded-full" />}
       </button>
 
       {/* Quick-clear icon when filters are active */}
@@ -227,7 +238,7 @@ export default function AdvancedSearchPopover({ activeSpace, isPublicOnly }) {
             initial={{ opacity: 0, y: 10 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, scale: 0.95 }}
-            className="absolute right-0 top-full mt-2 w-[360px] md:w-[500px] bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-2xl shadow-2xl z-50 flex flex-col"
+            className="absolute right-0 top-full mt-3 w-[360px] md:w-[500px] bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-2xl shadow-2xl z-50 flex flex-col"
             style={{ maxHeight: 'min(80vh, 640px)' }}
           >
             {/* Header — sticky */}

@@ -1,4 +1,4 @@
-import { Link, Outlet, useLocation, useNavigate } from "react-router-dom";
+import { Link, Outlet, useLocation, useNavigate, useSearchParams } from "react-router-dom";
 import { useAuth } from "../../context/AuthContext";
 import { useTheme } from "../../context/ThemeContext";
 import { Button } from "../ui/Button";
@@ -31,7 +31,9 @@ import axios from "axios";
 import API_URL from "../../config/api";
 import { cn } from "../../utils/cn";
 import { motion, AnimatePresence } from "framer-motion";
+
 import ShareModal from "../ShareModal";
+import AdvancedSearchPopover from "../AdvancedSearchPopover";
 
 const SIDEBAR_LINKS = [
   { name: "Dashboard", href: "/dashboard", icon: LayoutDashboard },
@@ -53,11 +55,73 @@ export function AppLayout() {
   const [showProfileMenu, setShowProfileMenu] = useState(false);
 
   // Global Search State
-  const [globalSearch, setGlobalSearch] = useState("");
-  const [globalResults, setGlobalResults] = useState([]);
-  const [showGlobalResults, setShowGlobalResults] = useState(false);
-  const [globalSearchLoading, setGlobalSearchLoading] = useState(false);
+  const [searchParams] = useSearchParams();
+  const [globalSearch, setGlobalSearch] = useState(searchParams.get('q') || "");
   const [previewDoc, setPreviewDoc] = useState(null);
+  const [searchScope, setSearchScope] = useState('all');
+  const [orgs, setOrgs] = useState([]);
+
+  // Sync Global search text with URL on navigation
+  useEffect(() => {
+    setGlobalSearch(searchParams.get('q') || "");
+  }, [searchParams]);
+
+  // Sync Search Scope with current route initially
+  useEffect(() => {
+    const path = location.pathname;
+    if (path === '/workspace/public') setSearchScope('public');
+    else if (path === '/workspace/private') setSearchScope('private');
+    else if (path === '/workspace/shared') setSearchScope('shared');
+    else if (path === '/workspace/organization') {
+      const orgId = searchParams.get('organizationId');
+      if (orgId) setSearchScope(`org_${orgId}`);
+      else setSearchScope('organization');
+    } else {
+      setSearchScope('all');
+    }
+  }, [location.pathname]); // Intentionally omitting searchParams dependency to avoid overwriting user dropdown choice when searching
+
+  // Fetch organizations for the dropdown
+  useEffect(() => {
+    const fetchOrgs = async () => {
+      if (!user) return;
+      try {
+        const token = localStorage.getItem('dmr_token');
+        const res = await axios.get(`${API_URL}/api/orgs`, { headers: { Authorization: `Bearer ${token}` } });
+        setOrgs(res.data.organizations || []);
+      } catch (err) {
+        console.error("Failed to fetch organizations context:", err);
+      }
+    };
+    fetchOrgs();
+  }, [user]);
+
+  // Navigate helper for search
+  const executeSearch = (query, overrideParams) => {
+    const np = overrideParams || new URLSearchParams(searchParams);
+    
+    // If a specific query is given, apply it, otherwise don't blindly overwrite
+    if (query !== undefined) {
+      if (query.trim()) np.set('q', query.trim());
+      else np.delete('q');
+    }
+    
+    np.set('page', '1');
+
+    let basePath = '/search';
+    if (searchScope === 'public') basePath = '/workspace/public';
+    else if (searchScope === 'private') basePath = '/workspace/private';
+    else if (searchScope === 'shared') basePath = '/workspace/shared';
+    else if (searchScope.startsWith('org_')) {
+      basePath = '/workspace/organization';
+      np.set('organizationId', searchScope.replace('org_', ''));
+    } else {
+      // For global search ('all'), we must remove organizationId so we don't accidentally get scoped.
+      np.delete('organizationId');
+    }
+
+    navigate(`${basePath}?${np.toString()}`);
+  };
 
   const formatSizePreview = (bytes) => {
     if (!bytes) return '0 B';
@@ -117,43 +181,19 @@ export function AppLayout() {
 
   const [isShareOpen, setIsShareOpen] = useState(false);
 
-  // Escape key to close global search preview
+  // Escape key to close preview modal
   useEffect(() => {
     const handleKeyDown = (e) => {
       if (e.key === 'Escape') {
         if (isShareOpen) { setIsShareOpen(false); return; }
         if (previewDoc) { setPreviewDoc(null); return; }
-        if (showGlobalResults) { setShowGlobalResults(false); setGlobalSearch(''); return; }
       }
     };
     document.addEventListener('keydown', handleKeyDown);
     return () => document.removeEventListener('keydown', handleKeyDown);
-  }, [previewDoc, isShareOpen, showGlobalResults]);
+  }, [previewDoc, isShareOpen]);
 
-  useEffect(() => {
-    if (!globalSearch.trim()) {
-      setGlobalResults([]);
-      return;
-    }
 
-    setGlobalSearchLoading(true);
-    const delayDebounceFn = setTimeout(async () => {
-      try {
-        const token = localStorage.getItem('dmr_token');
-        const headers = { Authorization: `Bearer ${token}` };
-        // Use the new global search endpoint
-        const url = `${API_URL}/api/documents/search?q=${encodeURIComponent(globalSearch)}`;
-        const res = await axios.get(url, { headers });
-        setGlobalResults(res.data.documents || []);
-      } catch (err) {
-        console.error("Global search failed:", err);
-      } finally {
-        setGlobalSearchLoading(false);
-      }
-    }, 300);
-
-    return () => clearTimeout(delayDebounceFn);
-  }, [globalSearch]);
 
   const initials = user?.name?.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2) || '?';
 
@@ -254,70 +294,64 @@ export function AppLayout() {
             </button>
 
             {/* Global Search */}
-            <div className="hidden sm:flex max-w-md w-full relative group z-50">
-              <Search className={`absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 ${globalSearchLoading ? 'text-blue-500 animate-pulse' : 'text-gray-400'} group-focus-within:text-blue-500 transition-colors z-10`} />
-              <input
-                type="text"
-                value={globalSearch}
-                onChange={(e) => setGlobalSearch(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter' && globalSearch.trim()) {
-                    e.preventDefault();
-                    const query = globalSearch.trim();
-                    setShowGlobalResults(false);
-                    setGlobalSearch('');
-                    navigate(`/search?q=${encodeURIComponent(query)}`);
-                  }
-                }}
-                onFocus={() => setShowGlobalResults(true)}
-                onBlur={() => setTimeout(() => { setShowGlobalResults(false); setGlobalSearch(''); }, 200)}
-                placeholder="Search all documents..."
-                className="w-full bg-gray-50 dark:bg-gray-800/50 border border-gray-200 dark:border-gray-700 rounded-full pl-10 pr-10 py-2 text-sm text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500/50 focus:border-blue-500 transition-all placeholder:text-gray-500 relative z-10"
-              />
-              {globalSearch && (
-                <button
-                  type="button"
-                  onClick={() => { setGlobalSearch(''); setShowGlobalResults(false); }}
-                  className="absolute right-3.5 top-1/2 -translate-y-1/2 z-20 p-1 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 rounded-full transition-colors"
+            <div className="hidden md:flex max-w-2xl w-full relative group z-50">
+              <div className="flex bg-gray-50/80 hover:bg-white focus-within:bg-white dark:bg-gray-800/60 dark:hover:bg-gray-800 dark:focus-within:bg-gray-800 border border-transparent hover:border-gray-200 focus-within:border-blue-500 dark:border-transparent dark:hover:border-gray-700 dark:focus-within:border-blue-500 rounded-xl transition-all shadow-sm w-full focus-within:ring-4 focus-within:ring-blue-500/10">
+                
+                {/* Context Dropdown */}
+                <select
+                  value={searchScope}
+                  onChange={(e) => setSearchScope(e.target.value)}
+                  className="bg-transparent border-none text-xs font-semibold text-gray-500 dark:text-gray-400 focus:ring-0 cursor-pointer pl-3 pr-8 py-2.5 outline-none rounded-l-xl hover:text-gray-700 dark:hover:text-gray-200"
                 >
-                  <X className="w-4 h-4" />
-                </button>
-              )}
-              {showGlobalResults && (globalSearch || globalResults.length > 0) && (
-                <motion.div
-                  initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}
-                  className="absolute top-12 left-0 w-full bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-2xl shadow-xl overflow-hidden z-20"
-                >
-                  {globalSearchLoading ? (
-                    <div className="p-4 text-sm text-gray-500 text-center flex items-center justify-center gap-2">
-                      <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none"></circle><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
-                      Searching...
-                    </div>
-                  ) : globalResults.length === 0 && globalSearch ? (
-                    <div className="p-4 text-sm text-gray-500 text-center">No results found for "{globalSearch}"</div>
-                  ) : (
-                    <div className="max-h-80 overflow-y-auto py-2">
-                      {globalResults.map(doc => (
-                        <div key={doc._id} className="px-4 py-3 hover:bg-gray-50 dark:hover:bg-gray-800/50 cursor-pointer flex items-center justify-between group transition-colors" onMouseDown={(e) => { e.preventDefault(); setShowGlobalResults(false); setPreviewDoc(doc); setGlobalSearch(''); }}>
-                          <div className="flex items-center gap-3">
-                            <div className="w-8 h-8 rounded bg-blue-50 dark:bg-blue-900/10 text-blue-500 flex items-center justify-center">📄</div>
-                            <div>
-                              <p className="text-sm font-bold text-gray-900 dark:text-white truncate">{doc.fileName}</p>
-                              <p className="text-xs text-gray-500 mt-1">
-                                <span className="px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider bg-gray-200/60 dark:bg-gray-800 text-gray-700 dark:text-gray-300">
-                                  {doc.space}
-                                </span>
-                              </p>
-                            </div>
-                          </div>
-                          {doc.space === 'public' && doc.metadata?.typeTags?.length > 0 && <span className="text-[10px] uppercase font-bold text-gray-400 group-hover:text-blue-500">{doc.metadata.typeTags[0]}</span>}
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </motion.div>
-              )}
+                  <option value="all">All Documents</option>
+                  <option value="public">Public Space</option>
+                  <option value="private">Private Space</option>
+                  <option value="shared">Shared with Me</option>
+                  {orgs.map(org => (
+                    <option key={org._id} value={`org_${org._id}`}>Org: {org.name}</option>
+                  ))}
+                </select>
+
+                <div className="w-px bg-gray-300 dark:bg-gray-600 my-2"></div>
+
+                {/* Input Field */}
+                <div className="relative flex-1">
+                  <div className="absolute left-3 top-1/2 -translate-y-1/2 flex items-center text-gray-400 group-focus-within:text-blue-500 transition-colors pointer-events-none">
+                    <Search className="w-4 h-4" />
+                  </div>
+                  <input
+                    type="text"
+                    value={globalSearch}
+                    onChange={(e) => setGlobalSearch(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        e.preventDefault();
+                        executeSearch(globalSearch);
+                      }
+                    }}
+                    placeholder={`Search within ${searchScope === 'all' ? 'all spaces' : 'selected space'}...`}
+                    className="w-full bg-transparent border-none pl-9 pr-20 py-2.5 text-sm text-gray-900 dark:text-white focus:ring-0 font-medium placeholder:text-gray-400 outline-none"
+                  />
+                  <div className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center gap-1 z-20">
+                    {globalSearch && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                            setGlobalSearch('');
+                            executeSearch('');
+                        }}
+                        className="p-1.5 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 rounded-md transition-colors"
+                      >
+                        <X className="w-4 h-4" />
+                      </button>
+                    )}
+                    {/* Advanced Filters inside search bar */}
+                    <AdvancedSearchPopover isPublicOnly={searchScope === 'public'} applySearchCallback={(params) => executeSearch(globalSearch, params)} />
+                  </div>
+                </div>
+              </div>
             </div>
+
           </div>
 
           <div className="flex items-center gap-3 sm:gap-5">

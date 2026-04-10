@@ -69,9 +69,11 @@ export function Dashboard() {
             <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
                 <div>
                     <h1 className="text-3xl font-extrabold text-gray-900 dark:text-white tracking-tight">
-                        Welcome back, {user?.name?.split(' ')[0]} 👋
+                        <span className="text-3xl font-medium">Welcome</span>{" "}
+                        <span className="text-4xl font-extrabold">
+                            {user?.name?.split(' ')[0]} 👋
+                        </span>
                     </h1>
-                    <p className="text-gray-500 dark:text-gray-400 mt-1">Here is what is happening with your documents today.</p>
                 </div>
                 <div className="flex gap-3 w-full sm:w-auto">
                     <Button onClick={() => setIsUploadModalOpen(true)} className="flex-shrink-0 shadow-lg shadow-blue-500/20">
