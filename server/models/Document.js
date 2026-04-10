@@ -1,8 +1,8 @@
 const mongoose = require('mongoose');
-const crypto = require('crypto');
 
 // ─── Role Presets ───────────────────────────────────────────────
 const ROLE_PRESETS = {
+  previewer:  { canView: true,  canDownload: false, canEdit: false, canShare: false, canDelete: false, canManageAccess: false },
   viewer:     { canView: true,  canDownload: false, canEdit: false, canShare: false, canDelete: false, canManageAccess: false },
   downloader: { canView: true,  canDownload: true,  canEdit: false, canShare: false, canDelete: false, canManageAccess: false },
   editor:     { canView: true,  canDownload: true,  canEdit: true,  canShare: false, canDelete: false, canManageAccess: false },
@@ -56,6 +56,79 @@ const permissionSchema = new mongoose.Schema({
   level: { type: String, default: undefined },
 });
 
+const shareLogSchema = new mongoose.Schema({
+  action: {
+    type: String,
+    enum: ['granted', 'updated', 'revoked'],
+    default: 'granted',
+  },
+  user: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'User',
+    required: true,
+  },
+  name: {
+    type: String,
+    trim: true,
+    default: '',
+  },
+  email: {
+    type: String,
+    trim: true,
+    lowercase: true,
+    default: '',
+  },
+  role: {
+    type: String,
+    enum: VALID_ROLES,
+    default: 'viewer',
+  },
+  expiresAt: {
+    type: Date,
+    default: null,
+  },
+  isActive: {
+    type: Boolean,
+    default: true,
+  },
+  eventAt: {
+    type: Date,
+    default: Date.now,
+  },
+  eventBy: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'User',
+    default: null,
+  },
+  sharedAt: {
+    type: Date,
+    default: Date.now,
+  },
+  sharedBy: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'User',
+    default: null,
+  },
+  lastUpdatedAt: {
+    type: Date,
+    default: Date.now,
+  },
+  lastUpdatedBy: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'User',
+    default: null,
+  },
+  revokedAt: {
+    type: Date,
+    default: null,
+  },
+  revokedBy: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'User',
+    default: null,
+  },
+});
+
 const documentSchema = new mongoose.Schema({
   fileName: {
     type: String,
@@ -82,7 +155,7 @@ const documentSchema = new mongoose.Schema({
     },
     role: {
       type: String,
-      enum: ['viewer', 'downloader', 'manager'],
+      enum: ['previewer', 'viewer', 'downloader', 'manager'],
       default: 'viewer',
     },
     token: {
@@ -147,6 +220,10 @@ const documentSchema = new mongoose.Schema({
   },
   // Permissions
   permissions: [permissionSchema],
+  shareLogs: {
+    type: [shareLogSchema],
+    default: [],
+  },
   uploadDate: {
     type: Date,
     default: Date.now,
@@ -174,6 +251,13 @@ documentSchema.virtual('formattedSize').get(function () {
 
 documentSchema.set('toJSON', { virtuals: true });
 
+function getRefId(value) {
+  if (!value) return null;
+  if (typeof value === 'string') return value;
+  if (value._id) return value._id.toString();
+  return value.toString();
+}
+
 // ─── Helper: resolve a permission, handling legacy migration ───
 function resolvePermission(perm) {
   // If this is a legacy permission with `level` but no `role`, migrate it
@@ -188,9 +272,9 @@ function resolvePermission(perm) {
 
 // ─── Find permission for a given userId ───
 function findUserPerm(doc, userId) {
-  const uid = userId.toString();
+  const uid = getRefId(userId);
   const perm = doc.permissions.find((p) => {
-    const pu = p.user?._id?.toString() || p.user?.toString();
+    const pu = getRefId(p.user);
     return pu === uid;
   });
   if (!perm) return null;
@@ -210,42 +294,42 @@ documentSchema.methods.getUserPermission = function (userId) {
 
 documentSchema.methods.canView = function (userId) {
   if (this.space === 'public') return true;
-  if (this.uploadedBy.toString() === userId.toString()) return true;
+  if (getRefId(this.uploadedBy) === getRefId(userId)) return true;
   const perm = findUserPerm(this, userId);
   return perm ? perm.canView : false;
 };
 
 documentSchema.methods.canDownload = function (userId) {
-  if (this.uploadedBy.toString() === userId.toString()) return true;
+  if (getRefId(this.uploadedBy) === getRefId(userId)) return true;
   const perm = findUserPerm(this, userId);
   return perm ? perm.canDownload : false;
 };
 
 documentSchema.methods.canEdit = function (userId) {
-  if (this.uploadedBy.toString() === userId.toString()) return true;
+  if (getRefId(this.uploadedBy) === getRefId(userId)) return true;
   const perm = findUserPerm(this, userId);
   return perm ? perm.canEdit : false;
 };
 
 documentSchema.methods.canShare = function (userId) {
-  if (this.uploadedBy.toString() === userId.toString()) return true;
+  if (getRefId(this.uploadedBy) === getRefId(userId)) return true;
   const perm = findUserPerm(this, userId);
   return perm ? perm.canShare : false;
 };
 
 documentSchema.methods.canDeleteDoc = function (userId) {
   // Only the original uploader (true owner) can delete
-  return this.uploadedBy.toString() === userId.toString();
+  return getRefId(this.uploadedBy) === getRefId(userId);
 };
 
 documentSchema.methods.canManageAccess = function (userId) {
-  if (this.uploadedBy.toString() === userId.toString()) return true;
+  if (getRefId(this.uploadedBy) === getRefId(userId)) return true;
   const perm = findUserPerm(this, userId);
   return perm ? perm.canManageAccess : false;
 };
 
 documentSchema.methods.isOwner = function (userId) {
-  if (this.uploadedBy.toString() === userId.toString()) return true;
+  if (getRefId(this.uploadedBy) === getRefId(userId)) return true;
   const perm = findUserPerm(this, userId);
   return perm ? perm.role === 'owner' : false;
 };

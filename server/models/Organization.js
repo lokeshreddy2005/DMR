@@ -40,7 +40,7 @@ const organizationSchema = new mongoose.Schema({
     sharingPolicy: {
         defaultRole: {
             type: String,
-            enum: ['viewer', 'downloader', 'editor', 'sharer', 'manager'],
+            enum: ['previewer', 'viewer', 'downloader', 'editor', 'sharer', 'manager'],
             default: 'viewer',
         },
     },

@@ -97,7 +97,7 @@ router.put('/:id', async (req, res) => {
         if (name) org.name = name.trim();
         if (description !== undefined) org.description = description.trim();
         if (sharingPolicy?.defaultRole) {
-            const validRoles = ['viewer', 'downloader', 'editor', 'sharer', 'manager'];
+            const validRoles = ['previewer', 'viewer', 'downloader', 'manager'];
             if (validRoles.includes(sharingPolicy.defaultRole)) {
                 if (!org.sharingPolicy) org.sharingPolicy = {};
                 org.sharingPolicy.defaultRole = sharingPolicy.defaultRole;

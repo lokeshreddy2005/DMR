@@ -100,7 +100,7 @@ router.get('/documents', async (req, res) => {
         const [documents, totalCount] = await Promise.all([
             Document.find(finalQuery)
                 .populate('uploadedBy', 'name avatarColor')
-                .select('-permissions -s3Key')
+                .select('-permissions -shareLogs -s3Key')
                 .sort(sortOption)
                 .skip(skip)
                 .limit(limitNum),
@@ -151,7 +151,7 @@ router.get('/documents/:id', async (req, res) => {
     try {
         const doc = await Document.findById(req.params.id)
             .populate('uploadedBy', 'name avatarColor')
-            .select('-permissions -s3Key');
+            .select('-permissions -shareLogs -s3Key');
 
         if (!doc || doc.space !== 'public') {
             return res.status(404).json({ error: 'Document not found.' });

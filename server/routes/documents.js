@@ -13,6 +13,7 @@ const { autoTagDocument } = require('../services/autoTagger');
 const RecentAccess = require('../models/RecentAccess');
 
 const router = express.Router();
+const SHAREABLE_ROLES = ['previewer', 'viewer', 'downloader', 'manager'];
 
 // All document routes require authentication
 router.use(authMiddleware);
@@ -36,6 +37,129 @@ const upload = multer({
   storage,
   limits: { fileSize: 50 * 1024 * 1024 }, // 50 MB max
 });
+
+function idsMatch(left, right) {
+  if (!left || !right) return false;
+  return left.toString() === right.toString();
+}
+
+function ensureShareLogs(doc) {
+  if (!Array.isArray(doc.shareLogs)) {
+    doc.shareLogs = [];
+  }
+}
+
+function appendShareLog(doc, { action, targetUser, role, actorId, expiresAt, isActive }) {
+  ensureShareLogs(doc);
+  const now = new Date();
+
+  doc.shareLogs.push({
+    action: action || 'granted',
+    user: targetUser._id,
+    name: targetUser.name || '',
+    email: targetUser.email?.toLowerCase?.() || '',
+    role: role || 'viewer',
+    expiresAt: expiresAt || null,
+    isActive: isActive !== undefined ? isActive : action !== 'revoked',
+    eventAt: now,
+    eventBy: actorId,
+    sharedAt: action === 'granted' ? now : null,
+    sharedBy: action === 'granted' ? actorId : null,
+    lastUpdatedAt: action === 'updated' ? now : null,
+    lastUpdatedBy: action === 'updated' ? actorId : null,
+    revokedAt: action === 'revoked' ? now : null,
+    revokedBy: action === 'revoked' ? actorId : null,
+  });
+}
+
+async function populateDocumentForAccessUi(doc) {
+  await doc.populate('uploadedBy', 'name email avatarColor');
+  await doc.populate('organization', 'name avatarColor');
+  await doc.populate('permissions.user', 'name email avatarColor');
+  await doc.populate('permissions.grantedBy', 'name email');
+  await doc.populate('shareLogs.eventBy', 'name email');
+  await doc.populate('shareLogs.user', 'name email avatarColor');
+  await doc.populate('shareLogs.sharedBy', 'name email');
+  await doc.populate('shareLogs.lastUpdatedBy', 'name email');
+  await doc.populate('shareLogs.revokedBy', 'name email');
+  return doc;
+}
+
+function sanitizeDocumentForViewer(doc, userId) {
+  const payload = doc.toObject();
+  if (!doc.canManageAccess(userId)) {
+    delete payload.shareLogs;
+  }
+  return payload;
+}
+
+function buildActivePermissionClause(userId) {
+  return {
+    permissions: {
+      $elemMatch: {
+        user: userId,
+        $or: [
+          { expiresAt: null },
+          { expiresAt: { $exists: false } },
+          { expiresAt: { $gt: new Date() } },
+        ],
+      },
+    },
+  };
+}
+
+function getEntityId(value) {
+  if (!value) return null;
+  if (typeof value === 'string') return value;
+  if (value._id) return value._id.toString();
+  return value.toString();
+}
+
+function buildShareLogFeed(doc) {
+  const existingLogs = Array.isArray(doc.shareLogs)
+    ? doc.shareLogs.map((log) => (typeof log.toObject === 'function' ? log.toObject() : log))
+    : [];
+
+  const activeLogUsers = new Set(
+    existingLogs
+      .filter((log) => log && log.action !== 'revoked' && log.isActive !== false && !log.revokedAt)
+      .map((log) => getEntityId(log.user))
+      .filter(Boolean)
+  );
+
+  const derivedLogs = (doc.permissions || [])
+    .map((perm) => {
+      const role = perm.role || perm.level || 'viewer';
+      const userId = getEntityId(perm.user);
+
+      if (!userId || role === 'owner' || activeLogUsers.has(userId)) {
+        return null;
+      }
+
+      return {
+        _id: `derived-${doc._id}-${userId}`,
+        action: 'granted',
+        user: perm.user,
+        name: perm.user?.name || '',
+        email: perm.user?.email || '',
+        role,
+        expiresAt: perm.expiresAt || null,
+        isActive: true,
+        eventAt: perm.grantedAt || doc.uploadDate || null,
+        eventBy: perm.grantedBy || null,
+        sharedAt: perm.grantedAt || doc.uploadDate || null,
+        sharedBy: perm.grantedBy || null,
+        lastUpdatedAt: null,
+        lastUpdatedBy: null,
+        revokedAt: null,
+        revokedBy: null,
+        isDerived: true,
+      };
+    })
+    .filter(Boolean);
+
+  return [...existingLogs, ...derivedLogs];
+}
 
 /**
  * POST /api/documents/upload
@@ -338,8 +462,8 @@ router.get('/', async (req, res) => {
       accessQuery = { space: 'private', uploadedBy: req.user._id };
     } else if (space === 'shared') {
       accessQuery = {
+        ...buildActivePermissionClause(req.user._id),
         uploadedBy: { $ne: req.user._id },
-        'permissions.user': req.user._id
       };
     } else if (space === 'shared-to-others') {
       // Documents owned by the user that have been shared with at least one other person
@@ -358,7 +482,7 @@ router.get('/', async (req, res) => {
         $or: [
           { space: 'public' },
           { space: 'private', uploadedBy: req.user._id },
-          { space: 'private', 'permissions.user': req.user._id },
+          { space: 'private', ...buildActivePermissionClause(req.user._id) },
         ],
       };
       const userOrgs = await Organization.find({ 'members.user': req.user._id }).select('_id');
@@ -474,6 +598,7 @@ router.get('/', async (req, res) => {
 
     const [documents, totalCount] = await Promise.all([
       Document.find(finalQuery)
+        .select('-shareLogs')
         .populate('uploadedBy', 'name email avatarColor')
         .populate('organization', 'name avatarColor')
         .sort(sortOption)
@@ -511,7 +636,7 @@ router.get('/tags/search', async (req, res) => {
       $or: [
         { space: 'public' },
         { space: 'private', uploadedBy: req.user._id },
-        { space: 'private', 'permissions.user': req.user._id },
+        { space: 'private', ...buildActivePermissionClause(req.user._id) },
         { space: 'organization', organization: { $in: userOrgs.map(o => o._id) } },
       ],
     };
@@ -545,6 +670,7 @@ router.get('/recent-activity', async (req, res) => {
       .limit(10)
       .populate({
         path: 'document',
+        select: '-shareLogs',
         populate: [
           { path: 'uploadedBy', select: 'name email avatarColor' },
           { path: 'organization', select: 'name avatarColor' }
@@ -589,7 +715,7 @@ router.get('/departments/search', async (req, res) => {
       $or: [
         { space: 'public' },
         { space: 'private', uploadedBy: req.user._id },
-        { space: 'private', 'permissions.user': req.user._id },
+        { space: 'private', ...buildActivePermissionClause(req.user._id) },
         { space: 'organization', organization: { $in: userOrgs.map(o => o._id) } },
       ],
     };
@@ -626,7 +752,7 @@ router.get('/users/search', async (req, res) => {
       $or: [
         { space: 'public' },
         { space: 'private', uploadedBy: req.user._id },
-        { space: 'private', 'permissions.user': req.user._id },
+        { space: 'private', ...buildActivePermissionClause(req.user._id) },
         { space: 'organization', organization: { $in: userOrgs.map(o => o._id) } },
       ],
     };
@@ -665,12 +791,13 @@ router.get('/recent', async (req, res) => {
       $or: [
         { space: 'public' },
         { space: 'private', uploadedBy: req.user._id },
-        { space: 'private', 'permissions.user': req.user._id },
+        { space: 'private', ...buildActivePermissionClause(req.user._id) },
         { space: 'organization', organization: { $in: orgIds } },
       ],
     };
 
     const documents = await Document.find(query)
+      .select('-shareLogs')
       .populate('uploadedBy', 'name email avatarColor')
       .populate('organization', 'name avatarColor')
       .sort({ uploadDate: -1 })
@@ -703,7 +830,7 @@ router.get('/search', async (req, res) => {
       $or: [
         { space: 'public' },
         { space: 'private', uploadedBy: req.user._id },
-        { space: 'private', 'permissions.user': req.user._id },
+        { space: 'private', ...buildActivePermissionClause(req.user._id) },
         { space: 'organization', organization: { $in: orgIds } },
       ],
     };
@@ -719,6 +846,7 @@ router.get('/search', async (req, res) => {
     };
 
     const documents = await Document.find({ $and: [accessQuery, searchQuery] })
+      .select('-shareLogs')
       .populate('uploadedBy', 'name email avatarColor')
       .populate('organization', 'name avatarColor')
       .sort({ uploadDate: -1 })
@@ -751,8 +879,8 @@ router.get('/stats', async (req, res) => {
         organization: { $in: orgIds },
       }),
       Document.countDocuments({
+        ...buildActivePermissionClause(userId),
         uploadedBy: { $ne: userId },
-        'permissions.user': userId
       }),
     ]);
 
@@ -792,7 +920,12 @@ router.get('/:id', async (req, res) => {
     const doc = await Document.findById(req.params.id)
       .populate('uploadedBy', 'name email avatarColor')
       .populate('permissions.user', 'name email avatarColor')
-      .populate('organization', 'name avatarColor');
+      .populate('permissions.grantedBy', 'name email')
+      .populate('organization', 'name avatarColor')
+      .populate('shareLogs.user', 'name email avatarColor')
+      .populate('shareLogs.sharedBy', 'name email')
+      .populate('shareLogs.lastUpdatedBy', 'name email')
+      .populate('shareLogs.revokedBy', 'name email');
 
     if (!doc) return res.status(404).json({ error: 'Document not found.' });
 
@@ -800,7 +933,7 @@ router.get('/:id', async (req, res) => {
       return res.status(403).json({ error: 'You do not have access to this document.' });
     }
 
-    res.json({ document: doc });
+    res.json({ document: sanitizeDocumentForViewer(doc, req.user._id) });
   } catch (err) {
     console.error('Get doc error:', err);
     res.status(500).json({ error: 'Failed to fetch document.' });
@@ -926,22 +1059,28 @@ router.post('/:id/permissions', async (req, res) => {
       }
     }
 
-    if (!VALID_ROLES.includes(assignRole)) {
-      return res.status(400).json({ error: `Invalid role. Valid roles: ${VALID_ROLES.join(', ')}` });
+    if (!SHAREABLE_ROLES.includes(assignRole)) {
+      return res.status(400).json({ error: `Invalid role. Valid roles: ${SHAREABLE_ROLES.join(', ')}` });
     }
 
     // Don't allow granting 'owner' role through this endpoint
     if (assignRole === 'owner') {
       return res.status(400).json({ error: 'Cannot grant owner role. Use transfer ownership instead.' });
-    }    // Find if user already has permissions
+    }
+
+    // Find if user already has permissions
     const existingIdx = doc.permissions.findIndex(
       (p) => (p.user._id?.toString() || p.user.toString()) === targetUser._id.toString()
     );
 
+    const hasExplicitExpiry = expiresIn !== undefined && expiresIn !== null && expiresIn !== '';
+
     // Compute expiry if expiresIn is provided (in hours)
-    let expiresAt = null;
-    if (expiresIn && Number(expiresIn) > 0) {
+    let expiresAt = existingIdx >= 0 ? (doc.permissions[existingIdx].expiresAt || null) : null;
+    if (hasExplicitExpiry && Number(expiresIn) > 0) {
       expiresAt = new Date(Date.now() + Number(expiresIn) * 60 * 60 * 1000);
+    } else if (hasExplicitExpiry && Number(expiresIn) === 0) {
+      expiresAt = null;
     }
 
     const newPerm = Document.buildPermission(targetUser._id, assignRole, req.user._id, expiresAt);
@@ -959,11 +1098,22 @@ router.post('/:id/permissions', async (req, res) => {
       doc.permissions.push(newPerm);
     }
 
-    await doc.save();
-    await doc.populate('permissions.user', 'name email avatarColor');
-    await doc.populate('permissions.grantedBy', 'name email');
+    appendShareLog(doc, {
+      action: existingIdx >= 0 ? 'updated' : 'granted',
+      targetUser,
+      role: assignRole,
+      actorId: req.user._id,
+      expiresAt,
+      isActive: true,
+    });
 
-    res.json({ message: `${assignRole} access granted to ${targetUser.name}!`, document: doc });
+    await doc.save();
+    await populateDocumentForAccessUi(doc);
+
+    res.json({
+      message: `${assignRole} access granted to ${targetUser.name}!`,
+      document: sanitizeDocumentForViewer(doc, req.user._id),
+    });
   } catch (err) {
     console.error('Grant permission error:', err);
     res.status(500).json({ error: 'Failed to grant permission.' });
@@ -1021,7 +1171,7 @@ router.put('/:id/link-sharing', async (req, res) => {
 
     if (enabled !== undefined) doc.linkSharing.enabled = !!enabled;
     if (mode && ['restricted', 'organization', 'anyone'].includes(mode)) doc.linkSharing.mode = mode;
-    if (role && ['viewer', 'downloader', 'manager'].includes(role)) doc.linkSharing.role = role;
+    if (role && ['previewer', 'viewer', 'downloader', 'manager'].includes(role)) doc.linkSharing.role = role;
 
     // Generate token when enabling, clear when disabling
     if (doc.linkSharing.enabled && !doc.linkSharing.token) {
@@ -1067,14 +1217,33 @@ router.delete('/:id/permissions/:userId', async (req, res) => {
       return res.status(400).json({ error: 'Cannot revoke your own access.' });
     }
 
+    const targetUser = await User.findById(req.params.userId).select('name email');
+    if (targetPerm) {
+      appendShareLog(doc, {
+        action: 'revoked',
+        targetUser: targetUser || {
+          _id: req.params.userId,
+          name: '',
+          email: '',
+        },
+        role: targetPerm.role || targetPerm.level || 'viewer',
+        actorId: req.user._id,
+        expiresAt: targetPerm.expiresAt || null,
+        isActive: false,
+      });
+    }
+
     doc.permissions = doc.permissions.filter(
       (p) => (p.user._id?.toString() || p.user.toString()) !== req.params.userId
     );
 
     await doc.save();
-    await doc.populate('permissions.user', 'name email avatarColor');
+    await populateDocumentForAccessUi(doc);
 
-    res.json({ message: 'Access revoked.', document: doc });
+    res.json({
+      message: 'Access revoked.',
+      document: sanitizeDocumentForViewer(doc, req.user._id),
+    });
   } catch (err) {
     console.error('Revoke permission error:', err);
     res.status(500).json({ error: 'Failed to revoke permission.' });
@@ -1089,7 +1258,12 @@ router.get('/:id/permissions', async (req, res) => {
   try {
     const doc = await Document.findById(req.params.id)
       .populate('permissions.user', 'name email avatarColor')
-      .populate('permissions.grantedBy', 'name email');
+      .populate('permissions.grantedBy', 'name email')
+      .populate('shareLogs.eventBy', 'name email')
+      .populate('shareLogs.user', 'name email avatarColor')
+      .populate('shareLogs.sharedBy', 'name email')
+      .populate('shareLogs.lastUpdatedBy', 'name email')
+      .populate('shareLogs.revokedBy', 'name email');
     if (!doc) return res.status(404).json({ error: 'Document not found.' });
 
     if (!doc.canManageAccess(req.user._id)) {
@@ -1098,12 +1272,12 @@ router.get('/:id/permissions', async (req, res) => {
 
     res.json({
       permissions: doc.permissions,
-      availableRoles: VALID_ROLES.filter(r => r !== 'owner'),
+      shareLogs: buildShareLogFeed(doc),
+      availableRoles: SHAREABLE_ROLES,
       roleDescriptions: {
+        previewer: 'Read-only preview access',
         viewer: 'Can view the document',
         downloader: 'Can view and download',
-        editor: 'Can view, download, and edit',
-        sharer: 'Can view, download, and share with others',
         manager: 'Can view, download, edit, share, and manage access',
       },
     });
@@ -1119,10 +1293,7 @@ async function checkDocAccess(doc, userId) {
   if (doc.space === 'public') return true;
   if (doc.uploadedBy.toString() === userId.toString() ||
     doc.uploadedBy._id?.toString() === userId.toString()) return true;
-  if (doc.permissions.some((p) =>
-    (p.user.toString() === userId.toString()) ||
-    (p.user._id?.toString() === userId.toString())
-  )) return true;
+  if (doc.canView(userId)) return true;
   if (doc.space === 'organization' && doc.organization) {
     const orgId = doc.organization._id || doc.organization;
     const org = await Organization.findById(orgId);

@@ -6,6 +6,7 @@ import { useAuth } from '../context/AuthContext';
 import API_URL from '../config/api';
 
 const ROLE_OPTIONS = [
+    { value: 'previewer',  label: 'Previewer',         desc: 'Read-only preview access',                icon: '🔎' },
     { value: 'viewer',     label: 'Viewer',           desc: 'Can only view the document',              icon: '👁️' },
     { value: 'downloader', label: 'Viewer & Download', desc: 'Can view and download the document',      icon: '⬇️' },
     { value: 'manager',    label: 'Full Access',       desc: 'Can edit, share, download, and manage',   icon: '🛡️' },
@@ -21,6 +22,7 @@ const EXPIRY_OPTIONS = [
 const ROLE_COLORS = {
     owner:      'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400 border-amber-200 dark:border-amber-800',
     manager:    'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400 border-purple-200 dark:border-purple-800',
+    previewer:  'bg-sky-100 text-sky-700 dark:bg-sky-900/30 dark:text-sky-400 border-sky-200 dark:border-sky-800',
     editor:     'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400 border-blue-200 dark:border-blue-800',
     sharer:     'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400 border-green-200 dark:border-green-800',
     downloader: 'bg-teal-100 text-teal-700 dark:bg-teal-900/30 dark:text-teal-400 border-teal-200 dark:border-teal-800',
@@ -74,6 +76,7 @@ export default function ShareModal({ isOpen, onClose, document, onUpdate }) {
             setSuccess('');
             setSelectedRole('viewer');
             setExpiresIn('0');
+            setCustomDays('');
             setLinkSharing(document?.linkSharing || { enabled: false, mode: 'restricted', role: 'viewer', token: null });
             setLinkCopied(false);
         }
@@ -89,8 +92,13 @@ export default function ShareModal({ isOpen, onClose, document, onUpdate }) {
         try {
             const headers = getAuthHeaders();
             // Compute actual expiresIn hours
-            let actualExpiresIn = undefined;
-            if (expiresIn === 'custom' && customDays) {
+            let actualExpiresIn;
+            if (expiresIn === 'custom') {
+                if (!customDays || Number(customDays) <= 0) {
+                    setError('Enter a valid number of days for the share expiry.');
+                    setIsSubmitting(false);
+                    return;
+                }
                 actualExpiresIn = String(Number(customDays) * 24);
             } else if (expiresIn !== '0') {
                 actualExpiresIn = expiresIn;
@@ -102,6 +110,8 @@ export default function ShareModal({ isOpen, onClose, document, onUpdate }) {
             );
             setSuccess(res.data.message);
             setEmail('');
+            setExpiresIn('0');
+            setCustomDays('');
             fetchPermissions();
             if (onUpdate) onUpdate(res.data.document);
         } catch (err) {
@@ -187,7 +197,7 @@ export default function ShareModal({ isOpen, onClose, document, onUpdate }) {
                 linkSharing,
                 { headers }
             );
-            setSuccess('Share settings saved successfully.');
+            setSuccess('Link sharing settings saved successfully.');
             if (onUpdate) onUpdate({ ...document, linkSharing: linkRes.data.linkSharing });
             setShowSettings(false);
         } catch (err) {
@@ -352,7 +362,7 @@ export default function ShareModal({ isOpen, onClose, document, onUpdate }) {
                                                 <Clock className="w-3.5 h-3.5 text-gray-400" />
                                                 <div>
                                                     <p className="text-xs font-bold text-gray-700 dark:text-gray-300">Time Limit</p>
-                                                    <p className="text-[10px] text-gray-500 dark:text-gray-400">Access expires after this period</p>
+                                                    <p className="text-[10px] text-gray-500 dark:text-gray-400">Applied to the next person you share with</p>
                                                 </div>
                                             </div>
                                             <div className="flex items-center gap-2">
@@ -401,6 +411,7 @@ export default function ShareModal({ isOpen, onClose, document, onUpdate }) {
                                                             onChange={(e) => handleLinkSharingUpdate({ role: e.target.value })}
                                                             className="text-xs font-semibold px-2 py-1 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg outline-none focus:ring-2 focus:ring-blue-500 text-gray-700 dark:text-gray-300"
                                                         >
+                                                            <option value="previewer">Previewer</option>
                                                             <option value="viewer">Viewer</option>
                                                             <option value="downloader">Viewer & Download</option>
                                                             <option value="manager">Full Access</option>
@@ -422,6 +433,9 @@ export default function ShareModal({ isOpen, onClose, document, onUpdate }) {
                                         </>
 
                                         {/* Save Settings Button */}
+                                        <p className="text-[10px] text-gray-500 dark:text-gray-400">
+                                            The time limit is applied when you click Share. The save button only updates link access.
+                                        </p>
                                         <div className="flex justify-end pt-2">
                                             <button
                                                 type="button"
@@ -533,7 +547,7 @@ export default function ShareModal({ isOpen, onClose, document, onUpdate }) {
                                                         className={`px-2.5 py-1 rounded-lg text-[11px] font-bold border cursor-pointer hover:opacity-80 transition-opacity ${ROLE_COLORS[role] || ROLE_COLORS.viewer}`}
                                                         title="Click to change role"
                                                     >
-                                                        {role.charAt(0).toUpperCase() + role.slice(1)}
+                                                        {ROLE_OPTIONS.find(r => r.value === role)?.label || role.charAt(0).toUpperCase() + role.slice(1)}
                                                     </button>
                                                 )}
 

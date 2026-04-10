@@ -1,20 +1,19 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { useParams, useNavigate, useSearchParams, useLocation } from 'react-router-dom';
+import { useParams, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import axios from 'axios';
 import API_URL from '../config/api';
 import { Button } from '../components/ui/Button';
-import { FileText, Download, Trash2, Search, Plus, FileUp, MoreVertical, Globe, Lock, Building2, Users, Edit3, Eye, X, LayoutGrid, List, ChevronLeft, ChevronRight, Share2, Clock } from 'lucide-react';
+import { FileText, Download, Trash2, Search, FileUp, MoreVertical, Globe, Lock, Building2, Users, Edit3, Eye, X, LayoutGrid, List, ChevronLeft, ChevronRight, Share2, Clock } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import UploadModal from '../components/UploadModal';
 import ShareModal from '../components/ShareModal';
+import LogsModal from '../components/LogsModal';
 
 
 export function Workspace({ isPublicOnly = false, isSearchPage = false }) {
     const { spaceId } = useParams();
-    const navigate = useNavigate();
     const [searchParams, setSearchParams] = useSearchParams();
-    const location = useLocation();
     const { user, token } = useAuth();
 
     const activeSpace = isPublicOnly ? 'public' : isSearchPage ? 'search' : (spaceId || 'public');
@@ -28,6 +27,11 @@ export function Workspace({ isPublicOnly = false, isSearchPage = false }) {
     const [isUploadOpen, setIsUploadOpen] = useState(false);
     const [isShareOpen, setIsShareOpen] = useState(false);
     const [selectedDoc, setSelectedDoc] = useState(null);
+    const [isLogsOpen, setIsLogsOpen] = useState(false);
+    const [logsData, setLogsData] = useState([]);
+    const [isLogsLoading, setIsLogsLoading] = useState(false);
+    const [logsError, setLogsError] = useState('');
+    const [isDocDetailsLoading, setIsDocDetailsLoading] = useState(false);
     const [toast, setToast] = useState(null);
     const [viewMode, setViewMode] = useState('grid');
     const currentPage = parseInt(searchParams.get('page') || '1', 10);
@@ -57,10 +61,21 @@ export function Workspace({ isPublicOnly = false, isSearchPage = false }) {
     const ROLE_COLORS = {
         owner: { bg: 'bg-amber-100 dark:bg-amber-900/30', text: 'text-amber-700 dark:text-amber-400', border: 'border-amber-200 dark:border-amber-800' },
         manager: { bg: 'bg-purple-100 dark:bg-purple-900/30', text: 'text-purple-700 dark:text-purple-400', border: 'border-purple-200 dark:border-purple-800' },
+        previewer: { bg: 'bg-sky-100 dark:bg-sky-900/30', text: 'text-sky-700 dark:text-sky-400', border: 'border-sky-200 dark:border-sky-800' },
         editor: { bg: 'bg-blue-100 dark:bg-blue-900/30', text: 'text-blue-700 dark:text-blue-400', border: 'border-blue-200 dark:border-blue-800' },
         sharer: { bg: 'bg-green-100 dark:bg-green-900/30', text: 'text-green-700 dark:text-green-400', border: 'border-green-200 dark:border-green-800' },
         downloader: { bg: 'bg-teal-100 dark:bg-teal-900/30', text: 'text-teal-700 dark:text-teal-400', border: 'border-teal-200 dark:border-teal-800' },
         viewer: { bg: 'bg-gray-100 dark:bg-gray-800', text: 'text-gray-600 dark:text-gray-400', border: 'border-gray-200 dark:border-gray-700' },
+    };
+
+    const ROLE_LABELS = {
+        owner: 'Owner',
+        manager: 'Full Access',
+        previewer: 'Previewer',
+        editor: 'Editor',
+        sharer: 'Sharer',
+        downloader: 'Viewer & Download',
+        viewer: 'Viewer',
     };
 
     const getUserPerm = (doc) => {
@@ -88,23 +103,146 @@ export function Workspace({ isPublicOnly = false, isSearchPage = false }) {
         return 'viewer';
     };
 
-    // Get current user's permission entry including expiry
-    const getUserPermExpiry = (doc) => {
-        if (!user) return null;
-        const uid = user._id || user.id;
-        const perm = doc.permissions?.find(p => {
-            const pu = p.user?._id || p.user?.id || p.user;
-            return pu?.toString() === uid?.toString();
-        });
+    const formatDateTime = (value) => {
+        if (!value) return 'No limit';
+        const date = new Date(value);
+        if (Number.isNaN(date.getTime())) return 'Invalid date';
+        return date.toLocaleString();
+    };
+
+    const formatExpiryHours = (value) => {
+        const exp = new Date(value);
+        if (Number.isNaN(exp.getTime())) return 'Invalid date';
+
+        const diffMs = exp - new Date();
+        if (diffMs <= 0) return 'Expired';
+
+        const hoursLeft = Math.ceil(diffMs / (60 * 60 * 1000));
+        return `${hoursLeft} hour${hoursLeft === 1 ? '' : 's'} left`;
+    };
+
+    const formatRelativeExpiry = (value) => {
+        return formatExpiryHours(value);
+    };
+
+    const getUserPermExpiryInfo = (doc) => {
+        const perm = getUserPerm(doc);
         if (!perm?.expiresAt) return null;
+
         const exp = new Date(perm.expiresAt);
-        const now = new Date();
-        if (exp <= now) return { label: 'Expired', isExpired: true };
-        const diffMs = exp - now;
-        const hours = Math.floor(diffMs / (60 * 60 * 1000));
-        if (hours < 1) return { label: `${Math.ceil(diffMs / (60 * 1000))}m left`, isExpired: false };
-        if (hours < 24) return { label: `${hours}h left`, isExpired: false };
-        return { label: `${Math.floor(hours / 24)}d left`, isExpired: false };
+        if (Number.isNaN(exp.getTime())) return null;
+
+        const isExpired = exp <= new Date();
+        const hoursLeft = formatExpiryHours(exp);
+
+        return {
+            expiresAt: exp,
+            formattedAt: formatDateTime(exp),
+            relativeLabel: formatRelativeExpiry(exp),
+            isExpired,
+            tooltip: isExpired ? `Access expired on ${formatDateTime(exp)}` : `Access expires on ${formatDateTime(exp)} (${hoursLeft})`,
+        };
+    };
+
+    const canManageDocumentAccess = (doc) => {
+        const role = getAccessLevel(doc);
+        return role === 'owner' || role === 'manager';
+    };
+
+    const getShareLogStatus = (log) => {
+        if (log?.revokedAt) {
+            return {
+                label: 'Revoked',
+                classes: 'bg-red-100 text-red-600 dark:bg-red-900/30 dark:text-red-400 border border-red-200 dark:border-red-800',
+            };
+        }
+
+        if (log?.expiresAt) {
+            const expiresAt = new Date(log.expiresAt);
+            if (!Number.isNaN(expiresAt.getTime()) && expiresAt <= new Date()) {
+                return {
+                    label: 'Expired',
+                    classes: 'bg-orange-100 text-orange-600 dark:bg-orange-900/30 dark:text-orange-400 border border-orange-200 dark:border-orange-800',
+                };
+            }
+        }
+
+        return {
+            label: 'Active',
+            classes: 'bg-emerald-100 text-emerald-600 dark:bg-emerald-900/30 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-800',
+        };
+    };
+
+    const mergeDocumentData = (currentDoc, nextDoc) => {
+        if (!currentDoc) return nextDoc;
+        return {
+            ...currentDoc,
+            ...nextDoc,
+            permissions: nextDoc.permissions ?? currentDoc.permissions,
+            shareLogs: nextDoc.shareLogs ?? currentDoc.shareLogs,
+            uploadedBy: nextDoc.uploadedBy ?? currentDoc.uploadedBy,
+            organization: nextDoc.organization ?? currentDoc.organization,
+            linkSharing: nextDoc.linkSharing ?? currentDoc.linkSharing,
+        };
+    };
+
+    const getEntityId = (value) => {
+        if (!value) return null;
+        if (typeof value === 'string') return value;
+        if (value._id) return value._id.toString();
+        if (value.id) return value.id.toString();
+        return value.toString();
+    };
+
+    const buildShareLogFeed = (doc, permissions = [], shareLogs = []) => {
+        const existingLogs = Array.isArray(shareLogs) ? shareLogs : [];
+        const activeLogUsers = new Set(
+            existingLogs
+                .filter(log => log && log.action !== 'revoked' && log.isActive !== false && !log.revokedAt)
+                .map(log => getEntityId(log.user))
+                .filter(Boolean)
+        );
+
+        const derivedLogs = (permissions || [])
+            .map((perm) => {
+                const role = perm.role || perm.level || 'viewer';
+                const userId = getEntityId(perm.user);
+
+                if (!userId || role === 'owner' || activeLogUsers.has(userId)) {
+                    return null;
+                }
+
+                return {
+                    _id: `derived-${doc?._id || 'doc'}-${userId}`,
+                    action: 'granted',
+                    user: perm.user,
+                    name: perm.user?.name || '',
+                    email: perm.user?.email || '',
+                    role,
+                    expiresAt: perm.expiresAt || null,
+                    isActive: true,
+                    eventAt: perm.grantedAt || doc?.uploadDate || null,
+                    eventBy: perm.grantedBy || null,
+                    sharedAt: perm.grantedAt || doc?.uploadDate || null,
+                    sharedBy: perm.grantedBy || null,
+                    lastUpdatedAt: null,
+                    lastUpdatedBy: null,
+                    revokedAt: null,
+                    revokedBy: null,
+                    isDerived: true,
+                };
+            })
+            .filter(Boolean);
+
+        return [...existingLogs, ...derivedLogs];
+    };
+
+    const prepareLogs = (doc, payload = {}) => {
+        return buildShareLogFeed(
+            doc,
+            payload.permissions ?? doc?.permissions ?? [],
+            payload.shareLogs ?? doc?.shareLogs ?? []
+        );
     };
 
     const canUserEdit = (doc) => {
@@ -128,6 +266,69 @@ export function Workspace({ isPublicOnly = false, isSearchPage = false }) {
         if (!perm) return false;
         if (perm.canDelete !== undefined) return perm.canDelete;
         return perm.level === 'owner';
+    };
+
+    const canUserMove = (doc) => {
+        if (isPublicOnly || !doc) return false;
+        return getAccessLevel(doc) === 'owner';
+    };
+
+    const openDocumentDetails = (doc) => {
+        setIsLogsOpen(false);
+        setIsMoving(false);
+        setSelectedDoc(doc._id === selectedDoc?._id ? null : doc);
+    };
+
+    const openMoveDetails = (doc) => {
+        setIsLogsOpen(false);
+        setSelectedDoc(doc);
+        setIsMoving(true);
+    };
+
+    const handleOpenLogs = async (doc) => {
+        if (!doc?._id) {
+            showToast('error', 'Unable to load logs for this document.');
+            return;
+        }
+
+        setSelectedDoc(prev => prev?._id === doc._id ? mergeDocumentData(prev, doc) : doc);
+        setIsLogsOpen(true);
+        setLogsError('');
+        setLogsData(prepareLogs(doc));
+        setIsLogsLoading(true);
+
+        try {
+            const headers = getAuthHeaders();
+            const res = await axios.get(`${API_URL}/api/documents/${doc._id}/permissions`, {
+                headers,
+            });
+
+            setSelectedDoc(prev => prev?._id === doc._id
+                ? mergeDocumentData(prev, { _id: doc._id, permissions: res.data.permissions, shareLogs: res.data.shareLogs })
+                : prev);
+            setLogsData(prepareLogs(doc, res.data));
+        } catch (err) {
+            setLogsError(err.response?.data?.error || 'Failed to load share logs.');
+            setLogsData(prepareLogs(doc));
+        } finally {
+            setIsLogsLoading(false);
+        }
+    };
+
+    const getDetailItems = (doc) => {
+        const items = [
+            { label: 'Uploader', value: doc.uploadedBy?.name || 'Unknown' },
+            { label: 'Upload Date', value: new Date(doc.uploadDate).toLocaleDateString() },
+            { label: 'File Size', value: formatSize(doc.fileSize) },
+            { label: 'File Type', value: doc.mimeType },
+        ];
+
+        const expiryInfo = getUserPermExpiryInfo(doc);
+        if (expiryInfo) {
+            items.push({ label: 'Access Expiration', value: expiryInfo.formattedAt });
+        }
+
+        return items;
     };
 
     const fetchDocuments = useCallback(async (abortController, forceSearchQuery = null) => {
@@ -251,6 +452,52 @@ export function Workspace({ isPublicOnly = false, isSearchPage = false }) {
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [searchParams]);
 
+    useEffect(() => {
+        if (!selectedDoc?._id) {
+            setIsDocDetailsLoading(false);
+            setIsLogsOpen(false);
+            return;
+        }
+
+        setIsLogsOpen(false);
+        let isMounted = true;
+        const controller = new AbortController();
+
+        const fetchSelectedDocDetails = async () => {
+            setIsDocDetailsLoading(true);
+            try {
+                const usePublicEndpoint = isPublicOnly;
+                const headers = getAuthHeaders();
+                const endpoint = usePublicEndpoint
+                    ? `${API_URL}/api/public/documents/${selectedDoc._id}`
+                    : `${API_URL}/api/documents/${selectedDoc._id}`;
+
+                const res = await axios.get(
+                    endpoint,
+                    usePublicEndpoint
+                        ? { signal: controller.signal }
+                        : { headers, signal: controller.signal }
+                );
+
+                if (!isMounted) return;
+                setSelectedDoc(prev => prev?._id === res.data.document?._id ? mergeDocumentData(prev, res.data.document) : prev);
+            } catch (err) {
+                if (axios.isCancel(err)) return;
+                console.error('fetchSelectedDocDetails error:', err);
+            } finally {
+                if (isMounted) setIsDocDetailsLoading(false);
+            }
+        };
+
+        fetchSelectedDocDetails();
+
+        return () => {
+            isMounted = false;
+            controller.abort();
+        };
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [selectedDoc?._id, isPublicOnly, token]);
+
     const isFirstSearchRun = useRef(true);
     const skipSearchEffect = useRef(false);
     // Debounced search for public space
@@ -324,7 +571,7 @@ export function Workspace({ isPublicOnly = false, isSearchPage = false }) {
             const newTags = [...currentTags, newTag];
             const headers = getAuthHeaders();
             const res = await axios.put(`${API_URL}/api/documents/${selectedDoc._id}/tags`, { tags: newTags }, { headers });
-            setSelectedDoc(res.data.document);
+            setSelectedDoc(prev => mergeDocumentData(prev, res.data.document));
             setDocuments(docs => docs.map(d => d._id === res.data.document._id ? res.data.document : d));
             setTagInput('');
         } catch (err) { showToast('error', 'Failed to add tag.'); }
@@ -336,7 +583,7 @@ export function Workspace({ isPublicOnly = false, isSearchPage = false }) {
             const newTags = selectedDoc.tags.filter(t => t !== tagToRemove);
             const headers = getAuthHeaders();
             const res = await axios.put(`${API_URL}/api/documents/${selectedDoc._id}/tags`, { tags: newTags }, { headers });
-            setSelectedDoc(res.data.document);
+            setSelectedDoc(prev => mergeDocumentData(prev, res.data.document));
             setDocuments(docs => docs.map(d => d._id === res.data.document._id ? res.data.document : d));
         } catch (err) { showToast('error', 'Failed to remove tag.'); }
     };
@@ -347,7 +594,7 @@ export function Workspace({ isPublicOnly = false, isSearchPage = false }) {
         try {
             const headers = getAuthHeaders();
             const res = await axios.post(`${API_URL}/api/documents/${selectedDoc._id}/tags/ai`, {}, { headers });
-            setSelectedDoc(res.data.document);
+            setSelectedDoc(prev => mergeDocumentData(prev, res.data.document));
             setDocuments(docs => docs.map(d => d._id === res.data.document._id ? res.data.document : d));
             showToast('success', 'AI Auto-tagging complete!');
         } catch (err) { showToast('error', 'AI Tagging failed.'); } finally {
@@ -508,12 +755,11 @@ export function Workspace({ isPublicOnly = false, isSearchPage = false }) {
                                 className={viewMode === 'grid' ? "grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-4" : "flex flex-col gap-2"}
                             >
                                 {paginatedDocuments.map(doc => {
-                                    const accessLevel = getAccessLevel(doc);
                                     return viewMode === 'grid' ? (
                                         <motion.div
                                             key={doc._id}
                                             variants={{ hidden: { opacity: 0, y: 10 }, visible: { opacity: 1, y: 0 } }}
-                                            onClick={() => setSelectedDoc(doc._id === selectedDoc?._id ? null : doc)}
+                                            onClick={() => openDocumentDetails(doc)}
                                             className={`group bg-white dark:bg-gray-900 border rounded-2xl p-5 cursor-pointer transition-all duration-200 hover:shadow-lg hover:-translate-y-1 ${selectedDoc?._id === doc._id
                                                 ? 'border-blue-500 ring-1 ring-blue-500 shadow-md'
                                                 : 'border-gray-200 dark:border-gray-800 shadow-sm'
@@ -530,28 +776,36 @@ export function Workspace({ isPublicOnly = false, isSearchPage = false }) {
                                                         </span>
                                                     )}
                                                     {(() => {
-                                                        const expiry = getUserPermExpiry(doc);
+                                                        const expiry = getUserPermExpiryInfo(doc);
                                                         if (!expiry) return null;
                                                         return (
-                                                            <span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider ${expiry.isExpired ? 'bg-red-100 text-red-600 dark:bg-red-900/30 dark:text-red-400 border border-red-200 dark:border-red-800' : 'bg-orange-100 text-orange-600 dark:bg-orange-900/30 dark:text-orange-400 border border-orange-200 dark:border-orange-800'}`}
-                                                                title="Access time remaining">
-                                                                ⏱ {expiry.label}
+                                                            <span
+                                                                className={`inline-flex items-center justify-center w-6 h-6 rounded-full ${expiry.isExpired ? 'bg-red-100 text-red-600 dark:bg-red-900/30 dark:text-red-400 border border-red-200 dark:border-red-800' : 'bg-orange-100 text-orange-600 dark:bg-orange-900/30 dark:text-orange-400 border border-orange-200 dark:border-orange-800'}`}
+                                                                title={expiry.tooltip}
+                                                            >
+                                                                <Clock className="w-3.5 h-3.5" />
                                                             </span>
                                                         );
                                                     })()}
-                                                    {(() => {
-                                                        const rc = ROLE_COLORS[accessLevel] || ROLE_COLORS.viewer; return (
-                                                            <span className={`flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider border ${rc.bg} ${rc.text} ${rc.border}`} title={`${accessLevel} access`}>
-                                                                {accessLevel === 'owner' || accessLevel === 'manager' || accessLevel === 'editor' ? <Edit3 className="w-3 h-3" /> : <Eye className="w-3 h-3" />}
-                                                                {accessLevel}
-                                                            </span>
-                                                        );
-                                                    })()}
+                                                    {canUserMove(doc) && (
+                                                        <button
+                                                            type="button"
+                                                            className="inline-flex items-center gap-1 px-2 py-1 rounded-lg text-[10px] font-bold uppercase tracking-wider border border-emerald-200 bg-emerald-50 text-emerald-600 hover:bg-emerald-100 dark:border-emerald-800/60 dark:bg-emerald-900/20 dark:text-emerald-400 transition-colors"
+                                                            onClick={(e) => {
+                                                                e.stopPropagation();
+                                                                openMoveDetails(doc);
+                                                            }}
+                                                            title="Move document"
+                                                        >
+                                                            <Globe className="w-3 h-3" />
+                                                            Move
+                                                        </button>
+                                                    )}
                                                     <button
                                                         className="text-gray-400 hover:text-gray-900 dark:hover:text-white transition-colors"
                                                         onClick={(e) => {
                                                             e.stopPropagation();
-                                                            setSelectedDoc(doc._id === selectedDoc?._id ? null : doc);
+                                                            openDocumentDetails(doc);
                                                         }}
                                                         title="More actions"
                                                     >
@@ -577,7 +831,7 @@ export function Workspace({ isPublicOnly = false, isSearchPage = false }) {
                                         <motion.div
                                             key={doc._id}
                                             variants={{ hidden: { opacity: 0, x: -10 }, visible: { opacity: 1, x: 0 } }}
-                                            onClick={() => setSelectedDoc(doc._id === selectedDoc?._id ? null : doc)}
+                                            onClick={() => openDocumentDetails(doc)}
                                             className={`group bg-white dark:bg-gray-900 border rounded-xl p-3 cursor-pointer transition-all duration-200 hover:shadow-sm flex items-center justify-between ${selectedDoc?._id === doc._id
                                                 ? 'border-blue-500 ring-1 ring-blue-500 shadow-sm'
                                                 : 'border-gray-200 dark:border-gray-800'
@@ -613,10 +867,29 @@ export function Workspace({ isPublicOnly = false, isSearchPage = false }) {
                                                             {doc.space}
                                                         </span>
                                                     )}
+                                                    {canUserMove(doc) && (
+                                                        <button
+                                                            type="button"
+                                                            className="hidden sm:inline-flex items-center gap-1 px-2 py-1 rounded-lg text-[10px] font-bold uppercase tracking-wider border border-emerald-200 bg-emerald-50 text-emerald-600 hover:bg-emerald-100 dark:border-emerald-800/60 dark:bg-emerald-900/20 dark:text-emerald-400 transition-colors"
+                                                            onClick={(e) => {
+                                                                e.stopPropagation();
+                                                                openMoveDetails(doc);
+                                                            }}
+                                                            title="Move document"
+                                                        >
+                                                            <Globe className="w-3 h-3" />
+                                                            Move
+                                                        </button>
+                                                    )}
                                                     {(() => {
-                                                        const rc = ROLE_COLORS[accessLevel] || ROLE_COLORS.viewer; return (
-                                                            <span className={`hidden sm:inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider border ${rc.bg} ${rc.text} ${rc.border}`} title={`${accessLevel} access`}>
-                                                                {accessLevel}
+                                                        const expiry = getUserPermExpiryInfo(doc);
+                                                        if (!expiry) return null;
+                                                        return (
+                                                            <span
+                                                                className={`hidden sm:inline-flex items-center justify-center w-6 h-6 rounded-full ${expiry.isExpired ? 'bg-red-100 text-red-600 dark:bg-red-900/30 dark:text-red-400 border border-red-200 dark:border-red-800' : 'bg-orange-100 text-orange-600 dark:bg-orange-900/30 dark:text-orange-400 border border-orange-200 dark:border-orange-800'}`}
+                                                                title={expiry.tooltip}
+                                                            >
+                                                                <Clock className="w-3.5 h-3.5" />
                                                             </span>
                                                         );
                                                     })()}
@@ -624,7 +897,7 @@ export function Workspace({ isPublicOnly = false, isSearchPage = false }) {
                                                         className="p-1 text-gray-400 hover:text-gray-900 dark:hover:text-white transition-colors rounded hover:bg-gray-100 dark:hover:bg-gray-800"
                                                         onClick={(e) => {
                                                             e.stopPropagation();
-                                                            setSelectedDoc(doc._id === selectedDoc?._id ? null : doc);
+                                                            openDocumentDetails(doc);
                                                         }}
                                                         title="More actions"
                                                     >
@@ -655,7 +928,7 @@ export function Workspace({ isPublicOnly = false, isSearchPage = false }) {
 
                 {/* Details Modal — hidden while ShareModal is open */}
                 <AnimatePresence>
-                    {selectedDoc && !isShareOpen && (
+                    {selectedDoc && !isShareOpen && !isLogsOpen && (
                         <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 sm:p-6">
                             {/* Modal Overlay Backdrop */}
                             <motion.div
@@ -685,11 +958,29 @@ export function Workspace({ isPublicOnly = false, isSearchPage = false }) {
                                                     {selectedDoc.space} Space
                                                 </span>
                                                 {(() => { const role = getAccessLevel(selectedDoc); const rc = ROLE_COLORS[role] || ROLE_COLORS.viewer; return (
-                                                    <span className={`flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider border ${rc.bg} ${rc.text} ${rc.border}`} title={`${role} access`}>
+                                                    <span className={`flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider border ${rc.bg} ${rc.text} ${rc.border}`} title={`${ROLE_LABELS[role] || role} access`}>
                                                         {role === 'owner' || role === 'manager' || role === 'editor' ? <Edit3 className="w-3 h-3" /> : <Eye className="w-3 h-3" />}
-                                                        {role}
+                                                        {ROLE_LABELS[role] || role}
                                                     </span>
                                                 ); })()}
+                                                {(() => {
+                                                    const expiry = getUserPermExpiryInfo(selectedDoc);
+                                                    if (!expiry) return null;
+                                                    return (
+                                                        <span
+                                                            className={`flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider ${expiry.isExpired ? 'bg-red-100 text-red-600 dark:bg-red-900/30 dark:text-red-400 border border-red-200 dark:border-red-800' : 'bg-orange-100 text-orange-600 dark:bg-orange-900/30 dark:text-orange-400 border border-orange-200 dark:border-orange-800'}`}
+                                                            title={expiry.tooltip}
+                                                        >
+                                                            <Clock className="w-3 h-3" />
+                                                            {expiry.relativeLabel}
+                                                        </span>
+                                                    );
+                                                })()}
+                                                {isDocDetailsLoading && (
+                                                    <span className="text-[10px] font-bold uppercase tracking-wider text-gray-400">
+                                                        Refreshing...
+                                                    </span>
+                                                )}
                                             </div>
                                         </div>
                                     </div>
@@ -756,15 +1047,10 @@ export function Workspace({ isPublicOnly = false, isSearchPage = false }) {
                                         {/* Metadata Column */}
                                         <div className="flex flex-col gap-4">
                                             <div className="bg-gray-50/50 dark:bg-gray-800/40 rounded-3xl p-6 border border-gray-100 dark:border-gray-800/60 space-y-4">
-                                                {[
-                                                    { label: 'Uploader', value: selectedDoc.uploadedBy?.name || 'Unknown' },
-                                                    { label: 'Upload Date', value: new Date(selectedDoc.uploadDate).toLocaleDateString() },
-                                                    { label: 'File Size', value: formatSize(selectedDoc.fileSize) },
-                                                    { label: 'File Type', value: selectedDoc.mimeType },
-                                                ].map(item => (
+                                                {getDetailItems(selectedDoc).map(item => (
                                                     <div key={item.label} className="flex justify-between items-center py-1.5">
                                                         <span className="text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-widest">{item.label}</span>
-                                                        <span className="text-sm font-semibold text-gray-900 dark:text-white truncate max-w-[140px]">{item.value}</span>
+                                                        <span className="text-sm font-semibold text-gray-900 dark:text-white truncate max-w-[140px]" title={item.value}>{item.value}</span>
                                                     </div>
                                                 ))}
                                             </div>
@@ -802,7 +1088,16 @@ export function Workspace({ isPublicOnly = false, isSearchPage = false }) {
                                         <Download className="w-4 h-4 mr-2" /> Download Document
                                     </Button>
 
-                                    {!isPublicOnly && (getAccessLevel(selectedDoc) === 'owner' || getAccessLevel(selectedDoc) === 'manager') && (
+                                    {!isPublicOnly && canManageDocumentAccess(selectedDoc) && (
+                                        <Button
+                                            className="flex-1 sm:flex-none bg-slate-50 text-slate-700 hover:bg-slate-100 dark:bg-slate-900/20 dark:text-slate-300 shadow-sm border border-slate-200 dark:border-slate-700 transition-colors"
+                                            onClick={() => handleOpenLogs(selectedDoc)}
+                                        >
+                                            <Clock className="w-4 h-4 mr-2" /> Logs
+                                        </Button>
+                                    )}
+
+                                    {!isPublicOnly && canManageDocumentAccess(selectedDoc) && (
                                         <Button
                                             className="flex-1 sm:flex-none bg-blue-50 text-blue-600 hover:bg-blue-100 dark:bg-blue-900/20 dark:text-blue-400 shadow-sm border border-blue-200 dark:border-blue-800/50 transition-colors"
                                             onClick={() => setIsShareOpen(true)}
@@ -810,15 +1105,6 @@ export function Workspace({ isPublicOnly = false, isSearchPage = false }) {
                                             <Share2 className="w-4 h-4 mr-2" /> Share
                                         </Button>
                                     )}
-                                    {!isPublicOnly && canUserEdit(selectedDoc) && !isMoving && (
-                                        <Button
-                                            className="flex-1 sm:flex-none bg-emerald-50 text-emerald-600 hover:bg-emerald-100 dark:bg-emerald-900/20 dark:text-emerald-400 shadow-sm border border-emerald-200 dark:border-emerald-800/50 transition-colors"
-                                            onClick={() => setIsMoving(true)}
-                                        >
-                                            <Globe className="w-4 h-4 mr-2" /> Move
-                                        </Button>
-                                    )}
-
                                     {!isPublicOnly && canUserDelete(selectedDoc) && (
                                         <Button variant="danger" className="flex-1 sm:flex-none sm:ml-auto shadow-sm" onClick={() => handleDelete(selectedDoc._id)}>
                                             <Trash2 className="w-4 h-4 sm:mr-2" /> <span className="hidden sm:inline">Delete</span>
@@ -857,9 +1143,21 @@ export function Workspace({ isPublicOnly = false, isSearchPage = false }) {
                 onClose={() => setIsShareOpen(false)}
                 document={selectedDoc}
                 onUpdate={(updatedDoc) => {
-                    setSelectedDoc(updatedDoc);
+                    setSelectedDoc(prev => mergeDocumentData(prev, updatedDoc));
                     setDocuments(docs => docs.map(d => d._id === updatedDoc._id ? updatedDoc : d));
                 }}
+            />
+            <LogsModal
+                isOpen={isLogsOpen}
+                onClose={() => {
+                    setIsLogsOpen(false);
+                    setLogsError('');
+                }}
+                document={selectedDoc}
+                logs={logsData}
+                isLoading={isLogsLoading}
+                error={logsError}
+                onRetry={() => handleOpenLogs(selectedDoc)}
             />
         </div>
     );
