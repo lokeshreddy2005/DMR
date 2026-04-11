@@ -717,15 +717,20 @@ export function Workspace({ isPublicOnly = false, isSearchPage = false }) {
                         {selectedOrgId && activeSpace === 'organization' && (
                             <div className="ml-3 flex items-center gap-2">
                                 {isOrgAdmin && (
-                                    <Button onClick={() => setIsManageOrgOpen(true)} className="h-8 text-xs px-3 bg-blue-50 hover:bg-blue-100 text-blue-600 dark:bg-blue-900/30 dark:hover:bg-blue-900/50 dark:text-blue-400 shadow-sm border border-blue-200 dark:border-blue-800 transition-colors">
-                                        <UserPlus className="w-3.5 h-3.5 mr-1.5" /> Share Access
-                                    </Button>
+                                    <>
+                                        <Button onClick={() => setIsManageOrgOpen(true)} className="h-8 text-xs px-3 bg-purple-50 hover:bg-purple-100 text-purple-600 dark:bg-purple-900/30 dark:hover:bg-purple-900/50 dark:text-purple-400 shadow-sm border border-purple-200 dark:border-purple-800 transition-colors">
+                                            <UserPlus className="w-3.5 h-3.5 mr-1.5" /> Add New Member
+                                        </Button>
+                                        <Button onClick={() => setIsManageOrgOpen(true)} className="h-8 text-xs px-3 bg-blue-50 hover:bg-blue-100 text-blue-600 dark:bg-blue-900/30 dark:hover:bg-blue-900/50 dark:text-blue-400 shadow-sm border border-blue-200 dark:border-blue-800 transition-colors">
+                                            <Share2 className="w-3.5 h-3.5 mr-1.5" /> Share Access
+                                        </Button>
+                                    </>
                                 )}
                                 <Button onClick={() => setIsManageOrgOpen(true)} variant="secondary" className="h-8 text-xs px-3 bg-gray-100/50 hover:bg-gray-200 shadow-none border border-gray-200 dark:bg-gray-800/80 dark:hover:bg-gray-700 dark:border-gray-700">
                                     {isOrgAdmin ? (
                                         <><Settings className="w-3.5 h-3.5 mr-1.5" /> Manage Team</>
                                     ) : (
-                                        <><Users className="w-3.5 h-3.5 mr-1.5" /> View Team</>
+                                        <><Users className="w-3.5 h-3.5 mr-1.5" /> View Access</>
                                     )}
                                 </Button>
                             </div>

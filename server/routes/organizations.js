@@ -208,7 +208,7 @@ router.put('/:id/members/:userId', async (req, res) => {
         }
 
         const member = org.members.find(
-            (m) => m.user.toString() === req.params.userId
+            (m) => (m.user._id || m.user).toString() === req.params.userId
         );
         if (!member) return res.status(404).json({ error: 'Member not found.' });
 
@@ -249,7 +249,7 @@ router.delete('/:id/members/:userId', async (req, res) => {
         }
 
         org.members = org.members.filter(
-            (m) => m.user.toString() !== req.params.userId
+            (m) => (m.user._id || m.user).toString() !== req.params.userId
         );
 
         await org.save();
