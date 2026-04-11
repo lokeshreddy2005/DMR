@@ -640,7 +640,7 @@ router.get('/', async (req, res) => {
       }
     }
 
-    // Phase 1B: Relational & Permission Filters
+    // Relational & Permission Filters
     if (uploadedBy) {
       // Support comma-separated list of user IDs for multi-select
       const ids = uploadedBy.split(',').filter(Boolean);
@@ -683,17 +683,6 @@ router.get('/', async (req, res) => {
 
     const skip = (parseInt(page) - 1) * parseInt(limit);
     const limitNum = parseInt(limit);
-
-    if (academicYear) {
-      filterQuery['metadata.academicYear'] = academicYear;
-    }
-
-    let sortOption = { uploadDate: -1 };
-    if (sort === 'oldest') sortOption = { uploadDate: 1 };
-    else if (sort === 'sizeAsc') sortOption = { fileSize: 1 };
-    else if (sort === 'sizeDesc') sortOption = { fileSize: -1 };
-    else if (sort === 'nameAsc') sortOption = { fileName: 1 };
-    else if (sort === 'nameDesc') sortOption = { fileName: -1 };
 
     const [documents, totalCount] = await Promise.all([
       Document.find(finalQuery)
