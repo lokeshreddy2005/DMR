@@ -24,6 +24,7 @@ router.post('/', async (req, res) => {
             name: name.trim(),
             description: description?.trim() || '',
             createdBy: req.user._id,
+            members: [{ user: req.user._id, role: 'admin' }]
         });
 
         await org.save();
@@ -43,7 +44,10 @@ router.post('/', async (req, res) => {
 router.get('/', async (req, res) => {
     try {
         const orgs = await Organization.find({
-            'members.user': req.user._id,
+            $or: [
+                { 'members.user': req.user._id },
+                { createdBy: req.user._id }
+            ]
         })
             .populate('members.user', 'name email avatarColor')
             .populate('createdBy', 'name email')

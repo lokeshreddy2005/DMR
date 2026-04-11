@@ -75,7 +75,10 @@ organizationSchema.pre('save', function (next) {
 
 // Helper: check if user is a member
 organizationSchema.methods.isMember = function (userId) {
-    return this.members.some((m) => m.user.toString() === userId.toString());
+    if (!userId) return false;
+    const isCreator = this.createdBy.toString() === userId.toString();
+    const isMember = this.members.some((m) => m.user.toString() === userId.toString());
+    return isCreator || isMember;
 };
 
 // Helper: get member role
@@ -86,7 +89,10 @@ organizationSchema.methods.getMemberRole = function (userId) {
 
 // Helper: check if user is admin
 organizationSchema.methods.isAdmin = function (userId) {
-    return this.getMemberRole(userId) === 'admin';
+    if (!userId) return false;
+    const isCreator = this.createdBy.toString() === userId.toString();
+    const role = this.getMemberRole(userId);
+    return isCreator || role === 'admin';
 };
 
 module.exports = mongoose.model('Organization', organizationSchema);

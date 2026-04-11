@@ -82,7 +82,7 @@ export function AppLayout() {
     } else {
       setSearchScope('all');
     }
-  }, [location.pathname]); // Intentionally omitting searchParams dependency to avoid overwriting user dropdown choice when searching
+  }, [location.pathname, searchParams.get('organizationId')]); // Update if URL or Org Selection changes
 
   // Fetch organizations for the dropdown
   useEffect(() => {
@@ -309,13 +309,13 @@ export function AppLayout() {
                   onChange={(e) => setSearchScope(e.target.value)}
                   className="bg-transparent border-none text-xs font-semibold text-gray-500 dark:text-gray-400 focus:ring-0 cursor-pointer pl-3 pr-8 py-2.5 outline-none rounded-l-xl hover:text-gray-700 dark:hover:text-gray-200"
                 >
-                  <option value="all">All Documents</option>
-                  <option value="public">Public Space</option>
-                  <option value="private">Private Space</option>
-                  <option value="shared">Shared with Me</option>
-                  <option value="shared-to-others">Shared with Others</option>
+                  <option className="bg-gray-50 dark:bg-gray-950" value="all">All Documents</option>
+                  <option className="bg-gray-50 dark:bg-gray-950" value="public">Public Space</option>
+                  <option className="bg-gray-50 dark:bg-gray-950" value="private">Private Space</option>
+                  <option className="bg-gray-50 dark:bg-gray-950" value="shared">Shared with Me</option>
+                  <option className="bg-gray-50 dark:bg-gray-950" value="shared-to-others">Shared with Others</option>
                   {orgs.map(org => (
-                    <option key={org._id} value={`org_${org._id}`}>Org: {org.name}</option>
+                    <option className="bg-gray-50 dark:bg-gray-950" key={org._id} value={`org_${org._id}`}>Org: {org.name}</option>
                   ))}
                 </select>
 

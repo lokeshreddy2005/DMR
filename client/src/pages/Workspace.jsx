@@ -4,12 +4,13 @@ import { useAuth } from '../context/AuthContext';
 import axios from 'axios';
 import API_URL from '../config/api';
 import { Button } from '../components/ui/Button';
-import { FileText, Download, Trash2, Search, FileUp, MoreVertical, Globe, Lock, Building2, Users, Edit3, Eye, X, LayoutGrid, List, ChevronLeft, ChevronRight, Share2, Clock, UserCheck } from 'lucide-react';
+import { FileText, Download, Trash2, Search, FileUp, MoreVertical, Globe, Lock, Building2, Users, Edit3, Eye, X, LayoutGrid, List, ChevronLeft, ChevronRight, Share2, Clock, UserCheck, Plus, Settings, UserPlus } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import UploadModal from '../components/UploadModal';
 import ShareModal from '../components/ShareModal';
 import LogsModal from '../components/LogsModal';
-
+import CreateOrgModal from '../components/CreateOrgModal';
+import ManageOrgModal from '../components/ManageOrgModal';
 
 export function Workspace({ isPublicOnly = false, isSearchPage = false }) {
     const { spaceId } = useParams();
@@ -34,6 +35,8 @@ export function Workspace({ isPublicOnly = false, isSearchPage = false }) {
     const [isDocDetailsLoading, setIsDocDetailsLoading] = useState(false);
     const [toast, setToast] = useState(null);
     const [viewMode, setViewMode] = useState('grid');
+    const [isCreateOrgOpen, setIsCreateOrgOpen] = useState(false);
+    const [isManageOrgOpen, setIsManageOrgOpen] = useState(false);
     const currentPage = parseInt(searchParams.get('page') || '1', 10);
     const [totalPages, setTotalPages] = useState(1);
     const [totalCount, setTotalCount] = useState(0);
@@ -154,7 +157,18 @@ export function Workspace({ isPublicOnly = false, isSearchPage = false }) {
 
     const canManageDocumentAccess = (doc) => {
         const role = getAccessLevel(doc);
-        return role === 'owner' || role === 'manager';
+        if (role === 'owner' || role === 'manager') return true;
+        if (doc.space === 'organization' && doc.organization) {
+            const orgId = typeof doc.organization === 'object' ? doc.organization._id || doc.organization.id : doc.organization;
+            const org = orgs.find(o => (o._id || o.id)?.toString() === orgId?.toString());
+            if (org) {
+                const currentUserId = user?.id || user?._id;
+                const isCreator = (org.createdBy?._id || org.createdBy)?.toString() === currentUserId?.toString();
+                const isRoleAdmin = org.members?.some(m => (m.user?._id || m.user)?.toString() === currentUserId?.toString() && m.role === 'admin');
+                return isCreator || isRoleAdmin;
+            }
+        }
+        return false;
     };
 
     const getShareLogStatus = (log) => {
@@ -397,12 +411,23 @@ export function Workspace({ isPublicOnly = false, isSearchPage = false }) {
             const res = await axios.get(`${API_URL}/api/orgs`, { headers });
             const list = res.data.organizations || [];
             setOrgs(list);
-            if (list.length > 0 && !selectedOrgId) {
+            
+            const urlOrgId = searchParams.get('organizationId');
+            if (urlOrgId && list.some(o => o._id === urlOrgId)) {
+                setSelectedOrgId(urlOrgId);
+            } else if (list.length > 0 && !selectedOrgId) {
                 setSelectedOrgId(list[0]._id);
             }
         } catch (err) { console.error('fetchOrgs error:', err); }
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [isPublicOnly, activeSpace, token]);
+    }, [isPublicOnly, activeSpace, token, searchParams]);
+
+    useEffect(() => {
+        const urlOrgId = searchParams.get('organizationId');
+        if (activeSpace === 'organization' && urlOrgId && urlOrgId !== selectedOrgId) {
+            setSelectedOrgId(urlOrgId);
+        }
+    }, [searchParams, activeSpace]);
 
     // Effect to clear selection when space changes
     useEffect(() => {
@@ -663,7 +688,17 @@ export function Workspace({ isPublicOnly = false, isSearchPage = false }) {
     const paginatedDocuments = documents;
     const startIndex = (currentPage - 1) * itemsPerPage;
 
-    const spaceLabel = isSearchPage ? 'Search Results' : activeSpace === 'shared' ? 'Shared with Me' : activeSpace === 'shared-to-others' ? 'Shared with Others' : activeSpace === 'recent' ? 'Recently Accessed' : `${activeSpace.charAt(0).toUpperCase() + activeSpace.slice(1)} Space`;
+    const currentUserId = user?.id || user?._id;
+    const adminOrgs = orgs.filter(org => {
+        const isCreator = (org?.createdBy?._id || org?.createdBy)?.toString() === currentUserId?.toString();
+        const isRoleAdmin = org?.members?.some(m => (m.user?._id || m.user)?.toString() === currentUserId?.toString() && m.role === 'admin');
+        return isCreator || isRoleAdmin;
+    });
+    const memberOrgs = orgs.filter(org => !adminOrgs.includes(org));
+    const selectedOrg = orgs.find(o => o._id === selectedOrgId);
+    const isOrgAdmin = selectedOrg ? adminOrgs.some(o => o._id === selectedOrg._id) : false;
+
+    const spaceLabel = isSearchPage ? 'Search Results' : activeSpace === 'shared' ? 'Shared with Me' : activeSpace === 'shared-to-others' ? 'Shared with Others' : activeSpace === 'recent' ? 'Recently Accessed' : activeSpace === 'organization' && selectedOrg ? selectedOrg.name : `${activeSpace.charAt(0).toUpperCase() + activeSpace.slice(1)} Space`;
 
     return (
         <div className="max-w-7xl mx-auto flex flex-col h-[calc(100vh-8rem)]">
@@ -678,7 +713,23 @@ export function Workspace({ isPublicOnly = false, isSearchPage = false }) {
                         {activeSpace === 'organization' && <Building2 className="w-8 h-8 text-purple-500" />}
                         {activeSpace === 'recent' && <Clock className="w-8 h-8 text-rose-500" />}
                         {isSearchPage && <Search className="w-8 h-8 text-blue-500" />}
-                        {spaceLabel}
+                        <span className="truncate max-w-[300px] sm:max-w-none">{spaceLabel}</span>
+                        {selectedOrgId && activeSpace === 'organization' && (
+                            <div className="ml-3 flex items-center gap-2">
+                                {isOrgAdmin && (
+                                    <Button onClick={() => setIsManageOrgOpen(true)} className="h-8 text-xs px-3 bg-blue-50 hover:bg-blue-100 text-blue-600 dark:bg-blue-900/30 dark:hover:bg-blue-900/50 dark:text-blue-400 shadow-sm border border-blue-200 dark:border-blue-800 transition-colors">
+                                        <UserPlus className="w-3.5 h-3.5 mr-1.5" /> Share Access
+                                    </Button>
+                                )}
+                                <Button onClick={() => setIsManageOrgOpen(true)} variant="secondary" className="h-8 text-xs px-3 bg-gray-100/50 hover:bg-gray-200 shadow-none border border-gray-200 dark:bg-gray-800/80 dark:hover:bg-gray-700 dark:border-gray-700">
+                                    {isOrgAdmin ? (
+                                        <><Settings className="w-3.5 h-3.5 mr-1.5" /> Manage Team</>
+                                    ) : (
+                                        <><Users className="w-3.5 h-3.5 mr-1.5" /> View Team</>
+                                    )}
+                                </Button>
+                            </div>
+                        )}
                     </h1>
                     <p className="text-gray-500 dark:text-gray-400 mt-1 text-sm">
                         {activeSpace === 'public' && 'All publicly available documents.'}
@@ -734,21 +785,46 @@ export function Workspace({ isPublicOnly = false, isSearchPage = false }) {
 
             {/* Org Selector */}
             {!isPublicOnly && activeSpace === 'organization' && (
-                <div className="mb-6 flex flex-wrap items-center gap-2 overflow-x-auto pb-2 flex-shrink-0">
+                <div className="mb-6 flex flex-wrap items-center gap-3 overflow-x-auto pb-2 flex-shrink-0">
+                    <Button onClick={() => setIsCreateOrgOpen(true)} variant="secondary" className="flex-shrink-0 h-9 px-4 bg-purple-50 hover:bg-purple-100 text-purple-700 dark:bg-purple-900/20 dark:hover:bg-purple-900/40 dark:text-purple-300 border border-purple-200 dark:border-purple-800">
+                        <Plus className="w-4 h-4 mr-2" /> New Org
+                    </Button>
+                    <div className="w-px h-8 bg-gray-300 dark:bg-gray-700 mx-1"></div>
                     {orgs.length === 0 ? (
-                        <p className="text-sm text-gray-400 py-1">You are not a member of any organization.</p>
-                    ) : orgs.map(org => (
-                        <button
-                            key={org._id}
-                            onClick={() => setSelectedOrgId(org._id)}
-                            className={`px-3.5 py-1.5 rounded-lg text-sm font-semibold whitespace-nowrap transition-all flex items-center justify-center ${selectedOrgId === org._id
-                                ? 'bg-purple-100 text-purple-700 dark:bg-purple-500/20 dark:text-purple-300 ring-1 ring-purple-500/50 shadow-sm'
-                                : 'bg-white dark:bg-gray-800/80 border border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 hover:border-gray-300 dark:hover:border-gray-600'
-                                }`}
-                        >
-                            {org.name}
-                        </button>
-                    ))}
+                        <p className="text-sm text-gray-500 dark:text-gray-400 font-medium">You are not a member of any organization.</p>
+                    ) : (
+                        <div className="relative">
+                            <select
+                                value={selectedOrgId || ''}
+                                onChange={(e) => {
+                                    const val = e.target.value;
+                                    if (!val) return;
+                                    const newParams = new URLSearchParams(searchParams);
+                                    newParams.set('organizationId', val);
+                                    newParams.set('page', '1');
+                                    setSearchParams(newParams);
+                                }}
+                                className="appearance-none bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 text-gray-900 dark:text-white text-sm font-semibold rounded-xl pl-4 pr-10 py-2 outline-none focus:ring-2 focus:ring-purple-500 transition-all cursor-pointer shadow-sm hover:border-purple-300 dark:hover:border-purple-700 min-w-[200px]"
+                                style={{ backgroundImage: 'url("data:image/svg+xml;charset=US-ASCII,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%22292.4%22%20height%3D%22292.4%22%3E%3Cpath%20fill%3D%22%239ca3af%22%20d%3D%22M287%2069.4a17.6%2017.6%200%200%200-13-5.4H18.4c-5%200-9.3%201.8-12.9%205.4A17.6%2017.6%200%200%200%200%2082.2c0%205%201.8%209.3%205.4%2012.9l128%20127.9c3.6%203.6%207.8%205.4%2012.8%205.4s9.2-1.8%2012.8-5.4L287%2095c3.5-3.5%205.4-7.8%205.4-12.8%200-5-1.9-9.2-5.5-12.8z%22%2F%3E%3C%2Fsvg%3E")', backgroundRepeat: 'no-repeat', backgroundPosition: 'right 1rem top 50%', backgroundSize: '.65em auto' }}
+                            >
+                                <option value="" disabled>Select Organization...</option>
+                                {adminOrgs.length > 0 && (
+                                    <optgroup label="My Organizations">
+                                        {adminOrgs.map(org => (
+                                            <option className="bg-white dark:bg-gray-900" key={org._id} value={org._id}>{org.name}</option>
+                                        ))}
+                                    </optgroup>
+                                )}
+                                {memberOrgs.length > 0 && (
+                                    <optgroup label="Other Organizations">
+                                        {memberOrgs.map(org => (
+                                            <option className="bg-white dark:bg-gray-900" key={org._id} value={org._id}>{org.name}</option>
+                                        ))}
+                                    </optgroup>
+                                )}
+                            </select>
+                        </div>
+                    )}
                 </div>
             )}
 
@@ -1301,6 +1377,37 @@ export function Workspace({ isPublicOnly = false, isSearchPage = false }) {
                     </motion.div>
                 )}
             </AnimatePresence>
+
+            <CreateOrgModal
+                isOpen={isCreateOrgOpen}
+                onClose={() => setIsCreateOrgOpen(false)}
+                onSuccess={(org) => {
+                    setIsCreateOrgOpen(false);
+                    fetchOrgs().then(() => {
+                        const newParams = new URLSearchParams(searchParams);
+                        newParams.set('organizationId', org._id);
+                        newParams.set('page', '1');
+                        setSearchParams(newParams);
+                    });
+                }}
+            />
+
+            {selectedOrgId && (
+                <ManageOrgModal
+                    isOpen={isManageOrgOpen}
+                    onClose={() => setIsManageOrgOpen(false)}
+                    orgId={selectedOrgId}
+                    onUpdate={() => fetchOrgs()}
+                    onDelete={() => {
+                        setSelectedOrgId('');
+                        setIsManageOrgOpen(false);
+                        const newParams = new URLSearchParams(searchParams);
+                        newParams.delete('organizationId');
+                        setSearchParams(newParams);
+                        fetchOrgs();
+                    }}
+                />
+            )}
 
             {/* Upload Modal */}
             <UploadModal
