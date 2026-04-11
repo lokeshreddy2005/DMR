@@ -166,7 +166,7 @@ export function AppLayout() {
 
   const canUserDelete = (doc) => {
     const role = getAccessLevel(doc);
-    return role === 'owner' || role === 'manager';
+    return role === 'owner' || role === 'collaborator';
   };
 
   const handleDeletePreview = async (docId) => {
@@ -465,10 +465,10 @@ export function AppLayout() {
                         </span>
                       )}
                       {(() => { const role = getAccessLevel(previewDoc); return (
-                        <span className="flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider bg-gray-200/60 dark:bg-gray-800 text-gray-700 dark:text-gray-300" title={`${role} access`}>
-                          {role === 'owner' || role === 'manager' || role === 'editor' ? <Edit3 className="w-3 h-3" /> : <Eye className="w-3 h-3" />}
+                        <div className="flex items-center gap-1.5 px-3 py-1.5 bg-gray-100 dark:bg-gray-800 rounded-lg text-gray-700 dark:text-gray-300 text-xs font-bold uppercase tracking-wider">
+                          {role === 'owner' || role === 'collaborator' ? <Edit3 className="w-3 h-3" /> : <Eye className="w-3 h-3" />}
                           {role}
-                        </span>
+                        </div>
                       ); })()}
                     </div>
                   </div>
@@ -532,7 +532,7 @@ export function AppLayout() {
                   <Download className="w-4 h-4 mr-2" /> Download
                 </Button>
 
-                {(getAccessLevel(previewDoc) === 'owner' || getAccessLevel(previewDoc) === 'manager') && previewDoc.space !== 'public' && (
+                {(getAccessLevel(previewDoc) === 'owner' || getAccessLevel(previewDoc) === 'collaborator') && previewDoc.space !== 'public' && (
                   <Button
                     className="flex-1 sm:flex-none bg-blue-50 text-blue-600 hover:bg-blue-100 dark:bg-blue-900/20 dark:text-blue-400 shadow-sm border border-blue-200 dark:border-blue-800/50 transition-colors"
                     onClick={() => setIsShareOpen(true)}

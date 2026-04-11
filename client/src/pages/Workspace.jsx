@@ -4,7 +4,7 @@ import { useAuth } from '../context/AuthContext';
 import axios from 'axios';
 import API_URL from '../config/api';
 import { Button } from '../components/ui/Button';
-import { FileText, Download, Trash2, Search, FileUp, MoreVertical, Globe, Lock, Building2, Users, Edit3, Eye, X, LayoutGrid, List, ChevronLeft, ChevronRight, Share2, Clock, UserCheck, Plus, Settings, UserPlus } from 'lucide-react';
+import { FileText, Download, Trash2, Search, FileUp, MoreVertical, Globe, Lock, Building2, Users, Edit3, Eye, X, LayoutGrid, List, ChevronLeft, ChevronRight, Share2, Clock, UserCheck, Plus, Settings, UserPlus, FileImage, FileSpreadsheet, Presentation, FileCode, FileType2 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import UploadModal from '../components/UploadModal';
 import ShareModal from '../components/ShareModal';
@@ -45,6 +45,7 @@ export function Workspace({ isPublicOnly = false, isSearchPage = false }) {
 
     // Tagging & Moving state
     const [tagInput, setTagInput] = useState('');
+    const [expandedTags, setExpandedTags] = useState(false);
     const [isMoving, setIsMoving] = useState(false);
     const [moveSpace, setMoveSpace] = useState('public');
     const [moveOrg, setMoveOrg] = useState('');
@@ -110,21 +111,13 @@ export function Workspace({ isPublicOnly = false, isSearchPage = false }) {
     // ─── Role colors for badges ───
     const ROLE_COLORS = {
         owner: { bg: 'bg-amber-100 dark:bg-amber-900/30', text: 'text-amber-700 dark:text-amber-400', border: 'border-amber-200 dark:border-amber-800' },
-        manager: { bg: 'bg-purple-100 dark:bg-purple-900/30', text: 'text-purple-700 dark:text-purple-400', border: 'border-purple-200 dark:border-purple-800' },
-        previewer: { bg: 'bg-sky-100 dark:bg-sky-900/30', text: 'text-sky-700 dark:text-sky-400', border: 'border-sky-200 dark:border-sky-800' },
-        editor: { bg: 'bg-blue-100 dark:bg-blue-900/30', text: 'text-blue-700 dark:text-blue-400', border: 'border-blue-200 dark:border-blue-800' },
-        sharer: { bg: 'bg-green-100 dark:bg-green-900/30', text: 'text-green-700 dark:text-green-400', border: 'border-green-200 dark:border-green-800' },
-        downloader: { bg: 'bg-teal-100 dark:bg-teal-900/30', text: 'text-teal-700 dark:text-teal-400', border: 'border-teal-200 dark:border-teal-800' },
+        collaborator: { bg: 'bg-purple-100 dark:bg-purple-900/30', text: 'text-purple-700 dark:text-purple-400', border: 'border-purple-200 dark:border-purple-800' },
         viewer: { bg: 'bg-gray-100 dark:bg-gray-800', text: 'text-gray-600 dark:text-gray-400', border: 'border-gray-200 dark:border-gray-700' },
     };
 
     const ROLE_LABELS = {
         owner: 'Owner',
-        manager: 'Full Access',
-        previewer: 'Previewer',
-        editor: 'Editor',
-        sharer: 'Sharer',
-        downloader: 'Viewer & Download',
+        collaborator: 'Collaborator',
         viewer: 'Viewer',
     };
 
@@ -196,7 +189,7 @@ export function Workspace({ isPublicOnly = false, isSearchPage = false }) {
 
     const canManageDocumentAccess = (doc) => {
         const role = getAccessLevel(doc);
-        if (role === 'owner' || role === 'manager') return true;
+        if (role === 'owner' || role === 'collaborator') return true;
         if (doc.space === 'organization' && doc.organization) {
             const orgId = typeof doc.organization === 'object' ? doc.organization._id || doc.organization.id : doc.organization;
             const org = orgs.find(o => (o._id || o.id)?.toString() === orgId?.toString());
@@ -331,7 +324,8 @@ export function Workspace({ isPublicOnly = false, isSearchPage = false }) {
 
     const canUserMove = (doc) => {
         if (isPublicOnly || !doc) return false;
-        return getAccessLevel(doc) === 'owner';
+        const role = getAccessLevel(doc);
+        return role === 'owner' || role === 'collaborator';
     };
 
     const openDocumentDetails = (doc) => {
@@ -831,6 +825,26 @@ export function Workspace({ isPublicOnly = false, isSearchPage = false }) {
         return 'FILE';
     };
 
+    const getFileIconDetails = (doc) => {
+        const type = getFileType(doc);
+        switch(type) {
+            case 'PFD': case 'PDF': 
+                return { icon: <FileType2 className="w-5 h-5" />, bg: 'bg-red-50 dark:bg-red-500/10', text: 'text-red-500 dark:text-red-400' };
+            case 'JPG': case 'JPEG': case 'PNG': case 'GIF': case 'WEBP': case 'SVG': 
+                return { icon: <FileImage className="w-5 h-5" />, bg: 'bg-rose-50 dark:bg-rose-500/10', text: 'text-rose-500 dark:text-rose-400' };
+            case 'XLS': case 'XLSX': case 'CSV': 
+                return { icon: <FileSpreadsheet className="w-5 h-5" />, bg: 'bg-emerald-50 dark:bg-emerald-500/10', text: 'text-emerald-600 dark:text-emerald-400' };
+            case 'PPT': case 'PPTX': 
+                return { icon: <Presentation className="w-5 h-5" />, bg: 'bg-amber-50 dark:bg-amber-500/10', text: 'text-amber-500 dark:text-amber-400' };
+            case 'JSON': case 'XML': case 'HTML': case 'JS': case 'CSS': 
+                return { icon: <FileCode className="w-5 h-5" />, bg: 'bg-gray-100 dark:bg-gray-800', text: 'text-gray-600 dark:text-gray-300' };
+            case 'DOC': case 'DOCX': case 'TXT':
+                return { icon: <FileText className="w-5 h-5" />, bg: 'bg-blue-50 dark:bg-blue-500/10', text: 'text-blue-600 dark:text-blue-400' };
+            default: 
+                return { icon: <FileText className="w-5 h-5" />, bg: 'bg-blue-50 dark:bg-blue-500/10', text: 'text-blue-600 dark:text-blue-400' };
+        }
+    };
+
     const formatVaultPercent = (score) => `${(score * 100).toFixed(2)}%`;
 
     const itemsPerPage = 20; // Server limit is default 20
@@ -873,16 +887,7 @@ export function Workspace({ isPublicOnly = false, isSearchPage = false }) {
                         <span className="truncate max-w-[300px] sm:max-w-none">{spaceLabel}</span>
                         {selectedOrgId && activeSpace === 'organization' && (
                             <div className="ml-3 flex items-center gap-2">
-                                {isOrgAdmin && (
-                                    <>
-                                        <Button onClick={() => setIsManageOrgOpen(true)} className="h-8 text-xs px-3 bg-purple-50 hover:bg-purple-100 text-purple-600 dark:bg-purple-900/30 dark:hover:bg-purple-900/50 dark:text-purple-400 shadow-sm border border-purple-200 dark:border-purple-800 transition-colors">
-                                            <UserPlus className="w-3.5 h-3.5 mr-1.5" /> Add New Member
-                                        </Button>
-                                        <Button onClick={() => setIsManageOrgOpen(true)} className="h-8 text-xs px-3 bg-blue-50 hover:bg-blue-100 text-blue-600 dark:bg-blue-900/30 dark:hover:bg-blue-900/50 dark:text-blue-400 shadow-sm border border-blue-200 dark:border-blue-800 transition-colors">
-                                            <Share2 className="w-3.5 h-3.5 mr-1.5" /> Share Access
-                                        </Button>
-                                    </>
-                                )}
+
                                 <Button onClick={() => setIsManageOrgOpen(true)} variant="secondary" className="h-8 text-xs px-3 bg-gray-100/50 hover:bg-gray-200 shadow-none border border-gray-200 dark:bg-gray-800/80 dark:hover:bg-gray-700 dark:border-gray-700">
                                     {isOrgAdmin ? (
                                         <><Settings className="w-3.5 h-3.5 mr-1.5" /> Manage Team</>
@@ -1094,9 +1099,14 @@ export function Workspace({ isPublicOnly = false, isSearchPage = false }) {
                                                             onClick={(e) => e.stopPropagation()}
                                                         />
                                                     )}
-                                                    <div className="w-12 h-12 rounded-xl bg-blue-50 dark:bg-blue-500/10 text-blue-600 dark:text-blue-400 flex items-center justify-center flex-shrink-0 group-hover:scale-110 transition-transform">
-                                                        <FileText className="w-6 h-6" />
-                                                    </div>
+                                                    {(() => {
+                                                        const iconDetails = getFileIconDetails(doc);
+                                                        return (
+                                                            <div className={`w-12 h-12 rounded-xl flex items-center justify-center flex-shrink-0 group-hover:scale-110 transition-transform ${iconDetails.bg} ${iconDetails.text}`}>
+                                                                {iconDetails.icon}
+                                                            </div>
+                                                        );
+                                                    })()}
                                                 </div>
                                                 <div className="flex items-center gap-1.5 flex-wrap justify-end">
                                                     {isSearchPage && (
@@ -1199,9 +1209,14 @@ export function Workspace({ isPublicOnly = false, isSearchPage = false }) {
                                                         onClick={(e) => e.stopPropagation()}
                                                     />
                                                 )}
-                                                <div className="w-10 h-10 rounded-lg bg-blue-50 dark:bg-blue-500/10 text-blue-600 dark:text-blue-400 flex items-center justify-center flex-shrink-0">
-                                                    <FileText className="w-5 h-5" />
-                                                </div>
+                                                {(() => {
+                                                    const iconDetails = getFileIconDetails(doc);
+                                                    return (
+                                                        <div className={`w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0 ${iconDetails.bg} ${iconDetails.text}`}>
+                                                            {iconDetails.icon}
+                                                        </div>
+                                                    );
+                                                })()}
                                                 <div className="flex flex-col min-w-0 flex-1 pr-4">
                                                     <h3 className="font-bold text-gray-900 dark:text-white text-sm truncate" title={doc.fileName}>{doc.fileName}</h3>
                                                     <div className="flex items-center gap-3 text-xs text-gray-500 dark:text-gray-400 mt-1 uppercase tracking-wider font-semibold">
@@ -1345,7 +1360,7 @@ export function Workspace({ isPublicOnly = false, isSearchPage = false }) {
                                                 </span>
                                                 {(() => { const role = getAccessLevel(selectedDoc); const rc = ROLE_COLORS[role] || ROLE_COLORS.viewer; return (
                                                     <span className={`flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider border ${rc.bg} ${rc.text} ${rc.border}`} title={`${ROLE_LABELS[role] || role} access`}>
-                                                        {role === 'owner' || role === 'manager' || role === 'editor' ? <Edit3 className="w-3 h-3" /> : <Eye className="w-3 h-3" />}
+                                                        {role === 'owner' || role === 'collaborator' ? <Edit3 className="w-3 h-3" /> : <Eye className="w-3 h-3" />}
                                                         {ROLE_LABELS[role] || role}
                                                     </span>
                                                 ); })()}
@@ -1385,38 +1400,6 @@ export function Workspace({ isPublicOnly = false, isSearchPage = false }) {
                                                 <p className="text-sm text-gray-700 dark:text-gray-300 leading-relaxed font-medium">{selectedDoc.description || 'No description provided.'}</p>
                                             </div>
                                             
-                                    {/* Vaults Section */}
-                                    {selectedDoc.isVaultRouted && selectedDoc.metadata?.vaults?.length > 0 && (
-                                        <div>
-                                            <div className="flex items-center justify-between mb-2">
-                                                <p className="text-xs font-bold text-gray-400 uppercase tracking-widest">Vaults</p>
-                                            </div>
-                                            <div className="flex flex-col gap-2">
-                                                {selectedDoc.metadata.vaults.map((v, i) => (
-                                                    <div key={i} className="flex flex-col gap-1">
-                                                        <div className="flex justify-between items-center">
-                                                            <span className="text-xs font-semibold text-gray-700 dark:text-gray-300 flex items-center gap-1.5">🗂 {v.label}</span>
-                                                            <button
-                                                                type="button"
-                                                                onClick={() => navigate(`/vaults/${v.vaultId}?page=1`)}
-                                                                className="text-[11px] font-bold text-blue-600 dark:text-blue-400 hover:underline"
-                                                                title={`View documents in ${v.label}`}
-                                                            >
-                                                                {formatVaultPercent(v.score)}
-                                                            </button>
-                                                        </div>
-                                                        <div className="w-full bg-gray-100 dark:bg-gray-800 rounded-full h-1.5">
-                                                            <div
-                                                                className="bg-blue-500 h-1.5 rounded-full transition-all"
-                                                                style={{ width: formatVaultPercent(v.score) }}
-                                                            />
-                                                        </div>
-                                                    </div>
-                                                ))}
-                                            </div>
-                                        </div>
-                                    )}
-
                                             <div>
                                                 <div className="flex items-center justify-between mb-2">
                                                     <p className="text-xs font-bold text-gray-400 uppercase tracking-widest">Metadata Tags</p>
@@ -1426,7 +1409,7 @@ export function Workspace({ isPublicOnly = false, isSearchPage = false }) {
                                                 </div>
                                                 {(selectedDoc.tags?.length > 0) ? (
                                                     <div className="flex flex-wrap gap-1.5 mb-3">
-                                                        {selectedDoc.tags.map((t, i) => (
+                                                        {(expandedTags ? selectedDoc.tags : selectedDoc.tags.slice(0, 3)).map((t, i) => (
                                                             <span key={i} className="flex items-center gap-1.5 px-2 py-1 bg-blue-50 dark:bg-blue-500/10 border border-blue-100 dark:border-blue-500/20 text-blue-600 dark:text-blue-400 rounded-lg text-[11px] font-bold uppercase tracking-wider group">
                                                                 {t}
                                                                 {canUserEdit(selectedDoc) && (
@@ -1436,6 +1419,24 @@ export function Workspace({ isPublicOnly = false, isSearchPage = false }) {
                                                                 )}
                                                             </span>
                                                         ))}
+                                                        {!expandedTags && selectedDoc.tags.length > 3 && (
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => setExpandedTags(true)}
+                                                                className="px-2 py-1 bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 rounded-lg text-[11px] font-bold hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors border border-gray-200 dark:border-gray-700"
+                                                            >
+                                                                +{selectedDoc.tags.length - 3}
+                                                            </button>
+                                                        )}
+                                                        {expandedTags && selectedDoc.tags.length > 3 && (
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => setExpandedTags(false)}
+                                                                className="px-2 py-1 bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 rounded-lg text-[11px] font-bold hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors border border-gray-200 dark:border-gray-700"
+                                                            >
+                                                                Show less
+                                                            </button>
+                                                        )}
                                                     </div>
                                                 ) : (
                                                     <p className="text-xs text-gray-500 italic mb-3">No tags added yet.</p>

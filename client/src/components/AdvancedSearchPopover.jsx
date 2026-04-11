@@ -465,12 +465,10 @@ export default function AdvancedSearchPopover({ activeSpace, isPublicOnly, apply
                 <div className="space-y-1.5">
                   <label className="text-xs font-bold text-gray-500 uppercase tracking-wider">My Permission Role</label>
                   <select value={filters.permissionLevel} onChange={e => setFilters(f => ({ ...f, permissionLevel: e.target.value }))} className="w-full text-sm p-2 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg outline-none focus:ring-2 focus:ring-blue-500 text-gray-900 dark:text-white">
-                    <option value="">Any Role</option>
-                    <option value="previewer">Previewer</option>
-                    <option value="viewer">Viewer</option>
-                    <option value="downloader">Viewer & Download</option>
-                    <option value="manager">Manager</option>
+                    <option value="">Any Permission</option>
                     <option value="owner">Owner</option>
+                    <option value="collaborator">Collaborator</option>
+                    <option value="viewer">Viewer</option>
                   </select>
                 </div>
               )}

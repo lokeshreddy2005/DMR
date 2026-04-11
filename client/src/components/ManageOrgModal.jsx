@@ -14,7 +14,7 @@ export default function ManageOrgModal({ isOpen, onClose, orgId, onUpdate, onDel
 
     // Form states
     const [newMemberEmail, setNewMemberEmail] = useState('');
-    const [newMemberRole, setNewMemberRole] = useState('member');
+    const [newMemberRole, setNewMemberRole] = useState('collaborator');
     const [isSubmitting, setIsSubmitting] = useState(false);
 
     useEffect(() => {
@@ -61,7 +61,7 @@ export default function ManageOrgModal({ isOpen, onClose, orgId, onUpdate, onDel
             
             setOrg(res.data.organization);
             setNewMemberEmail('');
-            setNewMemberRole('member');
+            setNewMemberRole('collaborator');
             if (onUpdate) onUpdate();
         } catch (err) {
             setError(err.response?.data?.error || 'Failed to add member.');
@@ -191,7 +191,7 @@ export default function ManageOrgModal({ isOpen, onClose, orgId, onUpdate, onDel
                                             className="sm:w-32 text-sm p-2.5 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg outline-none focus:ring-2 focus:ring-purple-500 text-gray-900 dark:text-white"
                                         >
                                             <option value="viewer">Viewer</option>
-                                            <option value="member">Member</option>
+                                            <option value="collaborator">Collaborator</option>
                                             <option value="admin">Admin</option>
                                         </select>
                                         <Button
@@ -232,7 +232,7 @@ export default function ManageOrgModal({ isOpen, onClose, orgId, onUpdate, onDel
                                                         className="text-xs font-semibold p-1.5 bg-gray-100 dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-md outline-none focus:ring-1 focus:ring-purple-500 text-gray-700 dark:text-gray-300 cursor-pointer disabled:opacity-50"
                                                     >
                                                         <option value="viewer">Viewer</option>
-                                                        <option value="member">Member</option>
+                                                        <option value="collaborator">Collaborator</option>
                                                         <option value="admin">Admin</option>
                                                     </select>
                                                 ) : (
