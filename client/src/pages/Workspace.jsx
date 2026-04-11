@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { useParams, useSearchParams } from 'react-router-dom';
+import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import axios from 'axios';
 import API_URL from '../config/api';
@@ -14,10 +14,12 @@ import ManageOrgModal from '../components/ManageOrgModal';
 
 export function Workspace({ isPublicOnly = false, isSearchPage = false }) {
     const { spaceId } = useParams();
+    const navigate = useNavigate();
     const [searchParams, setSearchParams] = useSearchParams();
     const { user, token } = useAuth();
 
     const activeSpace = isPublicOnly ? 'public' : isSearchPage ? 'search' : (spaceId || 'public');
+    const activeSharedWithEmail = (searchParams.get('sharedWithEmail') || '').trim();
 
     const [documents, setDocuments] = useState([]);
     const [orgs, setOrgs] = useState([]);
@@ -49,11 +51,21 @@ export function Workspace({ isPublicOnly = false, isSearchPage = false }) {
     const [moveAutoTag, setMoveAutoTag] = useState(false);
     const [isTaggingAI, setIsTaggingAI] = useState(false);
 
+    const [selectionMode, setSelectionMode] = useState('none');
+    const [sharedRecipientEmailInput, setSharedRecipientEmailInput] = useState(searchParams.get('sharedWithEmail') || '');
     const [selectedDocumentIds, setSelectedDocumentIds] = useState(new Set());
+    const [isBulkRevoking, setIsBulkRevoking] = useState(false);
+
     const toggleSelection = (id) => {
         const newSet = new Set(selectedDocumentIds);
-        if (newSet.has(id)) newSet.delete(id);
-        else newSet.add(id);
+        if (newSet.has(id)) {
+            newSet.delete(id);
+            if (selectionMode === 'all') {
+                setSelectionMode('manual');
+            }
+        } else {
+            newSet.add(id);
+        }
         setSelectedDocumentIds(newSet);
     };
 
@@ -66,6 +78,33 @@ export function Workspace({ isPublicOnly = false, isSearchPage = false }) {
         // AuthContext stores token as 'dmr_token'
         const t = token || localStorage.getItem('dmr_token');
         return t ? { Authorization: `Bearer ${t}` } : {};
+    };
+
+    const handleSelectionModeChange = (mode) => {
+        setSelectionMode(mode);
+
+        if (mode === 'none') {
+            setSelectedDocumentIds(new Set());
+            return;
+        }
+
+        if (mode === 'all') {
+            setSelectedDocumentIds(new Set(documents.map((doc) => doc._id)));
+            return;
+        }
+
+        setSelectedDocumentIds(new Set());
+    };
+
+    const clearSharedRecipientFilter = () => {
+        const newParams = new URLSearchParams(searchParams);
+        newParams.delete('sharedWithEmail');
+        newParams.delete('sharedWith');
+        newParams.delete('sharedWithLabel');
+        newParams.set('page', '1');
+        setSharedRecipientEmailInput('');
+        setSelectedDocumentIds(new Set());
+        setSearchParams(newParams);
     };
 
     // ─── Role colors for badges ───
@@ -441,9 +480,85 @@ export function Workspace({ isPublicOnly = false, isSearchPage = false }) {
         if (!isPublicOnly && activeSpace === 'organization') {
             fetchOrgs();
         }
+        setSelectionMode('none');
         setSelectedDocumentIds(new Set());
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [activeSpace]);
+
+    useEffect(() => {
+        if (activeSpace !== 'shared-to-others') return;
+
+        if (selectionMode === 'all') {
+            setSelectedDocumentIds(new Set(documents.map((doc) => doc._id)));
+            return;
+        }
+
+        setSelectedDocumentIds((prev) => {
+            const visibleIds = new Set(documents.map((doc) => doc._id));
+            const next = new Set([...prev].filter((id) => visibleIds.has(id)));
+            if (next.size === prev.size && [...next].every((id) => prev.has(id))) return prev;
+            return next;
+        });
+    }, [documents, selectionMode, activeSpace]);
+
+    useEffect(() => {
+        if (activeSpace !== 'shared-to-others') return;
+        setSharedRecipientEmailInput(searchParams.get('sharedWithEmail') || '');
+    }, [searchParams, activeSpace]);
+
+    useEffect(() => {
+        if (activeSpace !== 'shared-to-others') return;
+
+        const keysToClear = [
+            'sort',
+            'extension',
+            'minSize',
+            'maxSize',
+            'startDate',
+            'endDate',
+            'isTagged',
+            'tags',
+            'tagsMode',
+            'uploadedBy',
+            'departmentOwner',
+            'permissionLevel',
+            'isAITagged',
+            'vault',
+            'organizationId',
+        ];
+
+        const hasHiddenFilters = keysToClear.some((key) => searchParams.has(key));
+        if (!hasHiddenFilters) return;
+
+        const newParams = new URLSearchParams(searchParams);
+        keysToClear.forEach((key) => newParams.delete(key));
+        newParams.set('page', '1');
+        setSearchParams(newParams);
+    }, [activeSpace, searchParams, setSearchParams]);
+
+    useEffect(() => {
+        if (activeSpace !== 'shared-to-others') return;
+
+        const normalizedInput = sharedRecipientEmailInput.trim().toLowerCase();
+        const currentFilter = activeSharedWithEmail.trim().toLowerCase();
+        if (normalizedInput === currentFilter) return;
+
+        const timeoutId = setTimeout(() => {
+            const newParams = new URLSearchParams(searchParams);
+            if (normalizedInput) {
+                newParams.set('sharedWithEmail', normalizedInput);
+            } else {
+                newParams.delete('sharedWithEmail');
+            }
+            newParams.delete('sharedWith');
+            newParams.delete('sharedWithLabel');
+            newParams.set('page', '1');
+            setSelectedDocumentIds(new Set());
+            setSearchParams(newParams);
+        }, 300);
+
+        return () => clearTimeout(timeoutId);
+    }, [sharedRecipientEmailInput, activeSpace, activeSharedWithEmail, searchParams, setSearchParams]);
 
     // Escape key to close document modal
     useEffect(() => {
@@ -580,6 +695,42 @@ export function Workspace({ isPublicOnly = false, isSearchPage = false }) {
         } catch (err) { showToast('error', err.response?.data?.error || 'Delete failed.'); }
     };
 
+    const handleBulkRevoke = async () => {
+        if (selectedDocumentIds.size === 0) {
+            showToast('error', 'Select at least one document.');
+            return;
+        }
+
+        const docCount = selectedDocumentIds.size;
+        const confirmMsg = activeSharedWithEmail
+            ? `Revoke ${activeSharedWithEmail} from ${docCount} selected document${docCount === 1 ? '' : 's'}?`
+            : `Revoke all shared access from ${docCount} selected document${docCount === 1 ? '' : 's'}?`;
+        if (!confirm(confirmMsg)) {
+            return;
+        }
+
+        setIsBulkRevoking(true);
+        try {
+            const headers = getAuthHeaders();
+            const payload = { documentIds: [...selectedDocumentIds] };
+            if (activeSharedWithEmail) payload.email = activeSharedWithEmail;
+            const res = await axios.post(
+                `${API_URL}/api/documents/permissions/bulk-revoke`,
+                payload,
+                { headers }
+            );
+
+            showToast('success', res.data.message || 'Access revoked.');
+            setSelectionMode('none');
+            setSelectedDocumentIds(new Set());
+            await fetchDocuments();
+        } catch (err) {
+            showToast('error', err.response?.data?.error || 'Bulk revoke failed.');
+        } finally {
+            setIsBulkRevoking(false);
+        }
+    };
+
     const handleMoveSpaceSubmit = async () => {
         if (!moveSpace) return;
         if (moveSpace === 'organization' && !moveOrg) return;
@@ -683,7 +834,13 @@ export function Workspace({ isPublicOnly = false, isSearchPage = false }) {
     const formatVaultPercent = (score) => `${(score * 100).toFixed(2)}%`;
 
     const itemsPerPage = 20; // Server limit is default 20
+    const sharedToOthersRevokeTitle = selectedDocumentIds.size === 0
+        ? 'Select at least one document to revoke access.'
+        : activeSharedWithEmail
+            ? `Revoke ${activeSharedWithEmail} from selected documents.`
+            : 'Revoke all shared access from selected documents.';
     const totalItems = totalCount;
+    const effectiveTotalPages = totalPages;
     // Client side slicing removed - server handles pagination
     const paginatedDocuments = documents;
     const startIndex = (currentPage - 1) * itemsPerPage;
@@ -747,22 +904,61 @@ export function Workspace({ isPublicOnly = false, isSearchPage = false }) {
                 </div>
 
                 <div className="flex items-center gap-3 w-full md:w-auto">
-                    <select
-                        value={searchParams.get('sort') || 'latest'}
-                        onChange={(e) => {
-                            const newParams = new URLSearchParams(searchParams);
-                            newParams.set('sort', e.target.value);
-                            newParams.set('page', '1');
-                            setSearchParams(newParams);
-                        }}
-                        className="text-sm border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300 rounded-xl pl-3 pr-8 py-2 outline-none hover:border-gray-300 dark:hover:border-gray-600 focus:ring-2 focus:ring-blue-500 transition-all font-medium cursor-pointer shadow-sm appearance-none"
-                        style={{ minWidth: "140px", backgroundImage: 'url("data:image/svg+xml;charset=US-ASCII,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%22292.4%22%20height%3D%22292.4%22%3E%3Cpath%20fill%3D%22%239ca3af%22%20d%3D%22M287%2069.4a17.6%2017.6%200%200%200-13-5.4H18.4c-5%200-9.3%201.8-12.9%205.4A17.6%2017.6%200%200%200%200%2082.2c0%205%201.8%209.3%205.4%2012.9l128%20127.9c3.6%203.6%207.8%205.4%2012.8%205.4s9.2-1.8%2012.8-5.4L287%2095c3.5-3.5%205.4-7.8%205.4-12.8%200-5-1.9-9.2-5.5-12.8z%22%2F%3E%3C%2Fsvg%3E")', backgroundRepeat: 'no-repeat', backgroundPosition: 'right .7em top 50%', backgroundSize: '.65em auto' }}
-                    >
-                        <option value="latest">Newest First</option>
-                        <option value="oldest">Oldest First</option>
-                        <option value="sizeDesc">Largest Size</option>
-                        <option value="sizeAsc">Smallest Size</option>
-                    </select>
+                    {activeSpace === 'shared-to-others' && (
+                        <>
+                            <select
+                                value={selectionMode}
+                                onChange={(e) => handleSelectionModeChange(e.target.value)}
+                                className="text-sm border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300 rounded-xl pl-3 pr-8 py-2 outline-none hover:border-gray-300 dark:hover:border-gray-600 focus:ring-2 focus:ring-blue-500 transition-all font-medium cursor-pointer shadow-sm appearance-none"
+                                style={{ minWidth: "170px", backgroundImage: 'url("data:image/svg+xml;charset=US-ASCII,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%22292.4%22%20height%3D%22292.4%22%3E%3Cpath%20fill%3D%22%239ca3af%22%20d%3D%22M287%2069.4a17.6%2017.6%200%200%200-13-5.4H18.4c-5%200-9.3%201.8-12.9%205.4A17.6%2017.6%200%200%200%200%2082.2c0%205%201.8%209.3%205.4%2012.9l128%20127.9c3.6%203.6%207.8%205.4%2012.8%205.4s9.2-1.8%2012.8-5.4L287%2095c3.5-3.5%205.4-7.8%205.4-12.8%200-5-1.9-9.2-5.5-12.8z%22%2F%3E%3C%2Fsvg%3E")', backgroundRepeat: 'no-repeat', backgroundPosition: 'right .7em top 50%', backgroundSize: '.65em auto' }}
+                                title="Selection options"
+                            >
+                                <option value="none">Select documents</option>
+                                <option value="manual">Select manually</option>
+                                <option value="all">Select all on page</option>
+                            </select>
+
+                            <div className="relative min-w-[260px]">
+                                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" />
+                                <input
+                                    type="email"
+                                    value={sharedRecipientEmailInput}
+                                    onChange={(e) => setSharedRecipientEmailInput(e.target.value)}
+                                    placeholder="Filter by recipient email..."
+                                    className="w-full pl-9 pr-9 py-2 text-sm border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300 rounded-xl outline-none hover:border-gray-300 dark:hover:border-gray-600 focus:ring-2 focus:ring-blue-500 transition-all shadow-sm"
+                                />
+                                {sharedRecipientEmailInput && (
+                                    <button
+                                        type="button"
+                                        onClick={clearSharedRecipientFilter}
+                                        className="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 rounded-md transition-colors"
+                                        title="Clear email filter"
+                                    >
+                                        <X className="w-4 h-4" />
+                                    </button>
+                                )}
+                            </div>
+                        </>
+                    )}
+
+                    {activeSpace !== 'shared-to-others' && (
+                        <select
+                            value={searchParams.get('sort') || 'latest'}
+                            onChange={(e) => {
+                                const newParams = new URLSearchParams(searchParams);
+                                newParams.set('sort', e.target.value);
+                                newParams.set('page', '1');
+                                setSearchParams(newParams);
+                            }}
+                            className="text-sm border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300 rounded-xl pl-3 pr-8 py-2 outline-none hover:border-gray-300 dark:hover:border-gray-600 focus:ring-2 focus:ring-blue-500 transition-all font-medium cursor-pointer shadow-sm appearance-none"
+                            style={{ minWidth: "140px", backgroundImage: 'url("data:image/svg+xml;charset=US-ASCII,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%22292.4%22%20height%3D%22292.4%22%3E%3Cpath%20fill%3D%22%239ca3af%22%20d%3D%22M287%2069.4a17.6%2017.6%200%200%200-13-5.4H18.4c-5%200-9.3%201.8-12.9%205.4A17.6%2017.6%200%200%200%200%2082.2c0%205%201.8%209.3%205.4%2012.9l128%20127.9c3.6%203.6%207.8%205.4%2012.8%205.4s9.2-1.8%2012.8-5.4L287%2095c3.5-3.5%205.4-7.8%205.4-12.8%200-5-1.9-9.2-5.5-12.8z%22%2F%3E%3C%2Fsvg%3E")', backgroundRepeat: 'no-repeat', backgroundPosition: 'right .7em top 50%', backgroundSize: '.65em auto' }}
+                        >
+                            <option value="latest">Newest First</option>
+                            <option value="oldest">Oldest First</option>
+                            <option value="sizeDesc">Largest Size</option>
+                            <option value="sizeAsc">Smallest Size</option>
+                        </select>
+                    )}
 
                     <div className="flex bg-gray-100 dark:bg-gray-800 p-1 rounded-xl flex-shrink-0">
                         <button
@@ -780,7 +976,19 @@ export function Workspace({ isPublicOnly = false, isSearchPage = false }) {
                             <List className="w-4 h-4" />
                         </button>
                     </div>
-                    {!isPublicOnly && (
+                    {!isPublicOnly && activeSpace === 'shared-to-others' && (
+                        <Button
+                            variant="danger"
+                            className="flex-shrink-0 shadow-lg shadow-red-500/10"
+                            isLoading={isBulkRevoking}
+                            disabled={selectedDocumentIds.size === 0 || isBulkRevoking}
+                            onClick={handleBulkRevoke}
+                            title={sharedToOthersRevokeTitle}
+                        >
+                            <Trash2 className="w-4 h-4 mr-2" /> Revoke
+                        </Button>
+                    )}
+                    {!isPublicOnly && activeSpace !== 'shared-to-others' && (
                         <Button onClick={() => setIsUploadOpen(true)} className="flex-shrink-0 shadow-lg shadow-blue-500/20">
                             <FileUp className="w-4 h-4 mr-2" /> Upload
                         </Button>
@@ -877,7 +1085,7 @@ export function Workspace({ isPublicOnly = false, isSearchPage = false }) {
                                         >
                                             <div className="flex justify-between items-start mb-4">
                                                 <div className="flex gap-2">
-                                                    {activeSpace === 'shared-to-others' && (
+                                                    {activeSpace === 'shared-to-others' && selectionMode !== 'none' && (
                                                         <input 
                                                             type="checkbox" 
                                                             className="w-4 h-4 mt-1 rounded border-gray-300 text-blue-600 focus:ring-blue-500 cursor-pointer" 
@@ -982,7 +1190,7 @@ export function Workspace({ isPublicOnly = false, isSearchPage = false }) {
                                                 }`}
                                         >
                                             <div className="flex items-center gap-4 flex-1 min-w-0">
-                                                {activeSpace === 'shared-to-others' && (
+                                                {activeSpace === 'shared-to-others' && selectionMode !== 'none' && (
                                                     <input 
                                                         type="checkbox" 
                                                         className="w-4 h-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500 cursor-pointer flex-shrink-0" 
@@ -1088,9 +1296,16 @@ export function Workspace({ isPublicOnly = false, isSearchPage = false }) {
                             </div>
                             <h3 className="text-xl font-bold text-gray-900 dark:text-white mb-2">No documents found</h3>
                             <p className="text-gray-500 dark:text-gray-400 mb-6">
-                                {searchQuery ? `No results for "${searchQuery}".` : 'This space is empty. Upload a document to get started.'}
+                                {searchQuery
+                                    ? `No results for "${searchQuery}".`
+                                    : activeSpace === 'shared-to-others'
+                                        ? activeSharedWithEmail
+                                            ? `No documents are shared with ${activeSharedWithEmail}.`
+                                            : 'You have no active document shares right now.'
+                                        : 'This space is empty. Upload a document to get started.'
+                                }
                             </p>
-                            {!isPublicOnly && activeSpace !== 'shared' && (
+                            {!isPublicOnly && activeSpace !== 'shared' && activeSpace !== 'shared-to-others' && (
                                 <Button onClick={() => setIsUploadOpen(true)}>Upload Document</Button>
                             )}
                         </div>
@@ -1321,10 +1536,10 @@ export function Workspace({ isPublicOnly = false, isSearchPage = false }) {
             </div>
 
             {/* Sticky Pagination Footer */}
-            {!isLoading && !error && totalItems > 0 && totalPages > 1 && (
+            {!isLoading && !error && totalItems > 0 && effectiveTotalPages > 1 && (
                 <div className="flex-shrink-0 flex items-center justify-between px-1 py-2 border-t border-gray-200 dark:border-gray-800 bg-gray-50/80 dark:bg-gray-950/80 backdrop-blur-sm rounded-b-xl">
                     <span className="text-xs font-medium text-gray-500 dark:text-gray-400">
-                        Page <span className="font-bold text-gray-900 dark:text-white">{currentPage}</span> of <span className="font-bold text-gray-900 dark:text-white">{totalPages}</span>
+                        Page <span className="font-bold text-gray-900 dark:text-white">{currentPage}</span> of <span className="font-bold text-gray-900 dark:text-white">{effectiveTotalPages}</span>
                         <span className="ml-2 text-gray-400 dark:text-gray-600">·</span>
                         <span className="ml-2"><span className="font-bold text-blue-600 dark:text-blue-400">{totalItems}</span> total</span>
                     </span>
@@ -1345,10 +1560,10 @@ export function Workspace({ isPublicOnly = false, isSearchPage = false }) {
                         <button
                             onClick={() => {
                                 const newParams = new URLSearchParams(searchParams);
-                                newParams.set('page', Math.min(totalPages, currentPage + 1).toString());
+                                newParams.set('page', Math.min(effectiveTotalPages, currentPage + 1).toString());
                                 setSearchParams(newParams);
                             }}
-                            disabled={currentPage >= totalPages}
+                            disabled={currentPage >= effectiveTotalPages}
                             className="flex items-center gap-1 pl-3 pr-2 py-1.5 text-xs font-semibold text-gray-600 dark:text-gray-300 hover:text-blue-600 dark:hover:text-blue-400 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
                         >
                             Next
@@ -1360,18 +1575,7 @@ export function Workspace({ isPublicOnly = false, isSearchPage = false }) {
 
             {/* Toasts */}
             <AnimatePresence>
-                {activeSpace === 'shared-to-others' && selectedDocumentIds.size > 0 && (
-                    <motion.div
-                        initial={{ opacity: 0, y: 50 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, scale: 0.9 }}
-                        className="fixed bottom-8 left-1/2 -translate-x-1/2 px-6 py-3 rounded-full shadow-2xl z-50 font-bold backdrop-blur-md border bg-gray-900 border-gray-800 text-white flex items-center gap-4"
-                    >
-                        <span>{selectedDocumentIds.size} selected</span>
-                        <div className="w-px h-5 bg-gray-700" />
-                        <Button variant="secondary" className="bg-gray-800 text-gray-200 border-none hover:bg-gray-700 h-8 text-xs px-3 shadow-none" onClick={(e) => { e.stopPropagation(); alert('Revoke Access (Stub)'); }}>Revoke Access</Button>
-                        <Button variant="secondary" className="bg-gray-800 text-gray-200 border-none hover:bg-gray-700 h-8 text-xs px-3 shadow-none" onClick={(e) => { e.stopPropagation(); alert('Get Details (Stub)'); }}>Get Details</Button>
-                        <button className="p-1 rounded-full text-gray-400 hover:text-white ml-2 transition-colors" onClick={(e) => { e.stopPropagation(); setSelectedDocumentIds(new Set()); }}><X className="w-4 h-4" /></button>
-                    </motion.div>
-                )}
+
                 {toast && (
                     <motion.div
                         initial={{ opacity: 0, y: 50 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, scale: 0.9 }}

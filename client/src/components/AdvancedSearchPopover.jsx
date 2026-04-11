@@ -9,6 +9,20 @@ import { motion, AnimatePresence } from 'framer-motion';
 
 const FILTER_KEYS = ['extension', 'minSize', 'maxSize', 'startDate', 'endDate', 'isTagged', 'tags', 'tagsMode', 'uploadedBy', 'sharedWith', 'departmentOwner', 'permissionLevel'];
 
+function buildSelectedUsersFromParams(activeSpace, searchParams) {
+  const ids = activeSpace === 'shared-to-others' ? searchParams.get('sharedWith') : searchParams.get('uploadedBy');
+  if (!ids) return [];
+
+  const idList = ids.split(',').filter(Boolean);
+  const labelKey = activeSpace === 'shared-to-others' ? 'sharedWithLabel' : '';
+  const labels = labelKey ? (searchParams.get(labelKey) || '').split(',').filter(Boolean) : [];
+
+  return idList.map((id, index) => ({
+    _id: id,
+    name: labels[index] || id,
+  }));
+}
+
 export default function AdvancedSearchPopover({ activeSpace, isPublicOnly, applySearchCallback }) {
   const [searchParams, setSearchParams] = useSearchParams();
   const [isOpen, setIsOpen] = useState(false);
@@ -36,10 +50,7 @@ export default function AdvancedSearchPopover({ activeSpace, isPublicOnly, apply
   const [showTagSuggestions, setShowTagSuggestions] = useState(false);
 
   // Multi-select users
-  const [selectedUsers, setSelectedUsers] = useState(() => {
-    const ids = activeSpace === 'shared-to-others' ? searchParams.get('sharedWith') : searchParams.get('uploadedBy');
-    return ids ? ids.split(',').filter(Boolean).map(id => ({ _id: id, name: id })) : [];
-  });
+  const [selectedUsers, setSelectedUsers] = useState(() => buildSelectedUsersFromParams(activeSpace, searchParams));
   const [userInput, setUserInput] = useState('');
   const [userSuggestions, setUserSuggestions] = useState([]);
   const [isUserSearch, setIsUserSearch] = useState(false);
@@ -77,11 +88,14 @@ export default function AdvancedSearchPopover({ activeSpace, isPublicOnly, apply
     if (activeSpace === 'shared-to-others') {
       if (userIds) newParams.set('sharedWith', userIds);
       else newParams.delete('sharedWith');
+      if (selectedUsers.length > 0) newParams.set('sharedWithLabel', selectedUsers.map(u => u.email || u.name || u._id).join(','));
+      else newParams.delete('sharedWithLabel');
       newParams.delete('uploadedBy');
     } else {
       if (userIds) newParams.set('uploadedBy', userIds);
       else newParams.delete('uploadedBy');
       newParams.delete('sharedWith');
+      newParams.delete('sharedWithLabel');
     }
 
     newParams.set('page', '1');
@@ -107,7 +121,7 @@ export default function AdvancedSearchPopover({ activeSpace, isPublicOnly, apply
     setShowTagSuggestions(false);
     setShowUserSuggestions(false);
     const newParams = new URLSearchParams(searchParams);
-    [...FILTER_KEYS, 'uploadedBy', 'sharedWith'].forEach(k => newParams.delete(k));
+    [...FILTER_KEYS, 'uploadedBy', 'sharedWith', 'sharedWithLabel'].forEach(k => newParams.delete(k));
     newParams.set('page', '1');
     
     if (applySearchCallback) {
@@ -131,11 +145,8 @@ export default function AdvancedSearchPopover({ activeSpace, isPublicOnly, apply
       departmentOwner: searchParams.get('departmentOwner') || '',
       permissionLevel: searchParams.get('permissionLevel') || '',
     });
-    const userIds = activeSpace === 'shared-to-others' ? searchParams.get('sharedWith') : searchParams.get('uploadedBy');
-    if (!userIds) setSelectedUsers([]);
-    // Note: selectedUsers names might be lost if we only have IDs in the URL,
-    // but the ID is what matters for the filter. In a real app we'd fetch names.
-  }, [searchParams]);
+    setSelectedUsers(buildSelectedUsersFromParams(activeSpace, searchParams));
+  }, [searchParams, activeSpace]);
 
   // ── Click outside ──────────────────────────────────────────────────────────
   useEffect(() => {
@@ -183,7 +194,10 @@ export default function AdvancedSearchPopover({ activeSpace, isPublicOnly, apply
       setIsUserSearch(true);
       try {
         const headers = { Authorization: `Bearer ${token}` };
-        const res = await axios.get(`${API_URL}/api/documents/users/search?q=${encodeURIComponent(userInput)}`, { headers });
+        const endpoint = activeSpace === 'shared-to-others'
+          ? `${API_URL}/api/documents/users/search?q=${encodeURIComponent(userInput)}&scope=shared-with`
+          : `${API_URL}/api/documents/users/search?q=${encodeURIComponent(userInput)}`;
+        const res = await axios.get(endpoint, { headers });
         if (ignore) return;
         setUserSuggestions(res.data.users || []);
       } catch (err) {
@@ -192,7 +206,7 @@ export default function AdvancedSearchPopover({ activeSpace, isPublicOnly, apply
     };
     const t = setTimeout(fetchUsers, 300);
     return () => { ignore = true; clearTimeout(t); };
-  }, [userInput, token]);
+  }, [userInput, token, activeSpace]);
 
   const addTag = (tag) => {
     const current = filters.tags ? filters.tags.split(',').filter(Boolean) : [];
@@ -208,7 +222,11 @@ export default function AdvancedSearchPopover({ activeSpace, isPublicOnly, apply
 
   const addUser = (user) => {
     if (!selectedUsers.find(u => u._id === user._id)) {
-      setSelectedUsers(prev => [...prev, { _id: user._id, name: user.name }]);
+      setSelectedUsers(prev => [...prev, {
+        _id: user._id,
+        name: activeSpace === 'shared-to-others' ? (user.email || user.name) : user.name,
+        email: user.email,
+      }]);
     }
     setUserInput('');
     setUserSuggestions([]);
@@ -378,9 +396,9 @@ export default function AdvancedSearchPopover({ activeSpace, isPublicOnly, apply
               </div>
 
               {/* Uploaded By / Shared With — multi-select */}
-              {activeSpace !== 'private' && (
+              {activeSpace !== 'private' && activeSpace !== 'shared-to-others' && (
                 <div className="space-y-2">
-                  <label className="text-xs font-bold text-gray-500 uppercase tracking-wider flex items-center gap-1"><User className="w-3.5 h-3.5" /> {activeSpace === 'shared-to-others' ? 'Shared With' : 'Uploaded By'}</label>
+                  <label className="text-xs font-bold text-gray-500 uppercase tracking-wider flex items-center gap-1"><User className="w-3.5 h-3.5" /> Uploaded By</label>
                   <div className="relative">
                     <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400" />
                     <input

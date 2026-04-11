@@ -95,16 +95,20 @@ function sanitizeDocumentForViewer(doc, userId) {
   return payload;
 }
 
+function buildActivePermissionExpiryClause(now = new Date()) {
+  return [
+    { expiresAt: null },
+    { expiresAt: { $exists: false } },
+    { expiresAt: { $gt: now } },
+  ];
+}
+
 function buildActivePermissionClause(userId) {
   return {
     permissions: {
       $elemMatch: {
         user: userId,
-        $or: [
-          { expiresAt: null },
-          { expiresAt: { $exists: false } },
-          { expiresAt: { $gt: new Date() } },
-        ],
+        $or: buildActivePermissionExpiryClause(),
       },
     },
   };
@@ -540,10 +544,11 @@ router.get('/', async (req, res) => {
       minSize, maxSize,
       startDate, endDate,
       extension, tags, tagsMode,
-      uploadedBy, sharedWith, permissionLevel,
+      uploadedBy, sharedWith, sharedWithEmail, permissionLevel,
       isTagged, departmentOwner, isAITagged,
       sort, vault
     } = req.query;
+    const now = new Date();
 
     let sortOption = { uploadDate: -1 };
     if (sort === 'oldest') sortOption = { uploadDate: 1 };
@@ -551,6 +556,20 @@ router.get('/', async (req, res) => {
     else if (sort === 'sizeDesc') sortOption = { fileSize: -1 };
 
     let accessQuery = {};
+    let sharedRecipientFilter = null;
+
+    if (sharedWithEmail) {
+      const escapedEmail = sharedWithEmail.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      const matchingUsers = await User.find({
+        email: { $regex: `^${escapedEmail}$`, $options: 'i' },
+      }).select('_id');
+
+      const ids = matchingUsers.map((user) => user._id);
+      sharedRecipientFilter = ids.length === 1 ? ids[0] : { $in: ids };
+    } else if (sharedWith) {
+      const ids = sharedWith.split(',').filter(Boolean);
+      sharedRecipientFilter = ids.length === 1 ? ids[0] : { $in: ids };
+    }
 
     // 1. Establish Base Permissions (Who can see what)
     if (space === 'public') {
@@ -563,10 +582,15 @@ router.get('/', async (req, res) => {
         uploadedBy: { $ne: req.user._id },
       };
     } else if (space === 'shared-to-others') {
-      // Documents owned by the user that have been shared with at least one other person
+      // Documents owned by the user that currently have at least one active share.
       accessQuery = {
         uploadedBy: req.user._id,
-        'permissions.1': { $exists: true }, // has at least 2 permissions entries (owner + someone else)
+        permissions: {
+          $elemMatch: {
+            user: { $ne: req.user._id },
+            $or: buildActivePermissionExpiryClause(now),
+          },
+        },
       };
     } else if (space === 'organization' && organizationId) {
       const org = await Organization.findById(organizationId);
@@ -684,7 +708,12 @@ router.get('/', async (req, res) => {
     if (space !== 'organization' && organizationId) {
       filterQuery.organization = organizationId;
     }
-    if (sharedWith) {
+    if (space !== 'shared-to-others' && sharedWithEmail) {
+      filterQuery.permissions = filterQuery.permissions || {};
+      filterQuery.permissions.$elemMatch = filterQuery.permissions.$elemMatch || {};
+      filterQuery.permissions.$elemMatch.user = sharedRecipientFilter;
+    }
+    if (space !== 'shared-to-others' && sharedWith) {
       const ids = sharedWith.split(',').filter(Boolean);
       filterQuery.permissions = filterQuery.permissions || {};
       filterQuery.permissions.$elemMatch = filterQuery.permissions.$elemMatch || {};
@@ -722,6 +751,41 @@ router.get('/', async (req, res) => {
 
     const skip = (parseInt(page) - 1) * parseInt(limit);
     const limitNum = parseInt(limit);
+
+    if (space === 'shared-to-others' && sharedWithEmail) {
+      const normalizedEmail = sharedWithEmail.trim().toLowerCase();
+
+      const sharedDocs = await Document.find(finalQuery)
+        .select('-shareLogs')
+        .populate('uploadedBy', 'name email avatarColor')
+        .populate('organization', 'name avatarColor')
+        .populate('permissions.user', 'name email avatarColor')
+        .sort(sortOption);
+
+      const filteredDocuments = sharedDocs.filter((doc) => (doc.permissions || []).some((perm) => {
+        const role = perm.role || perm.level || 'viewer';
+        const permUserId = getEntityId(perm.user);
+        const permUserEmail = perm.user?.email?.trim?.().toLowerCase?.() || '';
+
+        if (!permUserEmail || !permUserEmail.includes(normalizedEmail)) return false;
+        if (role === 'owner') return false;
+        if (permUserId === req.user._id.toString()) return false;
+        if (perm.expiresAt && new Date(perm.expiresAt) <= now) return false;
+
+        return true;
+      }));
+
+      const totalCount = filteredDocuments.length;
+      const totalPages = Math.max(1, Math.ceil(totalCount / limitNum));
+      const documents = filteredDocuments.slice(skip, skip + limitNum);
+
+      return res.json({
+        documents,
+        totalCount,
+        currentPage: parseInt(page),
+        totalPages,
+      });
+    }
 
     const [documents, totalCount] = await Promise.all([
       Document.find(finalQuery)
@@ -866,12 +930,52 @@ router.get('/departments/search', async (req, res) => {
  */
 router.get('/users/search', async (req, res) => {
   try {
-    const { q } = req.query;
+    const { q, scope } = req.query;
     if (!q || q.trim().length < 2) {
       return res.json({ users: [] });
     }
 
     const regex = new RegExp(q.trim(), 'i');
+    const now = new Date();
+
+    if (scope === 'shared-with') {
+      const sharedRecipientIds = await Document.aggregate([
+        {
+          $match: {
+            uploadedBy: req.user._id,
+            'permissions.1': { $exists: true },
+          },
+        },
+        { $unwind: '$permissions' },
+        {
+          $match: {
+            'permissions.user': { $ne: req.user._id },
+            $or: [
+              { 'permissions.expiresAt': null },
+              { 'permissions.expiresAt': { $exists: false } },
+              { 'permissions.expiresAt': { $gt: now } },
+            ],
+          },
+        },
+        {
+          $group: {
+            _id: '$permissions.user',
+          },
+        },
+      ]);
+
+      const users = await User.find({
+        _id: { $in: sharedRecipientIds.map((entry) => entry._id) },
+        $or: [
+          { name: { $regex: regex } },
+          { email: { $regex: regex } },
+        ],
+      })
+        .select('name email avatarColor')
+        .limit(10);
+
+      return res.json({ users });
+    }
 
     // 1. Establish the same access logic used in other search routes
     const userOrgs = await Organization.find({ 'members.user': req.user._id }).select('_id');
@@ -902,6 +1006,143 @@ router.get('/users/search', async (req, res) => {
   } catch (err) {
     console.error('User search error:', err);
     res.status(500).json({ error: 'Failed to search users.' });
+  }
+});
+
+/**
+ * POST /api/documents/permissions/bulk-revoke
+ * Revoke one recipient across multiple documents owned by the current user.
+ */
+router.post('/permissions/bulk-revoke', async (req, res) => {
+  try {
+    const { documentIds, userId, email } = req.body || {};
+
+    if (!Array.isArray(documentIds) || documentIds.length === 0) {
+      return res.status(400).json({ error: 'At least one document ID is required.' });
+    }
+
+    const normalizedIds = [...new Set(documentIds.filter(Boolean))];
+    if (normalizedIds.length === 0) {
+      return res.status(400).json({ error: 'At least one valid document ID is required.' });
+    }
+
+    let targetUser = null;
+    if (userId) {
+      targetUser = await User.findById(userId).select('name email');
+    } else if (email) {
+      targetUser = await User.findOne({ email: email.toLowerCase() }).select('name email');
+    }
+
+    // If email/userId was provided but no user found, that's an error
+    if ((userId || email) && !targetUser) {
+      return res.status(404).json({ error: 'No user found for the selected recipient.' });
+    }
+
+    if (targetUser && targetUser._id.toString() === req.user._id.toString()) {
+      return res.status(400).json({ error: 'You cannot revoke your own owner access.' });
+    }
+
+    const docs = await Document.find({
+      _id: { $in: normalizedIds },
+      uploadedBy: req.user._id,
+    });
+
+    const docsById = new Map(docs.map((doc) => [doc._id.toString(), doc]));
+    let revokedCount = 0;
+    let skippedCount = 0;
+
+    for (const requestedId of normalizedIds) {
+      const doc = docsById.get(requestedId.toString());
+      if (!doc) {
+        skippedCount += 1;
+        continue;
+      }
+
+      if (targetUser) {
+        // Revoke a specific user
+        const targetPerm = doc.permissions.find(
+          (perm) => (perm.user._id?.toString() || perm.user.toString()) === targetUser._id.toString()
+        );
+
+        if (!targetPerm || targetPerm.role === 'owner' || targetPerm.level === 'owner') {
+          skippedCount += 1;
+          continue;
+        }
+
+        appendShareLog(doc, {
+          action: 'revoked',
+          targetUser,
+          role: targetPerm.role || targetPerm.level || 'viewer',
+          actorId: req.user._id,
+          expiresAt: targetPerm.expiresAt || null,
+          isActive: false,
+        });
+
+        doc.permissions = doc.permissions.filter(
+          (perm) => (perm.user._id?.toString() || perm.user.toString()) !== targetUser._id.toString()
+        );
+
+        await doc.save();
+        revokedCount += 1;
+      } else {
+        // No specific user — revoke ALL non-owner permissions
+        const ownerId = req.user._id.toString();
+        const nonOwnerPerms = doc.permissions.filter((perm) => {
+          const permUserId = perm.user._id?.toString() || perm.user.toString();
+          const role = perm.role || perm.level || 'viewer';
+          return permUserId !== ownerId && role !== 'owner';
+        });
+
+        if (nonOwnerPerms.length === 0) {
+          skippedCount += 1;
+          continue;
+        }
+
+        for (const perm of nonOwnerPerms) {
+          appendShareLog(doc, {
+            action: 'revoked',
+            targetUser: perm.user,
+            role: perm.role || perm.level || 'viewer',
+            actorId: req.user._id,
+            expiresAt: perm.expiresAt || null,
+            isActive: false,
+          });
+        }
+
+        doc.permissions = doc.permissions.filter((perm) => {
+          const permUserId = perm.user._id?.toString() || perm.user.toString();
+          const role = perm.role || perm.level || 'viewer';
+          return permUserId === ownerId || role === 'owner';
+        });
+
+        await doc.save();
+        revokedCount += 1;
+      }
+    }
+
+    if (revokedCount === 0) {
+      return res.status(400).json({ error: 'No matching access entries were found in the selected documents.' });
+    }
+
+    const message = targetUser
+      ? `Revoked ${targetUser.email} from ${revokedCount} document${revokedCount === 1 ? '' : 's'}.`
+      : `Revoked all shared access from ${revokedCount} document${revokedCount === 1 ? '' : 's'}.`;
+
+    return res.json({
+      message,
+      revokedCount,
+      skippedCount,
+      ...(targetUser && {
+        targetUser: {
+          _id: targetUser._id,
+          name: targetUser.name,
+          email: targetUser.email,
+        },
+      }),
+    });
+  } catch (err) {
+    console.error('Bulk revoke permission error:', err);
+    return res.status(500).json({ error: 'Failed to revoke access in bulk.' });
   }
 });
 

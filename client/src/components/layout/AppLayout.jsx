@@ -353,7 +353,9 @@ export function AppLayout() {
                       </button>
                     )}
                     {/* Advanced Filters inside search bar */}
-                    <AdvancedSearchPopover activeSpace={searchScope} isPublicOnly={searchScope === 'public'} applySearchCallback={(params) => executeSearch(globalSearch, params)} />
+                    {searchScope !== 'shared-to-others' && (
+                      <AdvancedSearchPopover activeSpace={searchScope} isPublicOnly={searchScope === 'public'} applySearchCallback={(params) => executeSearch(globalSearch, params)} />
+                    )}
                   </div>
                 </div>
               </div>
