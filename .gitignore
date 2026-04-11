@@ -45,6 +45,8 @@ implementation_plan_2.md
 ## 
 test_regex.js
 test_api.js
-
+test_filter.js
+test_query.js
+test_api.js
 
 

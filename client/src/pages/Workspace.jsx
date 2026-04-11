@@ -755,44 +755,7 @@ export function Workspace({ isPublicOnly = false, isSearchPage = false }) {
             {/* Main Content Area */}
             <div className="flex-1 flex gap-6 overflow-hidden relative">
                 {/* File Grid */}
-                <div className="flex-1 min-w-0 overflow-y-auto pr-2 pb-24">
-                    {!isLoading && !error && totalItems > 0 && (
-                        <div className="flex items-center justify-end mb-4 mt-1">
-                            <div className="flex items-center gap-3">
-                                <span className="text-sm font-medium text-gray-500 dark:text-gray-400 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 px-3 py-1.5 rounded-lg shadow-sm tracking-wide">
-                                    Showing <span className="font-bold text-gray-900 dark:text-white">{startIndex + 1}</span> - <span className="font-bold text-gray-900 dark:text-white">{Math.min(startIndex + itemsPerPage, totalItems)}</span> of <span className="font-bold text-blue-600 dark:text-blue-400">{totalItems}</span>
-                                </span>
-
-                                {totalPages > 1 && (
-                                    <div className="flex items-center gap-1 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg shadow-sm">
-                                        <button
-                                            onClick={() => {
-                                                const newParams = new URLSearchParams(searchParams);
-                                                newParams.set('page', Math.max(1, currentPage - 1).toString());
-                                                setSearchParams(newParams);
-                                            }}
-                                            disabled={currentPage <= 1}
-                                            className="p-1.5 text-gray-500 hover:text-blue-600 disabled:opacity-30 disabled:hover:text-gray-500 transition-colors"
-                                        >
-                                            <ChevronLeft className="w-4 h-4" />
-                                        </button>
-                                        <div className="w-px h-5 bg-gray-200 dark:bg-gray-700"></div>
-                                        <button
-                                            onClick={() => {
-                                                const newParams = new URLSearchParams(searchParams);
-                                                newParams.set('page', Math.min(totalPages, currentPage + 1).toString());
-                                                setSearchParams(newParams);
-                                            }}
-                                            disabled={currentPage >= totalPages}
-                                            className="p-1.5 text-gray-500 hover:text-blue-600 disabled:opacity-30 disabled:hover:text-gray-500 transition-colors"
-                                        >
-                                            <ChevronRight className="w-4 h-4" />
-                                        </button>
-                                    </div>
-                                )}
-                            </div>
-                        </div>
-                    )}
+                <div className="flex-1 min-w-0 overflow-y-auto pr-2 pb-4">
                     {isLoading ? (
                         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
                             {[1, 2, 3, 4, 5, 6].map(i => (
@@ -1275,6 +1238,44 @@ export function Workspace({ isPublicOnly = false, isSearchPage = false }) {
                     )}
                 </AnimatePresence>
             </div>
+
+            {/* Sticky Pagination Footer */}
+            {!isLoading && !error && totalItems > 0 && totalPages > 1 && (
+                <div className="flex-shrink-0 flex items-center justify-between px-1 py-2 border-t border-gray-200 dark:border-gray-800 bg-gray-50/80 dark:bg-gray-950/80 backdrop-blur-sm rounded-b-xl">
+                    <span className="text-xs font-medium text-gray-500 dark:text-gray-400">
+                        Page <span className="font-bold text-gray-900 dark:text-white">{currentPage}</span> of <span className="font-bold text-gray-900 dark:text-white">{totalPages}</span>
+                        <span className="ml-2 text-gray-400 dark:text-gray-600">·</span>
+                        <span className="ml-2"><span className="font-bold text-blue-600 dark:text-blue-400">{totalItems}</span> total</span>
+                    </span>
+                    <div className="flex items-center gap-1 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg shadow-sm">
+                        <button
+                            onClick={() => {
+                                const newParams = new URLSearchParams(searchParams);
+                                newParams.set('page', Math.max(1, currentPage - 1).toString());
+                                setSearchParams(newParams);
+                            }}
+                            disabled={currentPage <= 1}
+                            className="flex items-center gap-1 pl-2 pr-3 py-1.5 text-xs font-semibold text-gray-600 dark:text-gray-300 hover:text-blue-600 dark:hover:text-blue-400 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+                        >
+                            <ChevronLeft className="w-3.5 h-3.5" />
+                            Prev
+                        </button>
+                        <div className="w-px h-5 bg-gray-200 dark:bg-gray-700" />
+                        <button
+                            onClick={() => {
+                                const newParams = new URLSearchParams(searchParams);
+                                newParams.set('page', Math.min(totalPages, currentPage + 1).toString());
+                                setSearchParams(newParams);
+                            }}
+                            disabled={currentPage >= totalPages}
+                            className="flex items-center gap-1 pl-3 pr-2 py-1.5 text-xs font-semibold text-gray-600 dark:text-gray-300 hover:text-blue-600 dark:hover:text-blue-400 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+                        >
+                            Next
+                            <ChevronRight className="w-3.5 h-3.5" />
+                        </button>
+                    </div>
+                </div>
+            )}
 
             {/* Toasts */}
             <AnimatePresence>
