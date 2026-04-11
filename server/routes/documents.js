@@ -224,9 +224,12 @@ router.post('/upload', upload.single('document'), async (req, res) => {
       organizationId
     );
 
+    const ext = path.extname(req.file.originalname);
+    const baseName = path.basename(req.file.originalname, ext);
+
     // Create document metadata
     const doc = new Document({
-      fileName: req.file.originalname,
+      fileName: baseName,
       description: description?.trim() || '',
       space,
       organization: space === 'organization' ? organizationId : null,
@@ -236,7 +239,7 @@ router.post('/upload', upload.single('document'), async (req, res) => {
       mimeType: req.file.mimetype,
       fileSize: req.file.size,
       permissions: [Document.buildPermission(req.user._id, 'owner', req.user._id)],
-      metadata: { extension: path.extname(req.file.originalname).toLowerCase() }
+      metadata: { extension: ext.toLowerCase() }
     });
 
     // Handle Initial Manual Tags
@@ -537,10 +540,15 @@ router.get('/', async (req, res) => {
       minSize, maxSize,
       startDate, endDate,
       extension, tags, tagsMode,
-      uploadedBy, permissionLevel,
+      uploadedBy, sharedWith, permissionLevel,
       isTagged, departmentOwner, isAITagged,
-      academicYear, sort, vault
+      sort, vault
     } = req.query;
+
+    let sortOption = { uploadDate: -1 };
+    if (sort === 'oldest') sortOption = { uploadDate: 1 };
+    else if (sort === 'sizeAsc') sortOption = { fileSize: 1 };
+    else if (sort === 'sizeDesc') sortOption = { fileSize: -1 };
 
     let accessQuery = {};
 
@@ -609,17 +617,44 @@ router.get('/', async (req, res) => {
       if (endDate) filterQuery.uploadDate.$lte = new Date(endDate);
     }
 
-    // Exact String Filters — fallback to fileName regex for docs where metadata.extension is empty
+    // Extension filter — covers 3 cases:
     if (extension) {
       const extLower = extension.toLowerCase().startsWith('.')
         ? extension.toLowerCase()
         : `.${extension.toLowerCase()}`;
-      // Escape the dot and anchor to end of string, e.g. \.pdf$
-      const extRegex = new RegExp(`\\${extLower.replace(/\./g, '\\.')}$`, 'i');
-      // Use $and wrapper so this doesn't overwrite any $or from the text-search block above
+
+      const escapedExt = extLower.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+      const MIME_MAP = {
+        '.pdf':  ['application/pdf'],
+        '.doc':  ['application/msword'],
+        '.docx': ['application/vnd.openxmlformats-officedocument.wordprocessingml.document'],
+        '.xls':  ['application/vnd.ms-excel'],
+        '.xlsx': ['application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'],
+        '.ppt':  ['application/vnd.ms-powerpoint'],
+        '.pptx': ['application/vnd.openxmlformats-officedocument.presentationml.presentation'],
+        '.txt':  ['text/plain'],
+        '.png':  ['image/png'],
+        '.jpg':  ['image/jpeg'],
+        '.jpeg': ['image/jpeg'],
+        '.gif':  ['image/gif'],
+        '.mp4':  ['video/mp4'],
+        '.mp3':  ['audio/mpeg'],
+        '.zip':  ['application/zip', 'application/x-zip-compressed'],
+      };
+      const mimeTypes = MIME_MAP[extLower] || [];
+
+      const extConditions = [
+        { 'metadata.extension': extLower },
+        { fileName: { $regex: `${escapedExt}$`, $options: 'i' } }
+      ];
+      if (mimeTypes.length > 0) {
+        extConditions.push({ mimeType: { $in: mimeTypes } });
+      }
+
       filterQuery.$and = [
         ...(filterQuery.$and || []),
-        { $or: [{ 'metadata.extension': extLower }, { fileName: extRegex }] }
+        { $or: extConditions }
       ];
     }
 
@@ -630,7 +665,7 @@ router.get('/', async (req, res) => {
     // Case-insensitive tag match; tagsMode=all requires ALL tags, default is ANY (or)
     if (tags) {
       const tagsArray = tags.split(',').map(t => t.trim()).filter(Boolean);
-      const tagRegexes = tagsArray.map(t => new RegExp(`^${t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i'));
+      const tagRegexes = tagsArray.map(t => ({ $regex: `^${t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, $options: 'i' }));
       if (tagsMode === 'all') {
         // Must have ALL listed tags
         filterQuery.tags = { $all: tagRegexes };
@@ -649,13 +684,17 @@ router.get('/', async (req, res) => {
     if (space !== 'organization' && organizationId) {
       filterQuery.organization = organizationId;
     }
+    if (sharedWith) {
+      const ids = sharedWith.split(',').filter(Boolean);
+      filterQuery.permissions = filterQuery.permissions || {};
+      filterQuery.permissions.$elemMatch = filterQuery.permissions.$elemMatch || {};
+      filterQuery.permissions.$elemMatch.user = ids.length === 1 ? ids[0] : { $in: ids };
+    }
     if (permissionLevel) {
-      filterQuery.permissions = {
-        $elemMatch: {
-          user: req.user._id,
-          $or: [{ level: permissionLevel }, { role: permissionLevel }]
-        }
-      };
+      filterQuery.permissions = filterQuery.permissions || {};
+      filterQuery.permissions.$elemMatch = filterQuery.permissions.$elemMatch || {};
+      filterQuery.permissions.$elemMatch.user = filterQuery.permissions.$elemMatch.user || req.user._id;
+      filterQuery.permissions.$elemMatch.$or = [{ level: permissionLevel }, { role: permissionLevel }];
     }
 
     if (isTagged !== undefined) {

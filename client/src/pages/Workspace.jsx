@@ -4,7 +4,7 @@ import { useAuth } from '../context/AuthContext';
 import axios from 'axios';
 import API_URL from '../config/api';
 import { Button } from '../components/ui/Button';
-import { FileText, Download, Trash2, Search, FileUp, MoreVertical, Globe, Lock, Building2, Users, Edit3, Eye, X, LayoutGrid, List, ChevronLeft, ChevronRight, Share2, Clock } from 'lucide-react';
+import { FileText, Download, Trash2, Search, FileUp, MoreVertical, Globe, Lock, Building2, Users, Edit3, Eye, X, LayoutGrid, List, ChevronLeft, ChevronRight, Share2, Clock, UserCheck } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import UploadModal from '../components/UploadModal';
 import ShareModal from '../components/ShareModal';
@@ -45,6 +45,14 @@ export function Workspace({ isPublicOnly = false, isSearchPage = false }) {
     const [moveOrg, setMoveOrg] = useState('');
     const [moveAutoTag, setMoveAutoTag] = useState(false);
     const [isTaggingAI, setIsTaggingAI] = useState(false);
+
+    const [selectedDocumentIds, setSelectedDocumentIds] = useState(new Set());
+    const toggleSelection = (id) => {
+        const newSet = new Set(selectedDocumentIds);
+        if (newSet.has(id)) newSet.delete(id);
+        else newSet.add(id);
+        setSelectedDocumentIds(newSet);
+    };
 
     const showToast = (type, message) => {
         setToast({ type, message });
@@ -320,7 +328,7 @@ export function Workspace({ isPublicOnly = false, isSearchPage = false }) {
             { label: 'Uploader', value: doc.uploadedBy?.name || 'Unknown' },
             { label: 'Upload Date', value: new Date(doc.uploadDate).toLocaleDateString() },
             { label: 'File Size', value: formatSize(doc.fileSize) },
-            { label: 'File Type', value: doc.mimeType },
+            { label: 'File Type', value: getFileType(doc) },
         ];
 
         const expiryInfo = getUserPermExpiryInfo(doc);
@@ -408,6 +416,7 @@ export function Workspace({ isPublicOnly = false, isSearchPage = false }) {
         if (!isPublicOnly && activeSpace === 'organization') {
             fetchOrgs();
         }
+        setSelectedDocumentIds(new Set());
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [activeSpace]);
 
@@ -608,6 +617,44 @@ export function Workspace({ isPublicOnly = false, isSearchPage = false }) {
         const i = Math.floor(Math.log(bytes) / Math.log(k));
         return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
     };
+
+    const getFileType = (doc) => {
+        // Priority 1: Metadata extension
+        if (doc.metadata?.extension) {
+            return doc.metadata.extension.replace('.', '').toUpperCase();
+        }
+
+        // Priority 2: MimeType mapping
+        if (doc.mimeType) {
+            const MIME_TO_EXT = {
+                'application/pdf': 'PDF',
+                'application/msword': 'DOC',
+                'application/vnd.openxmlformats-officedocument.wordprocessingml.document': 'DOCX',
+                'application/vnd.ms-excel': 'XLS',
+                'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': 'XLSX',
+                'application/vnd.ms-powerpoint': 'PPT',
+                'application/vnd.openxmlformats-officedocument.presentationml.presentation': 'PPTX',
+                'text/plain': 'TXT',
+                'image/png': 'PNG',
+                'image/jpeg': 'JPG',
+                'image/gif': 'GIF',
+                'video/mp4': 'MP4',
+                'audio/mpeg': 'MP3',
+                'application/zip': 'ZIP',
+                'application/x-zip-compressed': 'ZIP'
+            };
+            if (MIME_TO_EXT[doc.mimeType]) return MIME_TO_EXT[doc.mimeType];
+        }
+
+        // Priority 3: Extract from fileName
+        if (doc.fileName && doc.fileName.includes('.')) {
+            const ext = doc.fileName.split('.').pop();
+            if (ext) return ext.toUpperCase();
+        }
+
+        return 'FILE';
+    };
+
     const formatVaultPercent = (score) => `${(score * 100).toFixed(2)}%`;
 
     const itemsPerPage = 20; // Server limit is default 20
@@ -616,7 +663,7 @@ export function Workspace({ isPublicOnly = false, isSearchPage = false }) {
     const paginatedDocuments = documents;
     const startIndex = (currentPage - 1) * itemsPerPage;
 
-    const spaceLabel = isSearchPage ? 'Search Results' : activeSpace === 'shared' ? 'Shared with Me' : activeSpace === 'recent' ? 'Recently Accessed' : `${activeSpace.charAt(0).toUpperCase() + activeSpace.slice(1)} Space`;
+    const spaceLabel = isSearchPage ? 'Search Results' : activeSpace === 'shared' ? 'Shared with Me' : activeSpace === 'shared-to-others' ? 'Shared with Others' : activeSpace === 'recent' ? 'Recently Accessed' : `${activeSpace.charAt(0).toUpperCase() + activeSpace.slice(1)} Space`;
 
     return (
         <div className="max-w-7xl mx-auto flex flex-col h-[calc(100vh-8rem)]">
@@ -627,6 +674,7 @@ export function Workspace({ isPublicOnly = false, isSearchPage = false }) {
                         {activeSpace === 'public' && <Globe className="w-8 h-8 text-emerald-500" />}
                         {activeSpace === 'private' && <Lock className="w-8 h-8 text-blue-500" />}
                         {activeSpace === 'shared' && <Users className="w-8 h-8 text-orange-500" />}
+                        {activeSpace === 'shared-to-others' && <UserCheck className="w-8 h-8 text-indigo-500" />}
                         {activeSpace === 'organization' && <Building2 className="w-8 h-8 text-purple-500" />}
                         {activeSpace === 'recent' && <Clock className="w-8 h-8 text-rose-500" />}
                         {isSearchPage && <Search className="w-8 h-8 text-blue-500" />}
@@ -636,12 +684,29 @@ export function Workspace({ isPublicOnly = false, isSearchPage = false }) {
                         {activeSpace === 'public' && 'All publicly available documents.'}
                         {activeSpace === 'private' && 'Documents you have uploaded privately.'}
                         {activeSpace === 'shared' && 'Documents others have shared with you.'}
+                        {activeSpace === 'shared-to-others' && 'Documents you have shared with other users.'}
                         {activeSpace === 'organization' && 'Documents within your organizations.'}
                         {activeSpace === 'recent' && 'Documents you have recently viewed or modified.'}
                     </p>
                 </div>
 
                 <div className="flex items-center gap-3 w-full md:w-auto">
+                    <select
+                        value={searchParams.get('sort') || 'latest'}
+                        onChange={(e) => {
+                            const newParams = new URLSearchParams(searchParams);
+                            newParams.set('sort', e.target.value);
+                            newParams.set('page', '1');
+                            setSearchParams(newParams);
+                        }}
+                        className="text-sm border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300 rounded-xl pl-3 pr-8 py-2 outline-none hover:border-gray-300 dark:hover:border-gray-600 focus:ring-2 focus:ring-blue-500 transition-all font-medium cursor-pointer shadow-sm appearance-none"
+                        style={{ minWidth: "140px", backgroundImage: 'url("data:image/svg+xml;charset=US-ASCII,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%22292.4%22%20height%3D%22292.4%22%3E%3Cpath%20fill%3D%22%239ca3af%22%20d%3D%22M287%2069.4a17.6%2017.6%200%200%200-13-5.4H18.4c-5%200-9.3%201.8-12.9%205.4A17.6%2017.6%200%200%200%200%2082.2c0%205%201.8%209.3%205.4%2012.9l128%20127.9c3.6%203.6%207.8%205.4%2012.8%205.4s9.2-1.8%2012.8-5.4L287%2095c3.5-3.5%205.4-7.8%205.4-12.8%200-5-1.9-9.2-5.5-12.8z%22%2F%3E%3C%2Fsvg%3E")', backgroundRepeat: 'no-repeat', backgroundPosition: 'right .7em top 50%', backgroundSize: '.65em auto' }}
+                    >
+                        <option value="latest">Newest First</option>
+                        <option value="oldest">Oldest First</option>
+                        <option value="sizeDesc">Largest Size</option>
+                        <option value="sizeAsc">Smallest Size</option>
+                    </select>
 
                     <div className="flex bg-gray-100 dark:bg-gray-800 p-1 rounded-xl flex-shrink-0">
                         <button
@@ -767,8 +832,19 @@ export function Workspace({ isPublicOnly = false, isSearchPage = false }) {
                                                 }`}
                                         >
                                             <div className="flex justify-between items-start mb-4">
-                                                <div className="w-12 h-12 rounded-xl bg-blue-50 dark:bg-blue-500/10 text-blue-600 dark:text-blue-400 flex items-center justify-center flex-shrink-0 group-hover:scale-110 transition-transform">
-                                                    <FileText className="w-6 h-6" />
+                                                <div className="flex gap-2">
+                                                    {activeSpace === 'shared-to-others' && (
+                                                        <input 
+                                                            type="checkbox" 
+                                                            className="w-4 h-4 mt-1 rounded border-gray-300 text-blue-600 focus:ring-blue-500 cursor-pointer" 
+                                                            checked={selectedDocumentIds.has(doc._id)} 
+                                                            onChange={(e) => { e.stopPropagation(); toggleSelection(doc._id); }} 
+                                                            onClick={(e) => e.stopPropagation()}
+                                                        />
+                                                    )}
+                                                    <div className="w-12 h-12 rounded-xl bg-blue-50 dark:bg-blue-500/10 text-blue-600 dark:text-blue-400 flex items-center justify-center flex-shrink-0 group-hover:scale-110 transition-transform">
+                                                        <FileText className="w-6 h-6" />
+                                                    </div>
                                                 </div>
                                                 <div className="flex items-center gap-1.5 flex-wrap justify-end">
                                                     {isSearchPage && (
@@ -815,9 +891,13 @@ export function Workspace({ isPublicOnly = false, isSearchPage = false }) {
                                                 </div>
                                             </div>
                                             <h3 className="font-bold text-gray-900 dark:text-white text-sm truncate mb-1" title={doc.fileName}>{doc.fileName}</h3>
-                                            <div className="flex items-center justify-between text-xs text-gray-500 dark:text-gray-400 font-medium">
-                                                <span>{formatSize(doc.fileSize)}</span>
-                                                <span>{new Date(doc.uploadDate).toLocaleDateString()}</span>
+                                            <div className="flex items-center justify-between text-xs text-gray-500 dark:text-gray-400 font-medium whitespace-nowrap overflow-hidden">
+                                                <div className="flex items-center gap-1.5 shrink-0">
+                                                    <span>{formatSize(doc.fileSize)}</span>
+                                                    <span>•</span>
+                                                    <span className="font-bold text-blue-600 dark:text-blue-400">{getFileType(doc)}</span>
+                                                </div>
+                                                <span className="shrink-0">{new Date(doc.uploadDate).toLocaleDateString()}</span>
                                             </div>
                                             {/* {doc.isTagged && doc.metadata?.typeTags?.length > 0 && (
                                                 <div className="mt-3 flex flex-wrap gap-1.5 overflow-hidden max-h-6">
@@ -858,6 +938,15 @@ export function Workspace({ isPublicOnly = false, isSearchPage = false }) {
                                                 }`}
                                         >
                                             <div className="flex items-center gap-4 flex-1 min-w-0">
+                                                {activeSpace === 'shared-to-others' && (
+                                                    <input 
+                                                        type="checkbox" 
+                                                        className="w-4 h-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500 cursor-pointer flex-shrink-0" 
+                                                        checked={selectedDocumentIds.has(doc._id)} 
+                                                        onChange={(e) => { e.stopPropagation(); toggleSelection(doc._id); }} 
+                                                        onClick={(e) => e.stopPropagation()}
+                                                    />
+                                                )}
                                                 <div className="w-10 h-10 rounded-lg bg-blue-50 dark:bg-blue-500/10 text-blue-600 dark:text-blue-400 flex items-center justify-center flex-shrink-0">
                                                     <FileText className="w-5 h-5" />
                                                 </div>
@@ -865,6 +954,8 @@ export function Workspace({ isPublicOnly = false, isSearchPage = false }) {
                                                     <h3 className="font-bold text-gray-900 dark:text-white text-sm truncate" title={doc.fileName}>{doc.fileName}</h3>
                                                     <div className="flex items-center gap-3 text-xs text-gray-500 dark:text-gray-400 mt-1 uppercase tracking-wider font-semibold">
                                                         <span>{formatSize(doc.fileSize)}</span>
+                                                        <span>•</span>
+                                                        <span className="text-blue-600 dark:text-blue-400">{getFileType(doc)}</span>
                                                         <span>•</span>
                                                         <span>{new Date(doc.uploadDate).toLocaleDateString()}</span>
                                                     </div>
@@ -1187,6 +1278,18 @@ export function Workspace({ isPublicOnly = false, isSearchPage = false }) {
 
             {/* Toasts */}
             <AnimatePresence>
+                {activeSpace === 'shared-to-others' && selectedDocumentIds.size > 0 && (
+                    <motion.div
+                        initial={{ opacity: 0, y: 50 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, scale: 0.9 }}
+                        className="fixed bottom-8 left-1/2 -translate-x-1/2 px-6 py-3 rounded-full shadow-2xl z-50 font-bold backdrop-blur-md border bg-gray-900 border-gray-800 text-white flex items-center gap-4"
+                    >
+                        <span>{selectedDocumentIds.size} selected</span>
+                        <div className="w-px h-5 bg-gray-700" />
+                        <Button variant="secondary" className="bg-gray-800 text-gray-200 border-none hover:bg-gray-700 h-8 text-xs px-3 shadow-none" onClick={(e) => { e.stopPropagation(); alert('Revoke Access (Stub)'); }}>Revoke Access</Button>
+                        <Button variant="secondary" className="bg-gray-800 text-gray-200 border-none hover:bg-gray-700 h-8 text-xs px-3 shadow-none" onClick={(e) => { e.stopPropagation(); alert('Get Details (Stub)'); }}>Get Details</Button>
+                        <button className="p-1 rounded-full text-gray-400 hover:text-white ml-2 transition-colors" onClick={(e) => { e.stopPropagation(); setSelectedDocumentIds(new Set()); }}><X className="w-4 h-4" /></button>
+                    </motion.div>
+                )}
                 {toast && (
                     <motion.div
                         initial={{ opacity: 0, y: 50 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, scale: 0.9 }}

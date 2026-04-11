@@ -42,7 +42,7 @@ const SIDEBAR_LINKS = [
   { name: "Public Space", href: "/workspace/public", icon: Globe },
   { name: "Private Space", href: "/workspace/private", icon: Lock },
   { name: "Shared with Me", href: "/workspace/shared", icon: Users },
-  { name: "Shared to Others", href: "/workspace/shared-to-others", icon: UserCheck },
+  { name: "Shared with Others", href: "/workspace/shared-to-others", icon: UserCheck },
   { name: "Organizations", href: "/workspace/organization", icon: Building2 },
   { name: "Vault Browser", href: "/vaults", icon: Vault },
 ];
@@ -74,6 +74,7 @@ export function AppLayout() {
     if (path === '/workspace/public') setSearchScope('public');
     else if (path === '/workspace/private') setSearchScope('private');
     else if (path === '/workspace/shared') setSearchScope('shared');
+    else if (path === '/workspace/shared-to-others') setSearchScope('shared-to-others');
     else if (path === '/workspace/organization') {
       const orgId = searchParams.get('organizationId');
       if (orgId) setSearchScope(`org_${orgId}`);
@@ -114,6 +115,7 @@ export function AppLayout() {
     if (searchScope === 'public') basePath = '/workspace/public';
     else if (searchScope === 'private') basePath = '/workspace/private';
     else if (searchScope === 'shared') basePath = '/workspace/shared';
+    else if (searchScope === 'shared-to-others') basePath = '/workspace/shared-to-others';
     else if (searchScope.startsWith('org_')) {
       basePath = '/workspace/organization';
       np.set('organizationId', searchScope.replace('org_', ''));
@@ -311,6 +313,7 @@ export function AppLayout() {
                   <option value="public">Public Space</option>
                   <option value="private">Private Space</option>
                   <option value="shared">Shared with Me</option>
+                  <option value="shared-to-others">Shared with Others</option>
                   {orgs.map(org => (
                     <option key={org._id} value={`org_${org._id}`}>Org: {org.name}</option>
                   ))}
@@ -350,7 +353,7 @@ export function AppLayout() {
                       </button>
                     )}
                     {/* Advanced Filters inside search bar */}
-                    <AdvancedSearchPopover isPublicOnly={searchScope === 'public'} applySearchCallback={(params) => executeSearch(globalSearch, params)} />
+                    <AdvancedSearchPopover activeSpace={searchScope} isPublicOnly={searchScope === 'public'} applySearchCallback={(params) => executeSearch(globalSearch, params)} />
                   </div>
                 </div>
               </div>
