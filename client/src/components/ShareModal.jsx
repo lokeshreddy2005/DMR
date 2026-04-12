@@ -6,10 +6,8 @@ import { useAuth } from '../context/AuthContext';
 import API_URL from '../config/api';
 
 const ROLE_OPTIONS = [
-    { value: 'previewer',  label: 'Previewer',         desc: 'Read-only preview access',                icon: '🔎' },
-    { value: 'viewer',     label: 'Viewer',           desc: 'Can only view the document',              icon: '👁️' },
-    { value: 'downloader', label: 'Viewer & Download', desc: 'Can view and download the document',      icon: '⬇️' },
-    { value: 'manager',    label: 'Full Access',       desc: 'Can edit, share, download, and manage',   icon: '🛡️' },
+    { value: 'viewer',       label: 'Viewer',       desc: 'Can view and download the document',       icon: '👁️' },
+    { value: 'collaborator', label: 'Collaborator', desc: 'Can edit, share, download, and manage',    icon: '🛡️' },
 ];
 
 const EXPIRY_OPTIONS = [
@@ -20,13 +18,9 @@ const EXPIRY_OPTIONS = [
 ];
 
 const ROLE_COLORS = {
-    owner:      'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400 border-amber-200 dark:border-amber-800',
-    manager:    'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400 border-purple-200 dark:border-purple-800',
-    previewer:  'bg-sky-100 text-sky-700 dark:bg-sky-900/30 dark:text-sky-400 border-sky-200 dark:border-sky-800',
-    editor:     'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400 border-blue-200 dark:border-blue-800',
-    sharer:     'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400 border-green-200 dark:border-green-800',
-    downloader: 'bg-teal-100 text-teal-700 dark:bg-teal-900/30 dark:text-teal-400 border-teal-200 dark:border-teal-800',
-    viewer:     'bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400 border-gray-200 dark:border-gray-700',
+    owner:        'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400 border-amber-200 dark:border-amber-800',
+    collaborator: 'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400 border-purple-200 dark:border-purple-800',
+    viewer:       'bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400 border-gray-200 dark:border-gray-700',
 };
 
 export default function ShareModal({ isOpen, onClose, document, onUpdate }) {

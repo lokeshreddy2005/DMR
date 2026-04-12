@@ -2,19 +2,19 @@ const mongoose = require('mongoose');
 
 // ─── Role Presets ───────────────────────────────────────────────
 const ROLE_PRESETS = {
-  previewer:  { canView: true,  canDownload: false, canEdit: false, canShare: false, canDelete: false, canManageAccess: false },
-  viewer: { canView: true, canDownload: false, canEdit: false, canShare: false, canDelete: false, canManageAccess: false },
-  downloader: { canView: true, canDownload: true, canEdit: false, canShare: false, canDelete: false, canManageAccess: false },
-  editor: { canView: true, canDownload: true, canEdit: true, canShare: false, canDelete: false, canManageAccess: false },
-  sharer: { canView: true, canDownload: true, canEdit: false, canShare: true, canDelete: false, canManageAccess: false },
-  manager: { canView: true, canDownload: true, canEdit: true, canShare: true, canDelete: false, canManageAccess: true },
-  owner: { canView: true, canDownload: true, canEdit: true, canShare: true, canDelete: true, canManageAccess: true },
+  viewer:       { canView: true, canDownload: true,  canEdit: false, canShare: false, canDelete: false, canManageAccess: false },
+  collaborator: { canView: true, canDownload: true,  canEdit: true,  canShare: true,  canDelete: false, canManageAccess: true  },
+  owner:        { canView: true, canDownload: true,  canEdit: true,  canShare: true,  canDelete: true,  canManageAccess: true  },
 };
 
-// Map old level values to new role names (backward compat)
+// Map old level/role values to new role names (backward compat)
 const LEGACY_LEVEL_MAP = {
   owner: 'owner',
-  editor: 'editor',
+  editor: 'collaborator',
+  manager: 'collaborator',
+  sharer: 'collaborator',
+  downloader: 'viewer',
+  previewer: 'viewer',
   viewer: 'viewer',
 };
 
@@ -59,7 +59,7 @@ const permissionSchema = new mongoose.Schema({
 const shareLogSchema = new mongoose.Schema({
   action: {
     type: String,
-    enum: ['granted', 'updated', 'revoked'],
+    enum: ['granted', 'updated', 'revoked', 'moved'],
     default: 'granted',
   },
   user: {
@@ -155,7 +155,7 @@ const documentSchema = new mongoose.Schema({
     },
     role: {
       type: String,
-      enum: ['previewer', 'viewer', 'downloader', 'manager'],
+      enum: ['viewer', 'collaborator'],
       default: 'viewer',
     },
     token: {

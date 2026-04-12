@@ -14,6 +14,10 @@ const ACTION_META = {
         label: 'Revoked',
         classes: 'bg-red-100 text-red-600 dark:bg-red-900/30 dark:text-red-400 border border-red-200 dark:border-red-800',
     },
+    moved: {
+        label: 'Moved',
+        classes: 'bg-indigo-100 text-indigo-600 dark:bg-indigo-900/30 dark:text-indigo-400 border border-indigo-200 dark:border-indigo-800',
+    },
 };
 
 const ROLE_LABELS = {
@@ -190,21 +194,39 @@ export default function LogsModal({ isOpen, onClose, document, logs = [], isLoad
                                             </div>
 
                                             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs text-gray-600 dark:text-gray-300">
-                                                <div>
-                                                    <span className="font-semibold text-gray-700 dark:text-gray-200">Permission:</span>{' '}
-                                                    {ROLE_LABELS[log.role] || log.role || 'Viewer'}
-                                                </div>
-                                                <div>
-                                                    <span className="font-semibold text-gray-700 dark:text-gray-200">Expires:</span>{' '}
-                                                    {log.expiresAt ? formatExpirySummary(log.expiresAt) : 'No limit'}
-                                                </div>
-                                                <div className="sm:col-span-2 flex items-start gap-2">
-                                                    <UserRound className="w-3.5 h-3.5 mt-0.5 text-gray-400" />
-                                                    <span>
-                                                        <span className="font-semibold text-gray-700 dark:text-gray-200">Changed by:</span>{' '}
-                                                        {actor?.name || actor?.email || 'Unknown user'}
-                                                    </span>
-                                                </div>
+                                                {action === 'moved' ? (
+                                                    <>
+                                                        <div className="sm:col-span-2">
+                                                            <span className="font-semibold text-gray-700 dark:text-gray-200">Details:</span>{' '}
+                                                            {log.name || 'Space changed'}
+                                                        </div>
+                                                        <div className="sm:col-span-2 flex items-start gap-2">
+                                                            <UserRound className="w-3.5 h-3.5 mt-0.5 text-gray-400" />
+                                                            <span>
+                                                                <span className="font-semibold text-gray-700 dark:text-gray-200">Moved by:</span>{' '}
+                                                                {actor?.name || actor?.email || 'Unknown user'}
+                                                            </span>
+                                                        </div>
+                                                    </>
+                                                ) : (
+                                                    <>
+                                                        <div>
+                                                            <span className="font-semibold text-gray-700 dark:text-gray-200">Permission:</span>{' '}
+                                                            {ROLE_LABELS[log.role] || log.role || 'Viewer'}
+                                                        </div>
+                                                        <div>
+                                                            <span className="font-semibold text-gray-700 dark:text-gray-200">Expires:</span>{' '}
+                                                            {log.expiresAt ? formatExpirySummary(log.expiresAt) : 'No limit'}
+                                                        </div>
+                                                        <div className="sm:col-span-2 flex items-start gap-2">
+                                                            <UserRound className="w-3.5 h-3.5 mt-0.5 text-gray-400" />
+                                                            <span>
+                                                                <span className="font-semibold text-gray-700 dark:text-gray-200">Changed by:</span>{' '}
+                                                                {actor?.name || actor?.email || 'Unknown user'}
+                                                            </span>
+                                                        </div>
+                                                    </>
+                                                )}
                                             </div>
                                         </div>
                                     );

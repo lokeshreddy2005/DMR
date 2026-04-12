@@ -15,7 +15,7 @@ const { routeDocumentToVaults, VAULT_THRESHOLD } = require('../services/vaultRou
 const { VAULTS, VAULT_MAP } = require('../constants/vaults');
 
 const router = express.Router();
-const SHAREABLE_ROLES = ['previewer', 'viewer', 'downloader', 'manager'];
+const SHAREABLE_ROLES = ['viewer', 'collaborator'];
 
 // All document routes require authentication
 router.use(authMiddleware);
@@ -87,9 +87,10 @@ async function populateDocumentForAccessUi(doc) {
   return doc;
 }
 
-function sanitizeDocumentForViewer(doc, userId) {
+async function sanitizeDocumentForViewer(doc, userId) {
   const payload = doc.toObject();
-  if (!doc.canManageAccess(userId)) {
+  const canManage = await checkDocManageAccess(doc, userId);
+  if (!canManage) {
     delete payload.shareLogs;
   }
   return payload;
@@ -185,17 +186,18 @@ router.post('/upload', upload.single('document'), async (req, res) => {
     }
 
     // Validate org membership
+    let uploadOrg = null;
     if (space === 'organization') {
       if (!organizationId) {
         cleanupFile(req.file.path);
         return res.status(400).json({ error: 'Organization ID is required for organization uploads.' });
       }
-      const org = await Organization.findById(organizationId);
-      if (!org || !org.isMember(req.user._id)) {
+      uploadOrg = await Organization.findById(organizationId);
+      if (!uploadOrg || !uploadOrg.isMember(req.user._id)) {
         cleanupFile(req.file.path);
         return res.status(403).json({ error: 'You are not a member of this organization.' });
       }
-      const role = org.getMemberRole(req.user._id);
+      const role = uploadOrg.getMemberRole(req.user._id);
       if (role === 'viewer') {
         cleanupFile(req.file.path);
         return res.status(403).json({ error: 'Viewers cannot upload documents.' });
@@ -245,6 +247,18 @@ router.post('/upload', upload.single('document'), async (req, res) => {
       permissions: [Document.buildPermission(req.user._id, 'owner', req.user._id)],
       metadata: { extension: ext.toLowerCase() }
     });
+
+    // Grant collaborator permission to all org admins (so they get share & log access)
+    if (space === 'organization' && uploadOrg) {
+      const adminMembers = uploadOrg.members.filter(
+        m => m.role === 'admin' && m.user.toString() !== req.user._id.toString()
+      );
+      for (const admin of adminMembers) {
+        doc.permissions.push(
+          Document.buildPermission(admin.user, 'collaborator', req.user._id)
+        );
+      }
+    }
 
     // Handle Initial Manual Tags
     let initialTags = [];
@@ -325,11 +339,35 @@ router.put('/:id/change-space', async (req, res) => {
     const doc = await Document.findById(req.params.id);
     if (!doc) return res.status(404).json({ error: 'Document not found.' });
 
-    if (!doc.isOwner(req.user._id)) {
-      return res.status(403).json({ error: 'Only the owner can change document space.' });
+    // Check move access: owner, doc-level collaborator, or org admin/collaborator
+    let hasMoveAccess = false;
+    if (doc.isOwner(req.user._id)) {
+      hasMoveAccess = true;
+    } else {
+      // Check org-level role
+      if (doc.space === 'organization' && doc.organization) {
+        const orgId = doc.organization._id || doc.organization;
+        const org = await Organization.findById(orgId);
+        if (org) {
+          const orgRole = org.getMemberRole(req.user._id);
+          if (orgRole === 'admin' || orgRole === 'collaborator') hasMoveAccess = true;
+        }
+      }
+      // Check doc-level permissions
+      if (!hasMoveAccess) {
+        const p = doc.permissions?.find(p => p.user?.toString() === req.user._id.toString());
+        if (p && (p.role === 'collaborator' || p.role === 'manager' || p.role === 'editor' || p.level === 'collaborator' || p.level === 'manager' || p.level === 'editor')) {
+          hasMoveAccess = true;
+        }
+      }
+    }
+
+    if (!hasMoveAccess) {
+      return res.status(403).json({ error: 'Only the owner, admin, or collaborator can change document space.' });
     }
 
     const { targetSpace, organizationId, autoTag } = req.body;
+    const previousSpace = doc.space;
 
     if (targetSpace === 'public') {
       if (doc.space === 'public') {
@@ -341,6 +379,12 @@ router.put('/:id/change-space', async (req, res) => {
       }
       doc.space = 'public';
       doc.organization = null;
+    } else if (targetSpace === 'private') {
+      if (doc.space === 'private') {
+        return res.status(400).json({ error: 'Document is already private.' });
+      }
+      doc.space = 'private';
+      doc.organization = null;
     } else if (targetSpace === 'organization') {
       if (!organizationId) {
         return res.status(400).json({ error: 'Organization ID is required.' });
@@ -348,6 +392,11 @@ router.put('/:id/change-space', async (req, res) => {
       const org = await Organization.findById(organizationId);
       if (!org || !org.isMember(req.user._id)) {
         return res.status(403).json({ error: 'You are not a member of this organization.' });
+      }
+      const orgRole = org.getMemberRole(req.user._id);
+      const isCreator = (org.createdBy.toString() === req.user._id.toString());
+      if (!isCreator && orgRole === 'viewer') {
+        return res.status(403).json({ error: 'Viewers cannot move documents into the organization space.' });
       }
       const quota = await checkQuota('organization', req.user._id, organizationId, doc.fileSize);
       if (!quota.allowed) {
@@ -381,6 +430,29 @@ router.put('/:id/change-space', async (req, res) => {
       }
     }
 
+    // Log the move action
+    ensureShareLogs(doc);
+    const mover = await User.findById(req.user._id).select('name email');
+    doc.shareLogs.push({
+      action: 'moved',
+      user: req.user._id,
+      name: mover?.name || '',
+      email: mover?.email || '',
+      role: 'collaborator',
+      expiresAt: null,
+      isActive: true,
+      eventAt: new Date(),
+      eventBy: req.user._id,
+      sharedAt: null,
+      sharedBy: null,
+      lastUpdatedAt: null,
+      lastUpdatedBy: null,
+      revokedAt: null,
+      revokedBy: null,
+    });
+    // Store the target space info in the log name field for display
+    doc.shareLogs[doc.shareLogs.length - 1].name = `Moved from ${previousSpace} to ${targetSpace}`;
+
     await doc.save();
     await doc.populate('uploadedBy', 'name email avatarColor');
     if (doc.organization) await doc.populate('organization', 'name avatarColor');
@@ -389,6 +461,78 @@ router.put('/:id/change-space', async (req, res) => {
   } catch (err) {
     console.error('Change space error:', err);
     res.status(500).json({ error: 'Failed to move document.' });
+  }
+});
+
+/**
+ * POST /api/documents/:id/copy
+ * Make a copy of a document into another space (e.g. public or private).
+ */
+router.post('/:id/copy', async (req, res) => {
+  try {
+    const doc = await Document.findById(req.params.id);
+    if (!doc) return res.status(404).json({ error: 'Document not found.' });
+
+    // Check copy access: owner, doc-level collaborator, or org admin/collaborator
+    let hasCopyAccess = false;
+    if (doc.isOwner(req.user._id)) {
+      hasCopyAccess = true;
+    } else if (doc.space === 'organization' && doc.organization) {
+      const orgId = doc.organization._id || doc.organization;
+      const org = await Organization.findById(orgId);
+      if (org) {
+        const orgRole = org.getMemberRole(req.user._id);
+        if (orgRole === 'admin' || orgRole === 'collaborator') hasCopyAccess = true;
+      }
+    }
+    if (!hasCopyAccess) {
+      const p = doc.permissions?.find(p => p.user?.toString() === req.user._id.toString());
+      if (p && (p.role === 'collaborator' || p.canEdit)) hasCopyAccess = true;
+    }
+    if (!hasCopyAccess) {
+      return res.status(403).json({ error: 'You do not have permission to copy this document.' });
+    }
+
+    const { targetSpace } = req.body;
+    if (!targetSpace || !['public', 'private'].includes(targetSpace)) {
+      return res.status(400).json({ error: 'Invalid target space. Must be public or private.' });
+    }
+
+    // Check storage quota for target space
+    const quota = await checkQuota(targetSpace, req.user._id, null, doc.fileSize);
+    if (!quota.allowed) {
+      return res.status(413).json({ error: `${targetSpace} storage quota exceeded.` });
+    }
+
+    // Create the copy — same S3 file, new document record
+    const copyDoc = new Document({
+      fileName: doc.fileName,
+      description: doc.description || '',
+      space: targetSpace,
+      organization: null,
+      uploadedBy: req.user._id,
+      s3Key: doc.s3Key,
+      s3Url: doc.s3Url,
+      mimeType: doc.mimeType,
+      fileSize: doc.fileSize,
+      tags: [...doc.tags],
+      metadata: { ...doc.toObject().metadata, vaults: [] },
+      isTagged: doc.isTagged,
+      isAITagged: doc.isAITagged,
+      isVaultRouted: false,
+      permissions: [Document.buildPermission(req.user._id, 'owner', req.user._id)],
+    });
+
+    await copyDoc.save();
+    await copyDoc.populate('uploadedBy', 'name email avatarColor');
+
+    res.status(201).json({
+      message: `Document copied to ${targetSpace} space!`,
+      document: copyDoc,
+    });
+  } catch (err) {
+    console.error('Copy doc error:', err);
+    res.status(500).json({ error: 'Failed to copy document.' });
   }
 });
 
@@ -1400,6 +1544,7 @@ router.get('/:id', async (req, res) => {
       .populate('permissions.grantedBy', 'name email')
       .populate('organization', 'name avatarColor')
       .populate('shareLogs.user', 'name email avatarColor')
+      .populate('shareLogs.eventBy', 'name email')
       .populate('shareLogs.sharedBy', 'name email')
       .populate('shareLogs.lastUpdatedBy', 'name email')
       .populate('shareLogs.revokedBy', 'name email');
@@ -1410,7 +1555,7 @@ router.get('/:id', async (req, res) => {
       return res.status(403).json({ error: 'You do not have access to this document.' });
     }
 
-    res.json({ document: sanitizeDocumentForViewer(doc, req.user._id) });
+    res.json({ document: await sanitizeDocumentForViewer(doc, req.user._id) });
   } catch (err) {
     console.error('Get doc error:', err);
     res.status(500).json({ error: 'Failed to fetch document.' });
@@ -1451,7 +1596,22 @@ router.delete('/:id', async (req, res) => {
     const doc = await Document.findById(req.params.id);
     if (!doc) return res.status(404).json({ error: 'Document not found.' });
 
-    if (!doc.canDeleteDoc(req.user._id)) {
+    // Allow deletion for: uploader (owner), org admins, and org collaborators
+    let canDelete = doc.canDeleteDoc(req.user._id);
+    if (!canDelete && (doc.space === 'organization') && doc.organization) {
+      const orgId = (doc.organization._id || doc.organization).toString();
+      console.log('[DELETE] Checking org role for user:', req.user._id.toString(), 'orgId:', orgId);
+      const org = await Organization.findById(orgId);
+      if (org) {
+        const orgRole = org.getMemberRole(req.user._id);
+        console.log('[DELETE] Org role:', orgRole);
+        if (orgRole === 'admin' || orgRole === 'collaborator') canDelete = true;
+      } else {
+        console.log('[DELETE] Org not found for id:', orgId);
+      }
+    }
+    console.log('[DELETE] Final canDelete:', canDelete, 'space:', doc.space, 'org:', doc.organization);
+    if (!canDelete) {
       return res.status(403).json({ error: 'You do not have permission to delete this document.' });
     }
 
@@ -1510,7 +1670,7 @@ router.post('/:id/permissions', async (req, res) => {
     const doc = await Document.findById(req.params.id);
     if (!doc) return res.status(404).json({ error: 'Document not found.' });
 
-    if (!doc.canManageAccess(req.user._id)) {
+    if (!(await checkDocManageAccess(doc, req.user._id))) {
       return res.status(403).json({ error: 'You do not have permission to manage access.' });
     }
 
@@ -1589,7 +1749,7 @@ router.post('/:id/permissions', async (req, res) => {
 
     res.json({
       message: `${assignRole} access granted to ${targetUser.name}!`,
-      document: sanitizeDocumentForViewer(doc, req.user._id),
+      document: await sanitizeDocumentForViewer(doc, req.user._id),
     });
   } catch (err) {
     console.error('Grant permission error:', err);
@@ -1635,7 +1795,7 @@ router.put('/:id/link-sharing', async (req, res) => {
     const doc = await Document.findById(req.params.id);
     if (!doc) return res.status(404).json({ error: 'Document not found.' });
 
-    if (!doc.canManageAccess(req.user._id)) {
+    if (!(await checkDocManageAccess(doc, req.user._id))) {
       return res.status(403).json({ error: 'You do not have permission to manage link sharing.' });
     }
 
@@ -1648,7 +1808,7 @@ router.put('/:id/link-sharing', async (req, res) => {
 
     if (enabled !== undefined) doc.linkSharing.enabled = !!enabled;
     if (mode && ['restricted', 'organization', 'anyone'].includes(mode)) doc.linkSharing.mode = mode;
-    if (role && ['previewer', 'viewer', 'downloader', 'manager'].includes(role)) doc.linkSharing.role = role;
+    if (role && ['viewer', 'collaborator'].includes(role)) doc.linkSharing.role = role;
 
     // Generate token when enabling, clear when disabling
     if (doc.linkSharing.enabled && !doc.linkSharing.token) {
@@ -1678,7 +1838,7 @@ router.delete('/:id/permissions/:userId', async (req, res) => {
     const doc = await Document.findById(req.params.id);
     if (!doc) return res.status(404).json({ error: 'Document not found.' });
 
-    if (!doc.canManageAccess(req.user._id)) {
+    if (!(await checkDocManageAccess(doc, req.user._id))) {
       return res.status(403).json({ error: 'You do not have permission to manage access.' });
     }
 
@@ -1719,7 +1879,7 @@ router.delete('/:id/permissions/:userId', async (req, res) => {
 
     res.json({
       message: 'Access revoked.',
-      document: sanitizeDocumentForViewer(doc, req.user._id),
+      document: await sanitizeDocumentForViewer(doc, req.user._id),
     });
   } catch (err) {
     console.error('Revoke permission error:', err);
@@ -1734,6 +1894,7 @@ router.delete('/:id/permissions/:userId', async (req, res) => {
 router.get('/:id/permissions', async (req, res) => {
   try {
     const doc = await Document.findById(req.params.id)
+      .populate('uploadedBy', 'name email avatarColor')
       .populate('permissions.user', 'name email avatarColor')
       .populate('permissions.grantedBy', 'name email')
       .populate('shareLogs.eventBy', 'name email')
@@ -1743,12 +1904,28 @@ router.get('/:id/permissions', async (req, res) => {
       .populate('shareLogs.revokedBy', 'name email');
     if (!doc) return res.status(404).json({ error: 'Document not found.' });
 
-    if (!doc.canManageAccess(req.user._id)) {
+    if (!(await checkDocManageAccess(doc, req.user._id))) {
       return res.status(403).json({ error: 'You do not have permission to view access details.' });
     }
 
+    // Filter out the owner from doc.permissions to avoid duplicate entry
+    const uploaderId = (doc.uploadedBy._id || doc.uploadedBy).toString();
+    const nonOwnerPerms = doc.permissions.filter(p => {
+      const pUserId = (p.user._id || p.user).toString();
+      return pUserId !== uploaderId;
+    });
+
+    const allPermissions = [
+      {
+        user: doc.uploadedBy,
+        role: 'owner',
+        grantedAt: doc.uploadDate
+      },
+      ...nonOwnerPerms
+    ];
+
     res.json({
-      permissions: doc.permissions,
+      permissions: allPermissions,
       shareLogs: buildShareLogFeed(doc),
       availableRoles: SHAREABLE_ROLES,
       roleDescriptions: {
@@ -1786,6 +1963,34 @@ async function checkDocAccess(doc, userId) {
     }
   }
   return false;
+}
+
+async function checkDocManageAccess(doc, userId) {
+  console.log(`[checkDocManageAccess] Checking doc ${doc._id} for user ${userId}`);
+  if (doc.space === 'public') return false; // Usually true owners or managers only, but handled via permissions
+  
+  if (doc.uploadedBy.toString() === userId.toString() ||
+    doc.uploadedBy._id?.toString() === userId.toString()) return true;
+
+  if (doc.space === 'organization' && doc.organization) {
+    const orgId = doc.organization._id || doc.organization;
+    console.log(`[checkDocManageAccess] Doc is in org space. Fetching org ${orgId}`);
+    const org = await Organization.findById(orgId);
+    if (org) {
+       console.log(`[checkDocManageAccess] Fetched org. Members:`, org.members.map(m => ({ user: m.user.toString(), role: m.role })));
+       const member = org.members.find(m => (m.user._id || m.user).toString() === userId.toString());
+       console.log(`[checkDocManageAccess] Member match:`, member);
+       // Only org admin and collaborator can manage doc sharing
+       if (member && (member.role === 'admin' || member.role === 'collaborator')) return true;
+    } else {
+       console.log(`[checkDocManageAccess] Org not found!`);
+    }
+  }
+
+  // Fallback to explicitly defined document permissions
+  const p = doc.permissions?.find(m => (m.user._id || m.user).toString() === userId.toString());
+  console.log(`[checkDocManageAccess] Fallback explicit permissions match:`, p);
+  return p ? p.canManageAccess : false;
 }
 
 function cleanupFile(filePath) {

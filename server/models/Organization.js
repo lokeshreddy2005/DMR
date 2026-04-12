@@ -8,8 +8,8 @@ const memberSchema = new mongoose.Schema({
     },
     role: {
         type: String,
-        enum: ['admin', 'member', 'viewer'],
-        default: 'member',
+        enum: ['admin', 'collaborator', 'viewer'],
+        default: 'collaborator',
     },
     joinedAt: {
         type: Date,
@@ -40,7 +40,7 @@ const organizationSchema = new mongoose.Schema({
     sharingPolicy: {
         defaultRole: {
             type: String,
-            enum: ['previewer', 'viewer', 'downloader', 'editor', 'sharer', 'manager'],
+            enum: ['viewer', 'collaborator'],
             default: 'viewer',
         },
     },

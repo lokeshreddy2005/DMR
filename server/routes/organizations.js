@@ -101,7 +101,7 @@ router.put('/:id', async (req, res) => {
         if (name) org.name = name.trim();
         if (description !== undefined) org.description = description.trim();
         if (sharingPolicy?.defaultRole) {
-            const validRoles = ['previewer', 'viewer', 'downloader', 'manager'];
+            const validRoles = ['viewer', 'collaborator'];
             if (validRoles.includes(sharingPolicy.defaultRole)) {
                 if (!org.sharingPolicy) org.sharingPolicy = {};
                 org.sharingPolicy.defaultRole = sharingPolicy.defaultRole;
@@ -182,7 +182,7 @@ router.post('/:id/members', async (req, res) => {
 
         org.members.push({
             user: userToAdd._id,
-            role: role || 'member',
+            role: role || 'collaborator',
         });
 
         await org.save();
@@ -213,8 +213,8 @@ router.put('/:id/members/:userId', async (req, res) => {
         if (!member) return res.status(404).json({ error: 'Member not found.' });
 
         const { role } = req.body;
-        if (!['admin', 'member', 'viewer'].includes(role)) {
-            return res.status(400).json({ error: 'Invalid role. Must be admin, member, or viewer.' });
+        if (!['admin', 'collaborator', 'viewer'].includes(role)) {
+            return res.status(400).json({ error: 'Invalid role. Must be admin, collaborator, or viewer.' });
         }
 
         member.role = role;
