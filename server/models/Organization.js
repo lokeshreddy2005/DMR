@@ -73,19 +73,36 @@ organizationSchema.pre('save', function (next) {
     next();
 });
 
+// Helper: get the raw ID string from a value that may be populated or a raw ObjectId
+organizationSchema.methods._resolveId = function (value) {
+    if (!value) return null;
+    if (value._id) return value._id.toString();
+    return value.toString();
+};
+
 // Helper: check if user is a member
 organizationSchema.methods.isMember = function (userId) {
-    return this.members.some((m) => m.user.toString() === userId.toString());
+    if (!userId) return false;
+    const uid = userId.toString();
+    const creatorId = this._resolveId(this.createdBy);
+    if (creatorId === uid) return true;
+    return this.members.some((m) => this._resolveId(m.user) === uid);
 };
 
 // Helper: get member role
 organizationSchema.methods.getMemberRole = function (userId) {
-    const member = this.members.find((m) => m.user.toString() === userId.toString());
+    if (!userId) return null;
+    const uid = userId.toString();
+    const member = this.members.find((m) => this._resolveId(m.user) === uid);
     return member ? member.role : null;
 };
 
 // Helper: check if user is admin
 organizationSchema.methods.isAdmin = function (userId) {
+    if (!userId) return false;
+    const uid = userId.toString();
+    const creatorId = this._resolveId(this.createdBy);
+    if (creatorId === uid) return true;
     return this.getMemberRole(userId) === 'admin';
 };
 

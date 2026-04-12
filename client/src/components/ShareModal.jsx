@@ -393,60 +393,7 @@ export default function ShareModal({ isOpen, onClose, document, onUpdate }) {
                                         </div>
 
 
-                                        {/* Organization Access */}
-                                        <>
-                                            <div className="border-t border-gray-200 dark:border-gray-700" />
-                                            <div className="flex items-center justify-between mt-3">
-                                                <div className="flex items-center gap-2">
-                                                    <Building2 className="w-3.5 h-3.5 text-gray-400" />
-                                                    <div>
-                                                        <p className="text-xs font-bold text-gray-700 dark:text-gray-300">Organization Access</p>
-                                                        <p className="text-[10px] text-gray-500 dark:text-gray-400">Organization members have access</p>
-                                                    </div>
-                                                </div>
-                                                <div className="flex items-center gap-2">
-                                                    {linkSharing.enabled && linkSharing.mode === 'organization' && (
-                                                        <select
-                                                            value={linkSharing.role}
-                                                            onChange={(e) => handleLinkSharingUpdate({ role: e.target.value })}
-                                                            className="text-xs font-semibold px-2 py-1 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg outline-none focus:ring-2 focus:ring-blue-500 text-gray-700 dark:text-gray-300"
-                                                        >
-                                                            <option value="previewer">Previewer</option>
-                                                            <option value="viewer">Viewer</option>
-                                                            <option value="downloader">Viewer & Download</option>
-                                                            <option value="manager">Full Access</option>
-                                                        </select>
-                                                    )}
-                                                    <button
-                                                        type="button"
-                                                        onClick={() => handleLinkSharingUpdate({ 
-                                                            enabled: !(linkSharing.enabled && linkSharing.mode === 'organization'), 
-                                                            mode: (linkSharing.enabled && linkSharing.mode === 'organization') ? 'restricted' : 'organization',
-                                                            role: linkSharing.role || 'viewer'
-                                                        })}
-                                                        className={`relative w-8 h-4 rounded-full transition-colors ${linkSharing.enabled && linkSharing.mode === 'organization' ? 'bg-blue-500' : 'bg-gray-300 dark:bg-gray-600'}`}
-                                                    >
-                                                        <span className={`absolute top-0.5 w-3 h-3 rounded-full bg-white shadow transition-transform ${linkSharing.enabled && linkSharing.mode === 'organization' ? 'left-[18px]' : 'left-0.5'}`} />
-                                                    </button>
-                                                </div>
-                                            </div>
-                                        </>
 
-                                        {/* Save Settings Button */}
-                                        <p className="text-[10px] text-gray-500 dark:text-gray-400">
-                                            The time limit is applied when you click Share. The save button only updates link access.
-                                        </p>
-                                        <div className="flex justify-end pt-2">
-                                            <button
-                                                type="button"
-                                                onClick={handleSaveSettings}
-                                                disabled={isSavingSettings}
-                                                className="flex items-center gap-1.5 px-3 py-1.5 bg-gray-900 hover:bg-gray-800 dark:bg-gray-100 dark:hover:bg-white text-white dark:text-gray-900 rounded-lg text-xs font-bold transition-colors disabled:opacity-50"
-                                            >
-                                                {isSavingSettings ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Check className="w-3.5 h-3.5" />}
-                                                Save Settings
-                                            </button>
-                                        </div>
                                     </div>
                                 </motion.div>
                             )}

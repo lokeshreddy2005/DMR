@@ -207,10 +207,10 @@ router.put('/password', authMiddleware, async (req, res) => {
     }
 });
 
-/**
- * GET /api/auth/users/search
- * Search users for autocomplete filters (e.g., "Uploaded By").
- */
+// /**
+//  * GET /api/auth/users/search
+//  * Search users for autocomplete filters (e.g., "Uploaded By").
+//  */
 router.get('/users/search', authMiddleware, async (req, res) => {
     try {
         const { q } = req.query;

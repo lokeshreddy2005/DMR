@@ -1,23 +1,26 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { useParams, useSearchParams } from 'react-router-dom';
+import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import axios from 'axios';
 import API_URL from '../config/api';
 import { Button } from '../components/ui/Button';
-import { FileText, Download, Trash2, Search, FileUp, MoreVertical, Globe, Lock, Building2, Users, Edit3, Eye, X, LayoutGrid, List, ChevronLeft, ChevronRight, Share2, Clock } from 'lucide-react';
+import { FileText, Download, Trash2, Search, FileUp, MoreVertical, Globe, Lock, Building2, Users, Edit3, Eye, X, LayoutGrid, List, ChevronLeft, ChevronRight, Share2, Clock, UserCheck, Plus, Settings, UserPlus, FileImage, FileSpreadsheet, Presentation, FileCode, FileType2 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import UploadModal from '../components/UploadModal';
 import ShareModal from '../components/ShareModal';
 import LogsModal from '../components/LogsModal';
 import DocumentPreview, { DocumentThumbnail, FullPreviewModal } from '../components/PreviewModal';
-
+import CreateOrgModal from '../components/CreateOrgModal';
+import ManageOrgModal from '../components/ManageOrgModal';
 
 export function Workspace({ isPublicOnly = false, isSearchPage = false }) {
     const { spaceId } = useParams();
+    const navigate = useNavigate();
     const [searchParams, setSearchParams] = useSearchParams();
     const { user, token } = useAuth();
 
     const activeSpace = isPublicOnly ? 'public' : isSearchPage ? 'search' : (spaceId || 'public');
+    const activeSharedWithEmail = (searchParams.get('sharedWithEmail') || '').trim();
 
     const [documents, setDocuments] = useState([]);
     const [orgs, setOrgs] = useState([]);
@@ -37,17 +40,38 @@ export function Workspace({ isPublicOnly = false, isSearchPage = false }) {
     const [isDocDetailsLoading, setIsDocDetailsLoading] = useState(false);
     const [toast, setToast] = useState(null);
     const [viewMode, setViewMode] = useState('grid');
+    const [isCreateOrgOpen, setIsCreateOrgOpen] = useState(false);
+    const [isManageOrgOpen, setIsManageOrgOpen] = useState(false);
     const currentPage = parseInt(searchParams.get('page') || '1', 10);
     const [totalPages, setTotalPages] = useState(1);
     const [totalCount, setTotalCount] = useState(0);
 
     // Tagging & Moving state
     const [tagInput, setTagInput] = useState('');
+    const [expandedTags, setExpandedTags] = useState(false);
     const [isMoving, setIsMoving] = useState(false);
     const [moveSpace, setMoveSpace] = useState('public');
     const [moveOrg, setMoveOrg] = useState('');
     const [moveAutoTag, setMoveAutoTag] = useState(false);
     const [isTaggingAI, setIsTaggingAI] = useState(false);
+
+    const [selectionMode, setSelectionMode] = useState('none');
+    const [sharedRecipientEmailInput, setSharedRecipientEmailInput] = useState(searchParams.get('sharedWithEmail') || '');
+    const [selectedDocumentIds, setSelectedDocumentIds] = useState(new Set());
+    const [isBulkRevoking, setIsBulkRevoking] = useState(false);
+
+    const toggleSelection = (id) => {
+        const newSet = new Set(selectedDocumentIds);
+        if (newSet.has(id)) {
+            newSet.delete(id);
+            if (selectionMode === 'all') {
+                setSelectionMode('manual');
+            }
+        } else {
+            newSet.add(id);
+        }
+        setSelectedDocumentIds(newSet);
+    };
 
     const showToast = (type, message) => {
         setToast({ type, message });
@@ -60,24 +84,43 @@ export function Workspace({ isPublicOnly = false, isSearchPage = false }) {
         return t ? { Authorization: `Bearer ${t}` } : {};
     };
 
+    const handleSelectionModeChange = (mode) => {
+        setSelectionMode(mode);
+
+        if (mode === 'none') {
+            setSelectedDocumentIds(new Set());
+            return;
+        }
+
+        if (mode === 'all') {
+            setSelectedDocumentIds(new Set(documents.map((doc) => doc._id)));
+            return;
+        }
+
+        setSelectedDocumentIds(new Set());
+    };
+
+    const clearSharedRecipientFilter = () => {
+        const newParams = new URLSearchParams(searchParams);
+        newParams.delete('sharedWithEmail');
+        newParams.delete('sharedWith');
+        newParams.delete('sharedWithLabel');
+        newParams.set('page', '1');
+        setSharedRecipientEmailInput('');
+        setSelectedDocumentIds(new Set());
+        setSearchParams(newParams);
+    };
+
     // ─── Role colors for badges ───
     const ROLE_COLORS = {
         owner: { bg: 'bg-amber-100 dark:bg-amber-900/30', text: 'text-amber-700 dark:text-amber-400', border: 'border-amber-200 dark:border-amber-800' },
-        manager: { bg: 'bg-purple-100 dark:bg-purple-900/30', text: 'text-purple-700 dark:text-purple-400', border: 'border-purple-200 dark:border-purple-800' },
-        previewer: { bg: 'bg-sky-100 dark:bg-sky-900/30', text: 'text-sky-700 dark:text-sky-400', border: 'border-sky-200 dark:border-sky-800' },
-        editor: { bg: 'bg-blue-100 dark:bg-blue-900/30', text: 'text-blue-700 dark:text-blue-400', border: 'border-blue-200 dark:border-blue-800' },
-        sharer: { bg: 'bg-green-100 dark:bg-green-900/30', text: 'text-green-700 dark:text-green-400', border: 'border-green-200 dark:border-green-800' },
-        downloader: { bg: 'bg-teal-100 dark:bg-teal-900/30', text: 'text-teal-700 dark:text-teal-400', border: 'border-teal-200 dark:border-teal-800' },
+        collaborator: { bg: 'bg-purple-100 dark:bg-purple-900/30', text: 'text-purple-700 dark:text-purple-400', border: 'border-purple-200 dark:border-purple-800' },
         viewer: { bg: 'bg-gray-100 dark:bg-gray-800', text: 'text-gray-600 dark:text-gray-400', border: 'border-gray-200 dark:border-gray-700' },
     };
 
     const ROLE_LABELS = {
         owner: 'Owner',
-        manager: 'Full Access',
-        previewer: 'Previewer',
-        editor: 'Editor',
-        sharer: 'Sharer',
-        downloader: 'Viewer & Download',
+        collaborator: 'Collaborator',
         viewer: 'Viewer',
     };
 
@@ -149,7 +192,18 @@ export function Workspace({ isPublicOnly = false, isSearchPage = false }) {
 
     const canManageDocumentAccess = (doc) => {
         const role = getAccessLevel(doc);
-        return role === 'owner' || role === 'manager';
+        if (role === 'owner' || role === 'collaborator') return true;
+        if (doc.space === 'organization' && doc.organization) {
+            const orgId = typeof doc.organization === 'object' ? doc.organization._id || doc.organization.id : doc.organization;
+            const org = orgs.find(o => (o._id || o.id)?.toString() === orgId?.toString());
+            if (org) {
+                const currentUserId = user?.id || user?._id;
+                const isCreator = (org.createdBy?._id || org.createdBy)?.toString() === currentUserId?.toString();
+                const isRoleAdmin = org.members?.some(m => (m.user?._id || m.user)?.toString() === currentUserId?.toString() && m.role === 'admin');
+                return isCreator || isRoleAdmin;
+            }
+        }
+        return false;
     };
 
     const getShareLogStatus = (log) => {
@@ -273,7 +327,8 @@ export function Workspace({ isPublicOnly = false, isSearchPage = false }) {
 
     const canUserMove = (doc) => {
         if (isPublicOnly || !doc) return false;
-        return getAccessLevel(doc) === 'owner';
+        const role = getAccessLevel(doc);
+        return role === 'owner' || role === 'collaborator';
     };
 
     const openDocumentDetails = (doc) => {
@@ -323,7 +378,7 @@ export function Workspace({ isPublicOnly = false, isSearchPage = false }) {
             { label: 'Uploader', value: doc.uploadedBy?.name || 'Unknown' },
             { label: 'Upload Date', value: new Date(doc.uploadDate).toLocaleDateString() },
             { label: 'File Size', value: formatSize(doc.fileSize) },
-            { label: 'File Type', value: doc.mimeType },
+            { label: 'File Type', value: getFileType(doc) },
         ];
 
         const expiryInfo = getUserPermExpiryInfo(doc);
@@ -392,12 +447,23 @@ export function Workspace({ isPublicOnly = false, isSearchPage = false }) {
             const res = await axios.get(`${API_URL}/api/orgs`, { headers });
             const list = res.data.organizations || [];
             setOrgs(list);
-            if (list.length > 0 && !selectedOrgId) {
+            
+            const urlOrgId = searchParams.get('organizationId');
+            if (urlOrgId && list.some(o => o._id === urlOrgId)) {
+                setSelectedOrgId(urlOrgId);
+            } else if (list.length > 0 && !selectedOrgId) {
                 setSelectedOrgId(list[0]._id);
             }
         } catch (err) { console.error('fetchOrgs error:', err); }
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [isPublicOnly, activeSpace, token]);
+    }, [isPublicOnly, activeSpace, token, searchParams]);
+
+    useEffect(() => {
+        const urlOrgId = searchParams.get('organizationId');
+        if (activeSpace === 'organization' && urlOrgId && urlOrgId !== selectedOrgId) {
+            setSelectedOrgId(urlOrgId);
+        }
+    }, [searchParams, activeSpace]);
 
     // Effect to clear selection when space changes
     useEffect(() => {
@@ -411,8 +477,85 @@ export function Workspace({ isPublicOnly = false, isSearchPage = false }) {
         if (!isPublicOnly && activeSpace === 'organization') {
             fetchOrgs();
         }
+        setSelectionMode('none');
+        setSelectedDocumentIds(new Set());
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [activeSpace]);
+
+    useEffect(() => {
+        if (activeSpace !== 'shared-to-others') return;
+
+        if (selectionMode === 'all') {
+            setSelectedDocumentIds(new Set(documents.map((doc) => doc._id)));
+            return;
+        }
+
+        setSelectedDocumentIds((prev) => {
+            const visibleIds = new Set(documents.map((doc) => doc._id));
+            const next = new Set([...prev].filter((id) => visibleIds.has(id)));
+            if (next.size === prev.size && [...next].every((id) => prev.has(id))) return prev;
+            return next;
+        });
+    }, [documents, selectionMode, activeSpace]);
+
+    useEffect(() => {
+        if (activeSpace !== 'shared-to-others') return;
+        setSharedRecipientEmailInput(searchParams.get('sharedWithEmail') || '');
+    }, [searchParams, activeSpace]);
+
+    useEffect(() => {
+        if (activeSpace !== 'shared-to-others') return;
+
+        const keysToClear = [
+            'sort',
+            'extension',
+            'minSize',
+            'maxSize',
+            'startDate',
+            'endDate',
+            'isTagged',
+            'tags',
+            'tagsMode',
+            'uploadedBy',
+            'departmentOwner',
+            'permissionLevel',
+            'isAITagged',
+            'vault',
+            'organizationId',
+        ];
+
+        const hasHiddenFilters = keysToClear.some((key) => searchParams.has(key));
+        if (!hasHiddenFilters) return;
+
+        const newParams = new URLSearchParams(searchParams);
+        keysToClear.forEach((key) => newParams.delete(key));
+        newParams.set('page', '1');
+        setSearchParams(newParams);
+    }, [activeSpace, searchParams, setSearchParams]);
+
+    useEffect(() => {
+        if (activeSpace !== 'shared-to-others') return;
+
+        const normalizedInput = sharedRecipientEmailInput.trim().toLowerCase();
+        const currentFilter = activeSharedWithEmail.trim().toLowerCase();
+        if (normalizedInput === currentFilter) return;
+
+        const timeoutId = setTimeout(() => {
+            const newParams = new URLSearchParams(searchParams);
+            if (normalizedInput) {
+                newParams.set('sharedWithEmail', normalizedInput);
+            } else {
+                newParams.delete('sharedWithEmail');
+            }
+            newParams.delete('sharedWith');
+            newParams.delete('sharedWithLabel');
+            newParams.set('page', '1');
+            setSelectedDocumentIds(new Set());
+            setSearchParams(newParams);
+        }, 300);
+
+        return () => clearTimeout(timeoutId);
+    }, [sharedRecipientEmailInput, activeSpace, activeSharedWithEmail, searchParams, setSearchParams]);
 
     // Escape key to close document modal
     useEffect(() => {
@@ -573,6 +716,42 @@ export function Workspace({ isPublicOnly = false, isSearchPage = false }) {
         } catch (err) { showToast('error', err.response?.data?.error || 'Delete failed.'); }
     };
 
+    const handleBulkRevoke = async () => {
+        if (selectedDocumentIds.size === 0) {
+            showToast('error', 'Select at least one document.');
+            return;
+        }
+
+        const docCount = selectedDocumentIds.size;
+        const confirmMsg = activeSharedWithEmail
+            ? `Revoke ${activeSharedWithEmail} from ${docCount} selected document${docCount === 1 ? '' : 's'}?`
+            : `Revoke all shared access from ${docCount} selected document${docCount === 1 ? '' : 's'}?`;
+        if (!confirm(confirmMsg)) {
+            return;
+        }
+
+        setIsBulkRevoking(true);
+        try {
+            const headers = getAuthHeaders();
+            const payload = { documentIds: [...selectedDocumentIds] };
+            if (activeSharedWithEmail) payload.email = activeSharedWithEmail;
+            const res = await axios.post(
+                `${API_URL}/api/documents/permissions/bulk-revoke`,
+                payload,
+                { headers }
+            );
+
+            showToast('success', res.data.message || 'Access revoked.');
+            setSelectionMode('none');
+            setSelectedDocumentIds(new Set());
+            await fetchDocuments();
+        } catch (err) {
+            showToast('error', err.response?.data?.error || 'Bulk revoke failed.');
+        } finally {
+            setIsBulkRevoking(false);
+        }
+    };
+
     const handleMoveSpaceSubmit = async () => {
         if (!moveSpace) return;
         if (moveSpace === 'organization' && !moveOrg) return;
@@ -635,15 +814,89 @@ export function Workspace({ isPublicOnly = false, isSearchPage = false }) {
         const i = Math.floor(Math.log(bytes) / Math.log(k));
         return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
     };
+
+    const getFileType = (doc) => {
+        // Priority 1: Metadata extension
+        if (doc.metadata?.extension) {
+            return doc.metadata.extension.replace('.', '').toUpperCase();
+        }
+
+        // Priority 2: MimeType mapping
+        if (doc.mimeType) {
+            const MIME_TO_EXT = {
+                'application/pdf': 'PDF',
+                'application/msword': 'DOC',
+                'application/vnd.openxmlformats-officedocument.wordprocessingml.document': 'DOCX',
+                'application/vnd.ms-excel': 'XLS',
+                'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': 'XLSX',
+                'application/vnd.ms-powerpoint': 'PPT',
+                'application/vnd.openxmlformats-officedocument.presentationml.presentation': 'PPTX',
+                'text/plain': 'TXT',
+                'image/png': 'PNG',
+                'image/jpeg': 'JPG',
+                'image/gif': 'GIF',
+                'video/mp4': 'MP4',
+                'audio/mpeg': 'MP3',
+                'application/zip': 'ZIP',
+                'application/x-zip-compressed': 'ZIP'
+            };
+            if (MIME_TO_EXT[doc.mimeType]) return MIME_TO_EXT[doc.mimeType];
+        }
+
+        // Priority 3: Extract from fileName
+        if (doc.fileName && doc.fileName.includes('.')) {
+            const ext = doc.fileName.split('.').pop();
+            if (ext) return ext.toUpperCase();
+        }
+
+        return 'FILE';
+    };
+
+    const getFileIconDetails = (doc) => {
+        const type = getFileType(doc);
+        switch(type) {
+            case 'PFD': case 'PDF': 
+                return { icon: <FileType2 className="w-5 h-5" />, bg: 'bg-red-50 dark:bg-red-500/10', text: 'text-red-500 dark:text-red-400' };
+            case 'JPG': case 'JPEG': case 'PNG': case 'GIF': case 'WEBP': case 'SVG': 
+                return { icon: <FileImage className="w-5 h-5" />, bg: 'bg-rose-50 dark:bg-rose-500/10', text: 'text-rose-500 dark:text-rose-400' };
+            case 'XLS': case 'XLSX': case 'CSV': 
+                return { icon: <FileSpreadsheet className="w-5 h-5" />, bg: 'bg-emerald-50 dark:bg-emerald-500/10', text: 'text-emerald-600 dark:text-emerald-400' };
+            case 'PPT': case 'PPTX': 
+                return { icon: <Presentation className="w-5 h-5" />, bg: 'bg-amber-50 dark:bg-amber-500/10', text: 'text-amber-500 dark:text-amber-400' };
+            case 'JSON': case 'XML': case 'HTML': case 'JS': case 'CSS': 
+                return { icon: <FileCode className="w-5 h-5" />, bg: 'bg-gray-100 dark:bg-gray-800', text: 'text-gray-600 dark:text-gray-300' };
+            case 'DOC': case 'DOCX': case 'TXT':
+                return { icon: <FileText className="w-5 h-5" />, bg: 'bg-blue-50 dark:bg-blue-500/10', text: 'text-blue-600 dark:text-blue-400' };
+            default: 
+                return { icon: <FileText className="w-5 h-5" />, bg: 'bg-blue-50 dark:bg-blue-500/10', text: 'text-blue-600 dark:text-blue-400' };
+        }
+    };
+
     const formatVaultPercent = (score) => `${(score * 100).toFixed(2)}%`;
 
     const itemsPerPage = 20; // Server limit is default 20
+    const sharedToOthersRevokeTitle = selectedDocumentIds.size === 0
+        ? 'Select at least one document to revoke access.'
+        : activeSharedWithEmail
+            ? `Revoke ${activeSharedWithEmail} from selected documents.`
+            : 'Revoke all shared access from selected documents.';
     const totalItems = totalCount;
+    const effectiveTotalPages = totalPages;
     // Client side slicing removed - server handles pagination
     const paginatedDocuments = documents;
     const startIndex = (currentPage - 1) * itemsPerPage;
 
-    const spaceLabel = isSearchPage ? 'Search Results' : activeSpace === 'shared' ? 'Shared with Me' : activeSpace === 'recent' ? 'Recently Accessed' : `${activeSpace.charAt(0).toUpperCase() + activeSpace.slice(1)} Space`;
+    const currentUserId = user?.id || user?._id;
+    const adminOrgs = orgs.filter(org => {
+        const isCreator = (org?.createdBy?._id || org?.createdBy)?.toString() === currentUserId?.toString();
+        const isRoleAdmin = org?.members?.some(m => (m.user?._id || m.user)?.toString() === currentUserId?.toString() && m.role === 'admin');
+        return isCreator || isRoleAdmin;
+    });
+    const memberOrgs = orgs.filter(org => !adminOrgs.includes(org));
+    const selectedOrg = orgs.find(o => o._id === selectedOrgId);
+    const isOrgAdmin = selectedOrg ? adminOrgs.some(o => o._id === selectedOrg._id) : false;
+
+    const spaceLabel = isSearchPage ? 'Search Results' : activeSpace === 'shared' ? 'Shared with Me' : activeSpace === 'shared-to-others' ? 'Shared with Others' : activeSpace === 'recent' ? 'Recently Accessed' : activeSpace === 'organization' && selectedOrg ? selectedOrg.name : `${activeSpace.charAt(0).toUpperCase() + activeSpace.slice(1)} Space`;
 
     return (
         <div className="max-w-7xl mx-auto flex flex-col h-[calc(100vh-8rem)]">
@@ -654,21 +907,90 @@ export function Workspace({ isPublicOnly = false, isSearchPage = false }) {
                         {activeSpace === 'public' && <Globe className="w-8 h-8 text-emerald-500" />}
                         {activeSpace === 'private' && <Lock className="w-8 h-8 text-blue-500" />}
                         {activeSpace === 'shared' && <Users className="w-8 h-8 text-orange-500" />}
+                        {activeSpace === 'shared-to-others' && <UserCheck className="w-8 h-8 text-indigo-500" />}
                         {activeSpace === 'organization' && <Building2 className="w-8 h-8 text-purple-500" />}
                         {activeSpace === 'recent' && <Clock className="w-8 h-8 text-rose-500" />}
                         {isSearchPage && <Search className="w-8 h-8 text-blue-500" />}
-                        {spaceLabel}
+                        <span className="truncate max-w-[300px] sm:max-w-none">{spaceLabel}</span>
+                        {selectedOrgId && activeSpace === 'organization' && (
+                            <div className="ml-3 flex items-center gap-2">
+
+                                <Button onClick={() => setIsManageOrgOpen(true)} variant="secondary" className="h-8 text-xs px-3 bg-gray-100/50 hover:bg-gray-200 shadow-none border border-gray-200 dark:bg-gray-800/80 dark:hover:bg-gray-700 dark:border-gray-700">
+                                    {isOrgAdmin ? (
+                                        <><Settings className="w-3.5 h-3.5 mr-1.5" /> Manage Team</>
+                                    ) : (
+                                        <><Users className="w-3.5 h-3.5 mr-1.5" /> View Access</>
+                                    )}
+                                </Button>
+                            </div>
+                        )}
                     </h1>
                     <p className="text-gray-500 dark:text-gray-400 mt-1 text-sm">
                         {activeSpace === 'public' && 'All publicly available documents.'}
                         {activeSpace === 'private' && 'Documents you have uploaded privately.'}
                         {activeSpace === 'shared' && 'Documents others have shared with you.'}
+                        {activeSpace === 'shared-to-others' && 'Documents you have shared with other users.'}
                         {activeSpace === 'organization' && 'Documents within your organizations.'}
                         {activeSpace === 'recent' && 'Documents you have recently viewed or modified.'}
                     </p>
                 </div>
 
                 <div className="flex items-center gap-3 w-full md:w-auto">
+                    {activeSpace === 'shared-to-others' && (
+                        <>
+                            <select
+                                value={selectionMode}
+                                onChange={(e) => handleSelectionModeChange(e.target.value)}
+                                className="text-sm border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300 rounded-xl pl-3 pr-8 py-2 outline-none hover:border-gray-300 dark:hover:border-gray-600 focus:ring-2 focus:ring-blue-500 transition-all font-medium cursor-pointer shadow-sm appearance-none"
+                                style={{ minWidth: "170px", backgroundImage: 'url("data:image/svg+xml;charset=US-ASCII,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%22292.4%22%20height%3D%22292.4%22%3E%3Cpath%20fill%3D%22%239ca3af%22%20d%3D%22M287%2069.4a17.6%2017.6%200%200%200-13-5.4H18.4c-5%200-9.3%201.8-12.9%205.4A17.6%2017.6%200%200%200%200%2082.2c0%205%201.8%209.3%205.4%2012.9l128%20127.9c3.6%203.6%207.8%205.4%2012.8%205.4s9.2-1.8%2012.8-5.4L287%2095c3.5-3.5%205.4-7.8%205.4-12.8%200-5-1.9-9.2-5.5-12.8z%22%2F%3E%3C%2Fsvg%3E")', backgroundRepeat: 'no-repeat', backgroundPosition: 'right .7em top 50%', backgroundSize: '.65em auto' }}
+                                title="Selection options"
+                            >
+                                <option value="none">Select documents</option>
+                                <option value="manual">Select manually</option>
+                                <option value="all">Select all on page</option>
+                            </select>
+
+                            <div className="relative min-w-[260px]">
+                                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" />
+                                <input
+                                    type="email"
+                                    value={sharedRecipientEmailInput}
+                                    onChange={(e) => setSharedRecipientEmailInput(e.target.value)}
+                                    placeholder="Filter by recipient email..."
+                                    className="w-full pl-9 pr-9 py-2 text-sm border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300 rounded-xl outline-none hover:border-gray-300 dark:hover:border-gray-600 focus:ring-2 focus:ring-blue-500 transition-all shadow-sm"
+                                />
+                                {sharedRecipientEmailInput && (
+                                    <button
+                                        type="button"
+                                        onClick={clearSharedRecipientFilter}
+                                        className="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 rounded-md transition-colors"
+                                        title="Clear email filter"
+                                    >
+                                        <X className="w-4 h-4" />
+                                    </button>
+                                )}
+                            </div>
+                        </>
+                    )}
+
+                    {activeSpace !== 'shared-to-others' && (
+                        <select
+                            value={searchParams.get('sort') || 'latest'}
+                            onChange={(e) => {
+                                const newParams = new URLSearchParams(searchParams);
+                                newParams.set('sort', e.target.value);
+                                newParams.set('page', '1');
+                                setSearchParams(newParams);
+                            }}
+                            className="text-sm border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300 rounded-xl pl-3 pr-8 py-2 outline-none hover:border-gray-300 dark:hover:border-gray-600 focus:ring-2 focus:ring-blue-500 transition-all font-medium cursor-pointer shadow-sm appearance-none"
+                            style={{ minWidth: "140px", backgroundImage: 'url("data:image/svg+xml;charset=US-ASCII,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%22292.4%22%20height%3D%22292.4%22%3E%3Cpath%20fill%3D%22%239ca3af%22%20d%3D%22M287%2069.4a17.6%2017.6%200%200%200-13-5.4H18.4c-5%200-9.3%201.8-12.9%205.4A17.6%2017.6%200%200%200%200%2082.2c0%205%201.8%209.3%205.4%2012.9l128%20127.9c3.6%203.6%207.8%205.4%2012.8%205.4s9.2-1.8%2012.8-5.4L287%2095c3.5-3.5%205.4-7.8%205.4-12.8%200-5-1.9-9.2-5.5-12.8z%22%2F%3E%3C%2Fsvg%3E")', backgroundRepeat: 'no-repeat', backgroundPosition: 'right .7em top 50%', backgroundSize: '.65em auto' }}
+                        >
+                            <option value="latest">Newest First</option>
+                            <option value="oldest">Oldest First</option>
+                            <option value="sizeDesc">Largest Size</option>
+                            <option value="sizeAsc">Smallest Size</option>
+                        </select>
+                    )}
 
                     <div className="flex bg-gray-100 dark:bg-gray-800 p-1 rounded-xl flex-shrink-0">
                         <button
@@ -686,7 +1008,19 @@ export function Workspace({ isPublicOnly = false, isSearchPage = false }) {
                             <List className="w-4 h-4" />
                         </button>
                     </div>
-                    {!isPublicOnly && (
+                    {!isPublicOnly && activeSpace === 'shared-to-others' && (
+                        <Button
+                            variant="danger"
+                            className="flex-shrink-0 shadow-lg shadow-red-500/10"
+                            isLoading={isBulkRevoking}
+                            disabled={selectedDocumentIds.size === 0 || isBulkRevoking}
+                            onClick={handleBulkRevoke}
+                            title={sharedToOthersRevokeTitle}
+                        >
+                            <Trash2 className="w-4 h-4 mr-2" /> Revoke
+                        </Button>
+                    )}
+                    {!isPublicOnly && activeSpace !== 'shared-to-others' && (
                         <Button onClick={() => setIsUploadOpen(true)} className="flex-shrink-0 shadow-lg shadow-blue-500/20">
                             <FileUp className="w-4 h-4 mr-2" /> Upload
                         </Button>
@@ -696,65 +1030,53 @@ export function Workspace({ isPublicOnly = false, isSearchPage = false }) {
 
             {/* Org Selector */}
             {!isPublicOnly && activeSpace === 'organization' && (
-                <div className="mb-6 flex flex-wrap items-center gap-2 overflow-x-auto pb-2 flex-shrink-0">
+                <div className="mb-6 flex flex-wrap items-center gap-3 overflow-x-auto pb-2 flex-shrink-0">
+                    <Button onClick={() => setIsCreateOrgOpen(true)} variant="secondary" className="flex-shrink-0 h-9 px-4 bg-purple-50 hover:bg-purple-100 text-purple-700 dark:bg-purple-900/20 dark:hover:bg-purple-900/40 dark:text-purple-300 border border-purple-200 dark:border-purple-800">
+                        <Plus className="w-4 h-4 mr-2" /> New Org
+                    </Button>
+                    <div className="w-px h-8 bg-gray-300 dark:bg-gray-700 mx-1"></div>
                     {orgs.length === 0 ? (
-                        <p className="text-sm text-gray-400 py-1">You are not a member of any organization.</p>
-                    ) : orgs.map(org => (
-                        <button
-                            key={org._id}
-                            onClick={() => setSelectedOrgId(org._id)}
-                            className={`px-3.5 py-1.5 rounded-lg text-sm font-semibold whitespace-nowrap transition-all flex items-center justify-center ${selectedOrgId === org._id
-                                ? 'bg-purple-100 text-purple-700 dark:bg-purple-500/20 dark:text-purple-300 ring-1 ring-purple-500/50 shadow-sm'
-                                : 'bg-white dark:bg-gray-800/80 border border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 hover:border-gray-300 dark:hover:border-gray-600'
-                                }`}
-                        >
-                            {org.name}
-                        </button>
-                    ))}
+                        <p className="text-sm text-gray-500 dark:text-gray-400 font-medium">You are not a member of any organization.</p>
+                    ) : (
+                        <div className="relative">
+                            <select
+                                value={selectedOrgId || ''}
+                                onChange={(e) => {
+                                    const val = e.target.value;
+                                    if (!val) return;
+                                    const newParams = new URLSearchParams(searchParams);
+                                    newParams.set('organizationId', val);
+                                    newParams.set('page', '1');
+                                    setSearchParams(newParams);
+                                }}
+                                className="appearance-none bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 text-gray-900 dark:text-white text-sm font-semibold rounded-xl pl-4 pr-10 py-2 outline-none focus:ring-2 focus:ring-purple-500 transition-all cursor-pointer shadow-sm hover:border-purple-300 dark:hover:border-purple-700 min-w-[200px]"
+                                style={{ backgroundImage: 'url("data:image/svg+xml;charset=US-ASCII,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%22292.4%22%20height%3D%22292.4%22%3E%3Cpath%20fill%3D%22%239ca3af%22%20d%3D%22M287%2069.4a17.6%2017.6%200%200%200-13-5.4H18.4c-5%200-9.3%201.8-12.9%205.4A17.6%2017.6%200%200%200%200%2082.2c0%205%201.8%209.3%205.4%2012.9l128%20127.9c3.6%203.6%207.8%205.4%2012.8%205.4s9.2-1.8%2012.8-5.4L287%2095c3.5-3.5%205.4-7.8%205.4-12.8%200-5-1.9-9.2-5.5-12.8z%22%2F%3E%3C%2Fsvg%3E")', backgroundRepeat: 'no-repeat', backgroundPosition: 'right 1rem top 50%', backgroundSize: '.65em auto' }}
+                            >
+                                <option value="" disabled>Select Organization...</option>
+                                {adminOrgs.length > 0 && (
+                                    <optgroup label="My Organizations">
+                                        {adminOrgs.map(org => (
+                                            <option className="bg-white dark:bg-gray-900" key={org._id} value={org._id}>{org.name}</option>
+                                        ))}
+                                    </optgroup>
+                                )}
+                                {memberOrgs.length > 0 && (
+                                    <optgroup label="Other Organizations">
+                                        {memberOrgs.map(org => (
+                                            <option className="bg-white dark:bg-gray-900" key={org._id} value={org._id}>{org.name}</option>
+                                        ))}
+                                    </optgroup>
+                                )}
+                            </select>
+                        </div>
+                    )}
                 </div>
             )}
 
             {/* Main Content Area */}
             <div className="flex-1 flex gap-6 overflow-hidden relative">
                 {/* File Grid */}
-                <div className="flex-1 min-w-0 overflow-y-auto pr-2 pb-24">
-                    {!isLoading && !error && totalItems > 0 && (
-                        <div className="flex items-center justify-end mb-4 mt-1">
-                            <div className="flex items-center gap-3">
-                                <span className="text-sm font-medium text-gray-500 dark:text-gray-400 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 px-3 py-1.5 rounded-lg shadow-sm tracking-wide">
-                                    Showing <span className="font-bold text-gray-900 dark:text-white">{startIndex + 1}</span> - <span className="font-bold text-gray-900 dark:text-white">{Math.min(startIndex + itemsPerPage, totalItems)}</span> of <span className="font-bold text-blue-600 dark:text-blue-400">{totalItems}</span>
-                                </span>
-
-                                {totalPages > 1 && (
-                                    <div className="flex items-center gap-1 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg shadow-sm">
-                                        <button
-                                            onClick={() => {
-                                                const newParams = new URLSearchParams(searchParams);
-                                                newParams.set('page', Math.max(1, currentPage - 1).toString());
-                                                setSearchParams(newParams);
-                                            }}
-                                            disabled={currentPage <= 1}
-                                            className="p-1.5 text-gray-500 hover:text-blue-600 disabled:opacity-30 disabled:hover:text-gray-500 transition-colors"
-                                        >
-                                            <ChevronLeft className="w-4 h-4" />
-                                        </button>
-                                        <div className="w-px h-5 bg-gray-200 dark:bg-gray-700"></div>
-                                        <button
-                                            onClick={() => {
-                                                const newParams = new URLSearchParams(searchParams);
-                                                newParams.set('page', Math.min(totalPages, currentPage + 1).toString());
-                                                setSearchParams(newParams);
-                                            }}
-                                            disabled={currentPage >= totalPages}
-                                            className="p-1.5 text-gray-500 hover:text-blue-600 disabled:opacity-30 disabled:hover:text-gray-500 transition-colors"
-                                        >
-                                            <ChevronRight className="w-4 h-4" />
-                                        </button>
-                                    </div>
-                                )}
-                            </div>
-                        </div>
-                    )}
+                <div className="flex-1 min-w-0 overflow-y-auto pr-2 pb-4">
                     {isLoading ? (
                         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
                             {[1, 2, 3, 4, 5, 6].map(i => (
@@ -843,9 +1165,13 @@ export function Workspace({ isPublicOnly = false, isSearchPage = false }) {
                                                 </div>
                                             </div>
                                             <h3 className="font-bold text-gray-900 dark:text-white text-sm truncate mb-1" title={doc.fileName}>{doc.fileName}</h3>
-                                            <div className="flex items-center justify-between text-xs text-gray-500 dark:text-gray-400 font-medium">
-                                                <span>{formatSize(doc.fileSize)}</span>
-                                                <span>{new Date(doc.uploadDate).toLocaleDateString()}</span>
+                                            <div className="flex items-center justify-between text-xs text-gray-500 dark:text-gray-400 font-medium whitespace-nowrap overflow-hidden">
+                                                <div className="flex items-center gap-1.5 shrink-0">
+                                                    <span>{formatSize(doc.fileSize)}</span>
+                                                    <span>•</span>
+                                                    <span className="font-bold text-blue-600 dark:text-blue-400">{getFileType(doc)}</span>
+                                                </div>
+                                                <span className="shrink-0">{new Date(doc.uploadDate).toLocaleDateString()}</span>
                                             </div>
                                             {/* {doc.isTagged && doc.metadata?.typeTags?.length > 0 && (
                                                 <div className="mt-3 flex flex-wrap gap-1.5 overflow-hidden max-h-6">
@@ -886,13 +1212,29 @@ export function Workspace({ isPublicOnly = false, isSearchPage = false }) {
                                                 }`}
                                         >
                                             <div className="flex items-center gap-4 flex-1 min-w-0">
-                                                <div className="w-10 h-10 rounded-lg bg-blue-50 dark:bg-blue-500/10 text-blue-600 dark:text-blue-400 flex items-center justify-center flex-shrink-0">
-                                                    <FileText className="w-5 h-5" />
-                                                </div>
+                                                {activeSpace === 'shared-to-others' && selectionMode !== 'none' && (
+                                                    <input 
+                                                        type="checkbox" 
+                                                        className="w-4 h-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500 cursor-pointer flex-shrink-0" 
+                                                        checked={selectedDocumentIds.has(doc._id)} 
+                                                        onChange={(e) => { e.stopPropagation(); toggleSelection(doc._id); }} 
+                                                        onClick={(e) => e.stopPropagation()}
+                                                    />
+                                                )}
+                                                {(() => {
+                                                    const iconDetails = getFileIconDetails(doc);
+                                                    return (
+                                                        <div className={`w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0 ${iconDetails.bg} ${iconDetails.text}`}>
+                                                            {iconDetails.icon}
+                                                        </div>
+                                                    );
+                                                })()}
                                                 <div className="flex flex-col min-w-0 flex-1 pr-4">
                                                     <h3 className="font-bold text-gray-900 dark:text-white text-sm truncate" title={doc.fileName}>{doc.fileName}</h3>
                                                     <div className="flex items-center gap-3 text-xs text-gray-500 dark:text-gray-400 mt-1 uppercase tracking-wider font-semibold">
                                                         <span>{formatSize(doc.fileSize)}</span>
+                                                        <span>•</span>
+                                                        <span className="text-blue-600 dark:text-blue-400">{getFileType(doc)}</span>
                                                         <span>•</span>
                                                         <span>{new Date(doc.uploadDate).toLocaleDateString()}</span>
                                                     </div>
@@ -981,9 +1323,16 @@ export function Workspace({ isPublicOnly = false, isSearchPage = false }) {
                             </div>
                             <h3 className="text-xl font-bold text-gray-900 dark:text-white mb-2">No documents found</h3>
                             <p className="text-gray-500 dark:text-gray-400 mb-6">
-                                {searchQuery ? `No results for "${searchQuery}".` : 'This space is empty. Upload a document to get started.'}
+                                {searchQuery
+                                    ? `No results for "${searchQuery}".`
+                                    : activeSpace === 'shared-to-others'
+                                        ? activeSharedWithEmail
+                                            ? `No documents are shared with ${activeSharedWithEmail}.`
+                                            : 'You have no active document shares right now.'
+                                        : 'This space is empty. Upload a document to get started.'
+                                }
                             </p>
-                            {!isPublicOnly && activeSpace !== 'shared' && (
+                            {!isPublicOnly && activeSpace !== 'shared' && activeSpace !== 'shared-to-others' && (
                                 <Button onClick={() => setIsUploadOpen(true)}>Upload Document</Button>
                             )}
                         </div>
@@ -1023,7 +1372,7 @@ export function Workspace({ isPublicOnly = false, isSearchPage = false }) {
                                                 </span>
                                                 {(() => { const role = getAccessLevel(selectedDoc); const rc = ROLE_COLORS[role] || ROLE_COLORS.viewer; return (
                                                     <span className={`flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider border ${rc.bg} ${rc.text} ${rc.border}`} title={`${ROLE_LABELS[role] || role} access`}>
-                                                        {role === 'owner' || role === 'manager' || role === 'editor' ? <Edit3 className="w-3 h-3" /> : <Eye className="w-3 h-3" />}
+                                                        {role === 'owner' || role === 'collaborator' ? <Edit3 className="w-3 h-3" /> : <Eye className="w-3 h-3" />}
                                                         {ROLE_LABELS[role] || role}
                                                     </span>
                                                 ); })()}
@@ -1066,38 +1415,6 @@ export function Workspace({ isPublicOnly = false, isSearchPage = false }) {
                                                 <p className="text-sm text-gray-700 dark:text-gray-300 leading-relaxed font-medium">{selectedDoc.description || 'No description provided.'}</p>
                                             </div>
                                             
-                                    {/* Vaults Section */}
-                                    {selectedDoc.isVaultRouted && selectedDoc.metadata?.vaults?.length > 0 && (
-                                        <div>
-                                            <div className="flex items-center justify-between mb-2">
-                                                <p className="text-xs font-bold text-gray-400 uppercase tracking-widest">Vaults</p>
-                                            </div>
-                                            <div className="flex flex-col gap-2">
-                                                {selectedDoc.metadata.vaults.map((v, i) => (
-                                                    <div key={i} className="flex flex-col gap-1">
-                                                        <div className="flex justify-between items-center">
-                                                            <span className="text-xs font-semibold text-gray-700 dark:text-gray-300 flex items-center gap-1.5">🗂 {v.label}</span>
-                                                            <button
-                                                                type="button"
-                                                                onClick={() => navigate(`/vaults/${v.vaultId}?page=1`)}
-                                                                className="text-[11px] font-bold text-blue-600 dark:text-blue-400 hover:underline"
-                                                                title={`View documents in ${v.label}`}
-                                                            >
-                                                                {formatVaultPercent(v.score)}
-                                                            </button>
-                                                        </div>
-                                                        <div className="w-full bg-gray-100 dark:bg-gray-800 rounded-full h-1.5">
-                                                            <div
-                                                                className="bg-blue-500 h-1.5 rounded-full transition-all"
-                                                                style={{ width: formatVaultPercent(v.score) }}
-                                                            />
-                                                        </div>
-                                                    </div>
-                                                ))}
-                                            </div>
-                                        </div>
-                                    )}
-
                                             <div>
                                                 <div className="flex items-center justify-between mb-2">
                                                     <p className="text-xs font-bold text-gray-400 uppercase tracking-widest">Metadata Tags</p>
@@ -1107,7 +1424,7 @@ export function Workspace({ isPublicOnly = false, isSearchPage = false }) {
                                                 </div>
                                                 {(selectedDoc.tags?.length > 0) ? (
                                                     <div className="flex flex-wrap gap-1.5 mb-3">
-                                                        {selectedDoc.tags.map((t, i) => (
+                                                        {(expandedTags ? selectedDoc.tags : selectedDoc.tags.slice(0, 3)).map((t, i) => (
                                                             <span key={i} className="flex items-center gap-1.5 px-2 py-1 bg-blue-50 dark:bg-blue-500/10 border border-blue-100 dark:border-blue-500/20 text-blue-600 dark:text-blue-400 rounded-lg text-[11px] font-bold uppercase tracking-wider group">
                                                                 {t}
                                                                 {canUserEdit(selectedDoc) && (
@@ -1117,6 +1434,24 @@ export function Workspace({ isPublicOnly = false, isSearchPage = false }) {
                                                                 )}
                                                             </span>
                                                         ))}
+                                                        {!expandedTags && selectedDoc.tags.length > 3 && (
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => setExpandedTags(true)}
+                                                                className="px-2 py-1 bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 rounded-lg text-[11px] font-bold hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors border border-gray-200 dark:border-gray-700"
+                                                            >
+                                                                +{selectedDoc.tags.length - 3}
+                                                            </button>
+                                                        )}
+                                                        {expandedTags && selectedDoc.tags.length > 3 && (
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => setExpandedTags(false)}
+                                                                className="px-2 py-1 bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 rounded-lg text-[11px] font-bold hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors border border-gray-200 dark:border-gray-700"
+                                                            >
+                                                                Show less
+                                                            </button>
+                                                        )}
                                                     </div>
                                                 ) : (
                                                     <p className="text-xs text-gray-500 italic mb-3">No tags added yet.</p>
@@ -1225,8 +1560,47 @@ export function Workspace({ isPublicOnly = false, isSearchPage = false }) {
                 </AnimatePresence>
             </div>
 
+            {/* Sticky Pagination Footer */}
+            {!isLoading && !error && totalItems > 0 && effectiveTotalPages > 1 && (
+                <div className="flex-shrink-0 flex items-center justify-between px-1 py-2 border-t border-gray-200 dark:border-gray-800 bg-gray-50/80 dark:bg-gray-950/80 backdrop-blur-sm rounded-b-xl">
+                    <span className="text-xs font-medium text-gray-500 dark:text-gray-400">
+                        Page <span className="font-bold text-gray-900 dark:text-white">{currentPage}</span> of <span className="font-bold text-gray-900 dark:text-white">{effectiveTotalPages}</span>
+                        <span className="ml-2 text-gray-400 dark:text-gray-600">·</span>
+                        <span className="ml-2"><span className="font-bold text-blue-600 dark:text-blue-400">{totalItems}</span> total</span>
+                    </span>
+                    <div className="flex items-center gap-1 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg shadow-sm">
+                        <button
+                            onClick={() => {
+                                const newParams = new URLSearchParams(searchParams);
+                                newParams.set('page', Math.max(1, currentPage - 1).toString());
+                                setSearchParams(newParams);
+                            }}
+                            disabled={currentPage <= 1}
+                            className="flex items-center gap-1 pl-2 pr-3 py-1.5 text-xs font-semibold text-gray-600 dark:text-gray-300 hover:text-blue-600 dark:hover:text-blue-400 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+                        >
+                            <ChevronLeft className="w-3.5 h-3.5" />
+                            Prev
+                        </button>
+                        <div className="w-px h-5 bg-gray-200 dark:bg-gray-700" />
+                        <button
+                            onClick={() => {
+                                const newParams = new URLSearchParams(searchParams);
+                                newParams.set('page', Math.min(effectiveTotalPages, currentPage + 1).toString());
+                                setSearchParams(newParams);
+                            }}
+                            disabled={currentPage >= effectiveTotalPages}
+                            className="flex items-center gap-1 pl-3 pr-2 py-1.5 text-xs font-semibold text-gray-600 dark:text-gray-300 hover:text-blue-600 dark:hover:text-blue-400 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+                        >
+                            Next
+                            <ChevronRight className="w-3.5 h-3.5" />
+                        </button>
+                    </div>
+                </div>
+            )}
+
             {/* Toasts */}
             <AnimatePresence>
+
                 {toast && (
                     <motion.div
                         initial={{ opacity: 0, y: 50 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, scale: 0.9 }}
@@ -1237,6 +1611,37 @@ export function Workspace({ isPublicOnly = false, isSearchPage = false }) {
                     </motion.div>
                 )}
             </AnimatePresence>
+
+            <CreateOrgModal
+                isOpen={isCreateOrgOpen}
+                onClose={() => setIsCreateOrgOpen(false)}
+                onSuccess={(org) => {
+                    setIsCreateOrgOpen(false);
+                    fetchOrgs().then(() => {
+                        const newParams = new URLSearchParams(searchParams);
+                        newParams.set('organizationId', org._id);
+                        newParams.set('page', '1');
+                        setSearchParams(newParams);
+                    });
+                }}
+            />
+
+            {selectedOrgId && (
+                <ManageOrgModal
+                    isOpen={isManageOrgOpen}
+                    onClose={() => setIsManageOrgOpen(false)}
+                    orgId={selectedOrgId}
+                    onUpdate={() => fetchOrgs()}
+                    onDelete={() => {
+                        setSelectedOrgId('');
+                        setIsManageOrgOpen(false);
+                        const newParams = new URLSearchParams(searchParams);
+                        newParams.delete('organizationId');
+                        setSearchParams(newParams);
+                        fetchOrgs();
+                    }}
+                />
+            )}
 
             {/* Upload Modal */}
             <UploadModal

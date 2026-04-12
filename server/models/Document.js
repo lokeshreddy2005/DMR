@@ -217,7 +217,6 @@ const documentSchema = new mongoose.Schema({
     },
     typeTags: { type: [String], default: [] },
     departmentOwner: { type: String, default: '' },
-    academicYear: { type: String, default: '' },
     extension: { type: String, default: '' },
   },
   isTagged: {

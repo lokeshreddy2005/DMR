@@ -99,12 +99,39 @@ router.get('/documents', async (req, res) => {
         }
 
         if (extension) {
-            const extLower = extension.toLowerCase();
-            const extRegex = new RegExp(`\\${extLower.replace('.', '\\.')}$`, 'i');
-            // Wrap in $and so it doesn't overwrite the $or from text search
+            const extLower = extension.toLowerCase().startsWith('.') ? extension.toLowerCase() : `.${extension.toLowerCase()}`;
+            const escapedExt = extLower.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+            const MIME_MAP = {
+                '.pdf': ['application/pdf'],
+                '.doc': ['application/msword'],
+                '.docx': ['application/vnd.openxmlformats-officedocument.wordprocessingml.document'],
+                '.xls': ['application/vnd.ms-excel'],
+                '.xlsx': ['application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'],
+                '.ppt': ['application/vnd.ms-powerpoint'],
+                '.pptx': ['application/vnd.openxmlformats-officedocument.presentationml.presentation'],
+                '.txt': ['text/plain'],
+                '.png': ['image/png'],
+                '.jpg': ['image/jpeg'],
+                '.jpeg': ['image/jpeg'],
+                '.gif': ['image/gif'],
+                '.mp4': ['video/mp4'],
+                '.mp3': ['audio/mpeg'],
+                '.zip': ['application/zip', 'application/x-zip-compressed'],
+            };
+            const mimeTypes = MIME_MAP[extLower] || [];
+
+            const extConditions = [
+                { 'metadata.extension': extLower },
+                { fileName: { $regex: `${escapedExt}$`, $options: 'i' } }
+            ];
+            if (mimeTypes.length > 0) {
+                extConditions.push({ mimeType: { $in: mimeTypes } });
+            }
+
             filterQuery.$and = [
                 ...(filterQuery.$and || []),
-                { $or: [{ 'metadata.extension': extLower }, { fileName: extRegex }] }
+                { $or: extConditions }
             ];
         }
         
@@ -114,7 +141,7 @@ router.get('/documents', async (req, res) => {
 
         if (tags) {
             const tagsArray = tags.split(',').map(t => t.trim()).filter(Boolean);
-            const tagRegexes = tagsArray.map(t => new RegExp(`^${t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i'));
+            const tagRegexes = tagsArray.map(t => ({ $regex: `^${t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, $options: 'i' }));
             filterQuery.tags = tagsMode === 'all' ? { $all: tagRegexes } : { $in: tagRegexes };
         }
 

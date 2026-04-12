@@ -42,7 +42,7 @@ const SIDEBAR_LINKS = [
   { name: "Public Space", href: "/workspace/public", icon: Globe },
   { name: "Private Space", href: "/workspace/private", icon: Lock },
   { name: "Shared with Me", href: "/workspace/shared", icon: Users },
-  { name: "Shared to Others", href: "/workspace/shared-to-others", icon: UserCheck },
+  { name: "Shared with Others", href: "/workspace/shared-to-others", icon: UserCheck },
   { name: "Organizations", href: "/workspace/organization", icon: Building2 },
   { name: "Vault Browser", href: "/vaults", icon: Vault },
 ];
@@ -74,6 +74,7 @@ export function AppLayout() {
     if (path === '/workspace/public') setSearchScope('public');
     else if (path === '/workspace/private') setSearchScope('private');
     else if (path === '/workspace/shared') setSearchScope('shared');
+    else if (path === '/workspace/shared-to-others') setSearchScope('shared-to-others');
     else if (path === '/workspace/organization') {
       const orgId = searchParams.get('organizationId');
       if (orgId) setSearchScope(`org_${orgId}`);
@@ -81,7 +82,7 @@ export function AppLayout() {
     } else {
       setSearchScope('all');
     }
-  }, [location.pathname]); // Intentionally omitting searchParams dependency to avoid overwriting user dropdown choice when searching
+  }, [location.pathname, searchParams.get('organizationId')]); // Update if URL or Org Selection changes
 
   // Fetch organizations for the dropdown
   useEffect(() => {
@@ -114,6 +115,7 @@ export function AppLayout() {
     if (searchScope === 'public') basePath = '/workspace/public';
     else if (searchScope === 'private') basePath = '/workspace/private';
     else if (searchScope === 'shared') basePath = '/workspace/shared';
+    else if (searchScope === 'shared-to-others') basePath = '/workspace/shared-to-others';
     else if (searchScope.startsWith('org_')) {
       basePath = '/workspace/organization';
       np.set('organizationId', searchScope.replace('org_', ''));
@@ -164,7 +166,7 @@ export function AppLayout() {
 
   const canUserDelete = (doc) => {
     const role = getAccessLevel(doc);
-    return role === 'owner' || role === 'manager';
+    return role === 'owner' || role === 'collaborator';
   };
 
   const handleDeletePreview = async (docId) => {
@@ -307,12 +309,13 @@ export function AppLayout() {
                   onChange={(e) => setSearchScope(e.target.value)}
                   className="bg-transparent border-none text-xs font-semibold text-gray-500 dark:text-gray-400 focus:ring-0 cursor-pointer pl-3 pr-8 py-2.5 outline-none rounded-l-xl hover:text-gray-700 dark:hover:text-gray-200"
                 >
-                  <option value="all">All Documents</option>
-                  <option value="public">Public Space</option>
-                  <option value="private">Private Space</option>
-                  <option value="shared">Shared with Me</option>
+                  <option className="bg-gray-50 dark:bg-gray-950" value="all">All Documents</option>
+                  <option className="bg-gray-50 dark:bg-gray-950" value="public">Public Space</option>
+                  <option className="bg-gray-50 dark:bg-gray-950" value="private">Private Space</option>
+                  <option className="bg-gray-50 dark:bg-gray-950" value="shared">Shared with Me</option>
+                  <option className="bg-gray-50 dark:bg-gray-950" value="shared-to-others">Shared with Others</option>
                   {orgs.map(org => (
-                    <option key={org._id} value={`org_${org._id}`}>Org: {org.name}</option>
+                    <option className="bg-gray-50 dark:bg-gray-950" key={org._id} value={`org_${org._id}`}>Org: {org.name}</option>
                   ))}
                 </select>
 
@@ -350,7 +353,9 @@ export function AppLayout() {
                       </button>
                     )}
                     {/* Advanced Filters inside search bar */}
-                    <AdvancedSearchPopover isPublicOnly={searchScope === 'public'} applySearchCallback={(params) => executeSearch(globalSearch, params)} />
+                    {searchScope !== 'shared-to-others' && (
+                      <AdvancedSearchPopover activeSpace={searchScope} isPublicOnly={searchScope === 'public'} applySearchCallback={(params) => executeSearch(globalSearch, params)} />
+                    )}
                   </div>
                 </div>
               </div>
@@ -460,10 +465,10 @@ export function AppLayout() {
                         </span>
                       )}
                       {(() => { const role = getAccessLevel(previewDoc); return (
-                        <span className="flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider bg-gray-200/60 dark:bg-gray-800 text-gray-700 dark:text-gray-300" title={`${role} access`}>
-                          {role === 'owner' || role === 'manager' || role === 'editor' ? <Edit3 className="w-3 h-3" /> : <Eye className="w-3 h-3" />}
+                        <div className="flex items-center gap-1.5 px-3 py-1.5 bg-gray-100 dark:bg-gray-800 rounded-lg text-gray-700 dark:text-gray-300 text-xs font-bold uppercase tracking-wider">
+                          {role === 'owner' || role === 'collaborator' ? <Edit3 className="w-3 h-3" /> : <Eye className="w-3 h-3" />}
                           {role}
-                        </span>
+                        </div>
                       ); })()}
                     </div>
                   </div>
@@ -527,7 +532,7 @@ export function AppLayout() {
                   <Download className="w-4 h-4 mr-2" /> Download
                 </Button>
 
-                {(getAccessLevel(previewDoc) === 'owner' || getAccessLevel(previewDoc) === 'manager') && previewDoc.space !== 'public' && (
+                {(getAccessLevel(previewDoc) === 'owner' || getAccessLevel(previewDoc) === 'collaborator') && previewDoc.space !== 'public' && (
                   <Button
                     className="flex-1 sm:flex-none bg-blue-50 text-blue-600 hover:bg-blue-100 dark:bg-blue-900/20 dark:text-blue-400 shadow-sm border border-blue-200 dark:border-blue-800/50 transition-colors"
                     onClick={() => setIsShareOpen(true)}

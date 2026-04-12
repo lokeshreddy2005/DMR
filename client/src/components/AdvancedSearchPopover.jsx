@@ -7,7 +7,21 @@ import { useAuth } from '../context/AuthContext';
 import { Button } from './ui/Button';
 import { motion, AnimatePresence } from 'framer-motion';
 
-const FILTER_KEYS = [/*'extension',*/ 'minSize', 'maxSize', 'startDate', 'endDate', 'isTagged', 'tags', 'tagsMode', 'uploadedBy', 'academicYear', 'departmentOwner', 'permissionLevel'];
+const FILTER_KEYS = ['extension', 'minSize', 'maxSize', 'startDate', 'endDate', 'isTagged', 'tags', 'tagsMode', 'uploadedBy', 'sharedWith', 'departmentOwner', 'permissionLevel'];
+
+function buildSelectedUsersFromParams(activeSpace, searchParams) {
+  const ids = activeSpace === 'shared-to-others' ? searchParams.get('sharedWith') : searchParams.get('uploadedBy');
+  if (!ids) return [];
+
+  const idList = ids.split(',').filter(Boolean);
+  const labelKey = activeSpace === 'shared-to-others' ? 'sharedWithLabel' : '';
+  const labels = labelKey ? (searchParams.get(labelKey) || '').split(',').filter(Boolean) : [];
+
+  return idList.map((id, index) => ({
+    _id: id,
+    name: labels[index] || id,
+  }));
+}
 
 export default function AdvancedSearchPopover({ activeSpace, isPublicOnly, applySearchCallback }) {
   const [searchParams, setSearchParams] = useSearchParams();
@@ -17,7 +31,7 @@ export default function AdvancedSearchPopover({ activeSpace, isPublicOnly, apply
 
   // ── Form State ──────────────────────────────────────────────────────────────
   const [filters, setFilters] = useState({
-    // extension:       searchParams.get('extension') || '',
+    extension:       searchParams.get('extension') || '',
     minSize:         searchParams.get('minSize') || '',
     maxSize:         searchParams.get('maxSize') || '',
     startDate:       searchParams.get('startDate') || '',
@@ -25,7 +39,6 @@ export default function AdvancedSearchPopover({ activeSpace, isPublicOnly, apply
     isTagged:        searchParams.get('isTagged') || '',
     tags:            searchParams.get('tags') || '',
     tagsMode:        searchParams.get('tagsMode') || 'any',  // 'any' (OR) | 'all' (AND)
-    academicYear:    searchParams.get('academicYear') || '',
     departmentOwner: searchParams.get('departmentOwner') || '',
     permissionLevel: searchParams.get('permissionLevel') || '',
   });
@@ -37,10 +50,7 @@ export default function AdvancedSearchPopover({ activeSpace, isPublicOnly, apply
   const [showTagSuggestions, setShowTagSuggestions] = useState(false);
 
   // Multi-select users
-  const [selectedUsers, setSelectedUsers] = useState(() => {
-    const ids = searchParams.get('uploadedBy');
-    return ids ? ids.split(',').filter(Boolean).map(id => ({ _id: id, name: id })) : [];
-  });
+  const [selectedUsers, setSelectedUsers] = useState(() => buildSelectedUsersFromParams(activeSpace, searchParams));
   const [userInput, setUserInput] = useState('');
   const [userSuggestions, setUserSuggestions] = useState([]);
   const [isUserSearch, setIsUserSearch] = useState(false);
@@ -75,8 +85,18 @@ export default function AdvancedSearchPopover({ activeSpace, isPublicOnly, apply
     });
 
     const userIds = selectedUsers.map(u => u._id).join(',');
-    if (userIds) newParams.set('uploadedBy', userIds);
-    else newParams.delete('uploadedBy');
+    if (activeSpace === 'shared-to-others') {
+      if (userIds) newParams.set('sharedWith', userIds);
+      else newParams.delete('sharedWith');
+      if (selectedUsers.length > 0) newParams.set('sharedWithLabel', selectedUsers.map(u => u.email || u.name || u._id).join(','));
+      else newParams.delete('sharedWithLabel');
+      newParams.delete('uploadedBy');
+    } else {
+      if (userIds) newParams.set('uploadedBy', userIds);
+      else newParams.delete('uploadedBy');
+      newParams.delete('sharedWith');
+      newParams.delete('sharedWithLabel');
+    }
 
     newParams.set('page', '1');
     
@@ -94,14 +114,14 @@ export default function AdvancedSearchPopover({ activeSpace, isPublicOnly, apply
 
   // ── Clear ──────────────────────────────────────────────────────────────────
   const clearFilters = () => {
-    setFilters({ /*extension: '',*/ minSize: '', maxSize: '', startDate: '', endDate: '', isTagged: '', tags: '', tagsMode: 'any', academicYear: '', departmentOwner: '', permissionLevel: '' });
+    setFilters({ extension: '', minSize: '', maxSize: '', startDate: '', endDate: '', isTagged: '', tags: '', tagsMode: 'any', departmentOwner: '', permissionLevel: '' });
     setTagInput('');
     setUserInput('');
     setSelectedUsers([]);
     setShowTagSuggestions(false);
     setShowUserSuggestions(false);
     const newParams = new URLSearchParams(searchParams);
-    [...FILTER_KEYS, 'uploadedBy'].forEach(k => newParams.delete(k));
+    [...FILTER_KEYS, 'uploadedBy', 'sharedWith', 'sharedWithLabel'].forEach(k => newParams.delete(k));
     newParams.set('page', '1');
     
     if (applySearchCallback) {
@@ -114,7 +134,7 @@ export default function AdvancedSearchPopover({ activeSpace, isPublicOnly, apply
   // ── Sync with URL ──────────────────────────────────────────────────────────
   useEffect(() => {
     setFilters({
-      // extension:       searchParams.get('extension') || '',
+      extension:       searchParams.get('extension') || '',
       minSize:         searchParams.get('minSize') || '',
       maxSize:         searchParams.get('maxSize') || '',
       startDate:       searchParams.get('startDate') || '',
@@ -122,15 +142,11 @@ export default function AdvancedSearchPopover({ activeSpace, isPublicOnly, apply
       isTagged:        searchParams.get('isTagged') || '',
       tags:            searchParams.get('tags') || '',
       tagsMode:        searchParams.get('tagsMode') || 'any',
-      academicYear:    searchParams.get('academicYear') || '',
       departmentOwner: searchParams.get('departmentOwner') || '',
       permissionLevel: searchParams.get('permissionLevel') || '',
     });
-    const userIds = searchParams.get('uploadedBy');
-    if (!userIds) setSelectedUsers([]);
-    // Note: selectedUsers names might be lost if we only have IDs in the URL,
-    // but the ID is what matters for the filter. In a real app we'd fetch names.
-  }, [searchParams]);
+    setSelectedUsers(buildSelectedUsersFromParams(activeSpace, searchParams));
+  }, [searchParams, activeSpace]);
 
   // ── Click outside ──────────────────────────────────────────────────────────
   useEffect(() => {
@@ -178,7 +194,10 @@ export default function AdvancedSearchPopover({ activeSpace, isPublicOnly, apply
       setIsUserSearch(true);
       try {
         const headers = { Authorization: `Bearer ${token}` };
-        const res = await axios.get(`${API_URL}/api/documents/users/search?q=${encodeURIComponent(userInput)}`, { headers });
+        const endpoint = activeSpace === 'shared-to-others'
+          ? `${API_URL}/api/documents/users/search?q=${encodeURIComponent(userInput)}&scope=shared-with`
+          : `${API_URL}/api/documents/users/search?q=${encodeURIComponent(userInput)}`;
+        const res = await axios.get(endpoint, { headers });
         if (ignore) return;
         setUserSuggestions(res.data.users || []);
       } catch (err) {
@@ -187,7 +206,7 @@ export default function AdvancedSearchPopover({ activeSpace, isPublicOnly, apply
     };
     const t = setTimeout(fetchUsers, 300);
     return () => { ignore = true; clearTimeout(t); };
-  }, [userInput, token]);
+  }, [userInput, token, activeSpace]);
 
   const addTag = (tag) => {
     const current = filters.tags ? filters.tags.split(',').filter(Boolean) : [];
@@ -203,7 +222,11 @@ export default function AdvancedSearchPopover({ activeSpace, isPublicOnly, apply
 
   const addUser = (user) => {
     if (!selectedUsers.find(u => u._id === user._id)) {
-      setSelectedUsers(prev => [...prev, { _id: user._id, name: user.name }]);
+      setSelectedUsers(prev => [...prev, {
+        _id: user._id,
+        name: activeSpace === 'shared-to-others' ? (user.email || user.name) : user.name,
+        email: user.email,
+      }]);
     }
     setUserInput('');
     setUserSuggestions([]);
@@ -255,7 +278,7 @@ export default function AdvancedSearchPopover({ activeSpace, isPublicOnly, apply
 
               {/* File Type & Tag Status */}
               <div className="grid grid-cols-2 gap-4">
-                {/* <div className="space-y-1.5">
+                <div className="space-y-1.5">
                   <label className="text-xs font-bold text-gray-500 uppercase tracking-wider">File Type</label>
                   <select value={filters.extension} onChange={e => setFilters(f => ({ ...f, extension: e.target.value }))} className="w-full text-sm p-2 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg outline-none focus:ring-2 focus:ring-blue-500 text-gray-900 dark:text-white">
                     <option value="">Any type</option>
@@ -269,7 +292,7 @@ export default function AdvancedSearchPopover({ activeSpace, isPublicOnly, apply
                     <option value=".jpeg">Image (.jpeg)</option>
                     <option value=".zip">Archive (.zip)</option>
                   </select>
-                </div> */}
+                </div>
                 <div className="space-y-1.5">
                   <label className="text-xs font-bold text-gray-500 uppercase tracking-wider">Tag Status</label>
                   <select value={filters.isTagged} onChange={e => setFilters(f => ({ ...f, isTagged: e.target.value }))} className="w-full text-sm p-2 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg outline-none focus:ring-2 focus:ring-blue-500 text-gray-900 dark:text-white">
@@ -372,8 +395,8 @@ export default function AdvancedSearchPopover({ activeSpace, isPublicOnly, apply
                 )}
               </div>
 
-              {/* Uploaded By — multi-select */}
-              {activeSpace !== 'private' && (
+              {/* Uploaded By / Shared With — multi-select */}
+              {activeSpace !== 'private' && activeSpace !== 'shared-to-others' && (
                 <div className="space-y-2">
                   <label className="text-xs font-bold text-gray-500 uppercase tracking-wider flex items-center gap-1"><User className="w-3.5 h-3.5" /> Uploaded By</label>
                   <div className="relative">
@@ -429,12 +452,8 @@ export default function AdvancedSearchPopover({ activeSpace, isPublicOnly, apply
                 </div>
               )}
 
-              {/* Academic Year & Department */}
-              <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-1.5">
-                  <label className="text-xs font-bold text-gray-500 uppercase tracking-wider">Academic Year</label>
-                  <input type="text" placeholder="e.g. 2023-2024" value={filters.academicYear} onChange={e => setFilters(f => ({ ...f, academicYear: e.target.value }))} className="w-full text-sm p-2 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg outline-none focus:ring-2 focus:ring-blue-500 text-gray-900 dark:text-white" />
-                </div>
+              {/* Department */}
+              <div className="grid grid-cols-1 gap-4">
                 <div className="space-y-1.5">
                   <label className="text-xs font-bold text-gray-500 uppercase tracking-wider">Department</label>
                   <input type="text" placeholder="e.g. Computer Science" value={filters.departmentOwner} onChange={e => setFilters(f => ({ ...f, departmentOwner: e.target.value }))} className="w-full text-sm p-2 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg outline-none focus:ring-2 focus:ring-blue-500 text-gray-900 dark:text-white" />
@@ -446,12 +465,10 @@ export default function AdvancedSearchPopover({ activeSpace, isPublicOnly, apply
                 <div className="space-y-1.5">
                   <label className="text-xs font-bold text-gray-500 uppercase tracking-wider">My Permission Role</label>
                   <select value={filters.permissionLevel} onChange={e => setFilters(f => ({ ...f, permissionLevel: e.target.value }))} className="w-full text-sm p-2 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg outline-none focus:ring-2 focus:ring-blue-500 text-gray-900 dark:text-white">
-                    <option value="">Any Role</option>
-                    <option value="previewer">Previewer</option>
-                    <option value="viewer">Viewer</option>
-                    <option value="downloader">Viewer & Download</option>
-                    <option value="manager">Manager</option>
+                    <option value="">Any Permission</option>
                     <option value="owner">Owner</option>
+                    <option value="collaborator">Collaborator</option>
+                    <option value="viewer">Viewer</option>
                   </select>
                 </div>
               )}

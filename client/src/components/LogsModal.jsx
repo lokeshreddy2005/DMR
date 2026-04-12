@@ -17,11 +17,9 @@ const ACTION_META = {
 };
 
 const ROLE_LABELS = {
-    previewer: 'Previewer',
-    viewer: 'Viewer',
-    downloader: 'Viewer & Download',
-    manager: 'Full Access',
     owner: 'Owner',
+    collaborator: 'Collaborator',
+    viewer: 'Viewer',
 };
 
 function formatDateTime(value) {
