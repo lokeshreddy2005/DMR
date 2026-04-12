@@ -7,7 +7,8 @@ const { ROLE_PRESETS, VALID_ROLES } = require('../models/Document');
 const Organization = require('../models/Organization');
 const User = require('../models/User');
 const { authMiddleware } = require('../middleware/auth');
-const { uploadToS3, getDownloadUrl, deleteFromS3 } = require('../services/s3');
+const { uploadToS3, getDownloadUrl, getPreviewUrl, getS3ObjectStream, deleteFromS3 } = require('../services/s3');
+const crypto = require('crypto');
 const { checkQuota, getStorageSummary } = require('../services/storageQuota');
 const { autoTagDocument } = require('../services/autoTagger');
 const RecentAccess = require('../models/RecentAccess');
@@ -17,7 +18,64 @@ const { VAULTS, VAULT_MAP } = require('../constants/vaults');
 const router = express.Router();
 const SHAREABLE_ROLES = ['previewer', 'viewer', 'downloader', 'manager'];
 
-// All document routes require authentication
+// ─── In-Memory Download Token Store ─────────────────────────────────────────────
+// Tokens are single-use and expire after 60 seconds.
+const DOWNLOAD_TOKEN_EXPIRY_MS = 60 * 1000; // 60 seconds
+const downloadTokens = new Map();
+
+// Auto-cleanup expired tokens every 2 minutes
+setInterval(() => {
+  const now = Date.now();
+  for (const [token, data] of downloadTokens.entries()) {
+    if (now - data.createdAt > DOWNLOAD_TOKEN_EXPIRY_MS) {
+      downloadTokens.delete(token);
+    }
+  }
+}, 2 * 60 * 1000);
+
+/**
+ * GET /api/documents/secure-download/:token
+ * Consume a one-time download token and stream the file from S3.
+ * This route is BEFORE authMiddleware so it doesn't require JWT — the token IS the auth.
+ */
+router.get('/secure-download/:token', async (req, res) => {
+  try {
+    const tokenData = downloadTokens.get(req.params.token);
+
+    if (!tokenData) {
+      return res.status(404).json({ error: 'Download link expired or invalid.' });
+    }
+
+    // Check expiry
+    if (Date.now() - tokenData.createdAt > DOWNLOAD_TOKEN_EXPIRY_MS) {
+      downloadTokens.delete(req.params.token);
+      return res.status(410).json({ error: 'Download link has expired. Please request a new one.' });
+    }
+
+    // Consume the token (single-use)
+    downloadTokens.delete(req.params.token);
+
+    // Stream the file from S3
+    const s3Response = await getS3ObjectStream(tokenData.s3Key);
+
+    const safeName = (tokenData.fileName || 'download').replace(/[^a-zA-Z0-9._-]/g, '_');
+    res.setHeader('Content-Type', tokenData.mimeType || 'application/octet-stream');
+    res.setHeader('Content-Disposition', `attachment; filename="${safeName}"`);
+    if (s3Response.ContentLength) {
+      res.setHeader('Content-Length', s3Response.ContentLength);
+    }
+
+    // Pipe the S3 stream to the response
+    s3Response.Body.pipe(res);
+  } catch (err) {
+    console.error('Secure download error:', err);
+    if (!res.headersSent) {
+      res.status(500).json({ error: 'Failed to download file.' });
+    }
+  }
+});
+
+// All document routes below require authentication
 router.use(authMiddleware);
 
 // Multer for temporary file upload (then forwarded to S3)
@@ -1199,7 +1257,37 @@ router.delete('/:id', async (req, res) => {
 });
 
 /**
+ * GET /api/documents/:id/preview
+ * Generate a pre-signed URL for inline preview (PDF, image, video, etc.).
+ */
+router.get('/:id/preview', async (req, res) => {
+  try {
+    const doc = await Document.findById(req.params.id);
+    if (!doc) return res.status(404).json({ error: 'Document not found.' });
+
+    if (!await checkDocAccess(doc, req.user._id)) {
+      return res.status(403).json({ error: 'You do not have access to this document.' });
+    }
+
+    // Track recent access
+    await RecentAccess.findOneAndUpdate(
+      { user: req.user._id, document: doc._id },
+      { lastOpenedAt: new Date() },
+      { upsert: true }
+    );
+
+    const previewUrl = await getPreviewUrl(doc.s3Key, doc.mimeType, doc.fileName);
+    res.json({ previewUrl, fileName: doc.fileName, mimeType: doc.mimeType, fileSize: doc.fileSize });
+  } catch (err) {
+    console.error('Preview error:', err);
+    res.status(500).json({ error: 'Failed to generate preview URL.' });
+  }
+});
+
+/**
  * GET /api/documents/:id/download
+ * Generates a one-time, short-lived download token.
+ * The client uses this token with /secure-download/:token to stream the file.
  */
 router.get('/:id/download', async (req, res) => {
   try {
@@ -1218,18 +1306,28 @@ router.get('/:id/download', async (req, res) => {
       }
     }
 
-    // // Usage Tracking Logging
+    // Usage Tracking Logging
     await RecentAccess.findOneAndUpdate(
       { user: req.user._id, document: doc._id },
       { lastOpenedAt: new Date() },
       { upsert: true }
     );
 
-    const downloadUrl = await getDownloadUrl(doc.s3Key);
-    res.json({ downloadUrl, fileName: doc.fileName });
+    // Generate a one-time download token
+    const downloadToken = crypto.randomBytes(32).toString('hex');
+    downloadTokens.set(downloadToken, {
+      s3Key: doc.s3Key,
+      fileName: doc.fileName,
+      mimeType: doc.mimeType,
+      userId: req.user._id.toString(),
+      documentId: doc._id.toString(),
+      createdAt: Date.now(),
+    });
+
+    res.json({ downloadToken, fileName: doc.fileName });
   } catch (err) {
     console.error('Download error:', err);
-    res.status(500).json({ error: 'Failed to generate download URL.' });
+    res.status(500).json({ error: 'Failed to generate download token.' });
   }
 });
 

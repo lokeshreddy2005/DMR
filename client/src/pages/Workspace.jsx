@@ -9,6 +9,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import UploadModal from '../components/UploadModal';
 import ShareModal from '../components/ShareModal';
 import LogsModal from '../components/LogsModal';
+import DocumentPreview, { DocumentThumbnail, FullPreviewModal } from '../components/PreviewModal';
 
 
 export function Workspace({ isPublicOnly = false, isSearchPage = false }) {
@@ -28,6 +29,8 @@ export function Workspace({ isPublicOnly = false, isSearchPage = false }) {
     const [isShareOpen, setIsShareOpen] = useState(false);
     const [selectedDoc, setSelectedDoc] = useState(null);
     const [isLogsOpen, setIsLogsOpen] = useState(false);
+    const [isFullPreviewOpen, setIsFullPreviewOpen] = useState(false);
+    const [fullPreviewDoc, setFullPreviewDoc] = useState(null);
     const [logsData, setLogsData] = useState([]);
     const [isLogsLoading, setIsLogsLoading] = useState(false);
     const [logsError, setLogsError] = useState('');
@@ -524,14 +527,38 @@ export function Workspace({ isPublicOnly = false, isSearchPage = false }) {
     const handleDownload = async (doc) => {
         try {
             const headers = getAuthHeaders();
-            // Always use the authenticated endpoint when a token exists — this logs the
-            // RecentAccess entry. Fall back to the public endpoint only for anon users.
+            // Step 1: Get a one-time download token from the server
             const useAuth = !!token;
-            const url = useAuth
+            const tokenUrl = useAuth
                 ? `${API_URL}/api/documents/${doc._id}/download`
                 : `${API_URL}/api/public/documents/${doc._id}/download`;
-            const res = await axios.get(url, useAuth ? { headers } : {});
-            window.open(res.data.downloadUrl, '_blank');
+            const tokenRes = await axios.get(tokenUrl, useAuth ? { headers } : {});
+
+            const { downloadToken, fileName } = tokenRes.data;
+
+            // Step 2: Stream the file via the secure-download endpoint as a blob
+            const streamUrl = useAuth
+                ? `${API_URL}/api/documents/secure-download/${downloadToken}`
+                : `${API_URL}/api/public/secure-download/${downloadToken}`;
+            const blobRes = await axios.get(streamUrl, { responseType: 'blob' });
+
+            // Step 3: Trigger a local file download and open in new tab
+            const blob = new Blob([blobRes.data], { type: blobRes.headers['content-type'] || 'application/octet-stream' });
+            const url = window.URL.createObjectURL(blob);
+
+            // Download the file
+            const link = document.createElement('a');
+            link.href = url;
+            link.download = fileName || 'download';
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+
+            // Also open in a new tab for immediate viewing
+            window.open(url, '_blank');
+
+            // Revoke after a delay so the new tab has time to load
+            setTimeout(() => window.URL.revokeObjectURL(url), 15000);
         } catch (err) { showToast('error', 'Download failed.'); }
     };
 
@@ -766,10 +793,11 @@ export function Workspace({ isPublicOnly = false, isSearchPage = false }) {
                                                 : 'border-gray-200 dark:border-gray-800 shadow-sm'
                                                 }`}
                                         >
-                                            <div className="flex justify-between items-start mb-4">
-                                                <div className="w-12 h-12 rounded-xl bg-blue-50 dark:bg-blue-500/10 text-blue-600 dark:text-blue-400 flex items-center justify-center flex-shrink-0 group-hover:scale-110 transition-transform">
-                                                    <FileText className="w-6 h-6" />
-                                                </div>
+                                            {/* Thumbnail area — Google Drive style */}
+                                            <div className="-mx-5 -mt-5 mb-4 rounded-t-2xl overflow-hidden border-b border-gray-100 dark:border-gray-800/40">
+                                                <DocumentThumbnail document={doc} isPublic={isPublicOnly} />
+                                            </div>
+                                            <div className="flex justify-between items-start mb-2">
                                                 <div className="flex items-center gap-1.5 flex-wrap justify-end">
                                                     {isSearchPage && (
                                                         <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-gray-100 text-gray-800 dark:bg-gray-800 dark:text-gray-200 uppercase tracking-wider border border-gray-200 dark:border-gray-700">
@@ -1027,6 +1055,9 @@ export function Workspace({ isPublicOnly = false, isSearchPage = false }) {
 
                                 {/* Body */}
                                 <div className="p-6 overflow-y-auto">
+                                    {/* Inline first-page preview */}
+                                    <DocumentPreview document={selectedDoc} isPublic={isPublicOnly} />
+
                                     <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
                                         {/* Info Column */}
                                         <div className="space-y-6">
@@ -1152,8 +1183,17 @@ export function Workspace({ isPublicOnly = false, isSearchPage = false }) {
 
                                 {/* Footer Actions */}
                                 <div className="p-6 border-t border-gray-100 dark:border-gray-800/60 bg-gray-50/50 dark:bg-gray-800/20 flex flex-wrap gap-3">
+                                    <Button
+                                        className="flex-1 sm:flex-none bg-gradient-to-r from-indigo-500 to-blue-600 hover:from-indigo-600 hover:to-blue-700 text-white border-none shadow-lg shadow-indigo-500/25"
+                                        onClick={() => {
+                                            setFullPreviewDoc(selectedDoc);
+                                            setIsFullPreviewOpen(true);
+                                        }}
+                                    >
+                                        <Eye className="w-4 h-4 mr-2" /> View
+                                    </Button>
                                     <Button className="flex-1 sm:flex-none border-none shadow-lg shadow-blue-500/20" onClick={() => handleDownload(selectedDoc)}>
-                                        <Download className="w-4 h-4 mr-2" /> Download Document
+                                        <Download className="w-4 h-4 mr-2" /> Download
                                     </Button>
 
                                     {!isPublicOnly && canManageDocumentAccess(selectedDoc) && (
@@ -1214,6 +1254,13 @@ export function Workspace({ isPublicOnly = false, isSearchPage = false }) {
                     setSelectedDoc(prev => mergeDocumentData(prev, updatedDoc));
                     setDocuments(docs => docs.map(d => d._id === updatedDoc._id ? updatedDoc : d));
                 }}
+            />
+            <FullPreviewModal
+                isOpen={isFullPreviewOpen}
+                onClose={() => { setIsFullPreviewOpen(false); setFullPreviewDoc(null); }}
+                document={fullPreviewDoc}
+                isPublic={isPublicOnly}
+                onDownload={handleDownload}
             />
             <LogsModal
                 isOpen={isLogsOpen}
