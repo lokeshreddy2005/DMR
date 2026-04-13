@@ -83,6 +83,7 @@ AWS_SECRET_ACCESS_KEY=your_aws_secret_key
 AWS_REGION=your_aws_region
 S3_BUCKET_NAME=your_s3_bucket_name
 GROQ_API_KEY=your_groq_api_key
+GROQ_VAULT_API_KEY=your_groq_api_key_for_vault_routing
 ```
 
 ### Installation
