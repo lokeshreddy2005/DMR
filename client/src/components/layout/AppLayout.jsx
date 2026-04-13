@@ -35,6 +35,7 @@ import { motion, AnimatePresence } from "framer-motion";
 
 import ShareModal from "../ShareModal";
 import AdvancedSearchPopover from "../AdvancedSearchPopover";
+import { VAULT_COLOR, DEFAULT_VAULT_COLOR, VAULT_LABELS, VAULT_THRESHOLD } from "../../constants/vaults";
 
 const SIDEBAR_LINKS = [
   { name: "Dashboard", href: "/dashboard", icon: LayoutDashboard },
@@ -133,6 +134,8 @@ export function AppLayout() {
     const i = Math.floor(Math.log(bytes) / Math.log(k));
     return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
   };
+
+  const formatVaultPercent = (score) => `${(score * 100).toFixed(2)}%`;
 
   const handleDownloadPreview = async (doc) => {
     try {
@@ -507,6 +510,37 @@ export function AppLayout() {
                           <p className="text-xs text-gray-500 italic mb-3">No tags added yet.</p>
                       )}
                     </div>
+
+                    {/* Vaults Section */}
+                    {previewDoc.metadata?.vaults && previewDoc.metadata.vaults.filter(v => v.score >= VAULT_THRESHOLD).length > 0 && (
+                      <div>
+                        <p className="text-xs font-bold text-gray-400 uppercase tracking-widest mb-3">Document Vaults</p>
+                        <div className="space-y-2.5">
+                          {previewDoc.metadata.vaults.filter(v => v.score >= VAULT_THRESHOLD).map((vault) => {
+                            const color = VAULT_COLOR;
+                            const label = VAULT_LABELS[vault.vaultId] || vault.label;
+                            return (
+                              <div key={vault.vaultId} className={`p-3 rounded-lg border ${color.bg} ${color.border}`}>
+                                <div className="flex items-center justify-between gap-2 mb-2">
+                                  <span className={`font-semibold text-sm ${color.text}`}>
+                                    {label}
+                                  </span>
+                                  <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${color.bg} ${color.text} border ${color.border}`}>
+                                    {formatVaultPercent(vault.score)}
+                                  </span>
+                                </div>
+                                <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-1.5 overflow-hidden">
+                                  <div 
+                                    className={`${color.bar} h-full rounded-full transition-all`}
+                                    style={{ width: `${vault.score * 100}%` }}
+                                  />
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    )}
                   </div>
 
                   {/* Metadata Column */}

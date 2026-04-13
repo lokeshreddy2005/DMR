@@ -3,43 +3,9 @@ import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import axios from 'axios';
 import API_URL from '../config/api';
 import { useAuth } from '../context/AuthContext';
-import { FileText, ChevronLeft, ChevronRight, ArrowLeft, LayoutGrid, List } from 'lucide-react';
+import { FileText, ChevronLeft, ChevronRight, ArrowLeft, LayoutGrid, List, X, Download, Share2, Trash2, Edit3, Eye } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
-
-// Vault icon map
-const VAULT_ICONS = {
-    academics: '🎓',
-    finance: '💰',
-    operations: '⚙️',
-    governance: '⚖️',
-    research: '🔬',
-    hr: '👥',
-    engineering: '🔧',
-    marketing: '📣',
-    it_systems: '💻',
-    student_affairs: '🎒',
-    library_archives: '📚',
-    events: '🎪',
-    miscellaneous: '🗂️',
-};
-
-const VAULT_COLORS = {
-    academics:       { bg: 'bg-blue-50 dark:bg-blue-900/20',   border: 'border-blue-200 dark:border-blue-800/50',   text: 'text-blue-700 dark:text-blue-300',   bar: 'bg-blue-500' },
-    finance:         { bg: 'bg-emerald-50 dark:bg-emerald-900/20', border: 'border-emerald-200 dark:border-emerald-800/50', text: 'text-emerald-700 dark:text-emerald-300', bar: 'bg-emerald-500' },
-    operations:      { bg: 'bg-orange-50 dark:bg-orange-900/20', border: 'border-orange-200 dark:border-orange-800/50', text: 'text-orange-700 dark:text-orange-300', bar: 'bg-orange-500' },
-    governance:      { bg: 'bg-purple-50 dark:bg-purple-900/20', border: 'border-purple-200 dark:border-purple-800/50', text: 'text-purple-700 dark:text-purple-300', bar: 'bg-purple-500' },
-    research:        { bg: 'bg-cyan-50 dark:bg-cyan-900/20',    border: 'border-cyan-200 dark:border-cyan-800/50',    text: 'text-cyan-700 dark:text-cyan-300',    bar: 'bg-cyan-500' },
-    hr:              { bg: 'bg-pink-50 dark:bg-pink-900/20',    border: 'border-pink-200 dark:border-pink-800/50',    text: 'text-pink-700 dark:text-pink-300',    bar: 'bg-pink-500' },
-    engineering:     { bg: 'bg-yellow-50 dark:bg-yellow-900/20', border: 'border-yellow-200 dark:border-yellow-800/50', text: 'text-yellow-700 dark:text-yellow-300', bar: 'bg-yellow-500' },
-    marketing:       { bg: 'bg-rose-50 dark:bg-rose-900/20',    border: 'border-rose-200 dark:border-rose-800/50',    text: 'text-rose-700 dark:text-rose-300',    bar: 'bg-rose-500' },
-    it_systems:      { bg: 'bg-indigo-50 dark:bg-indigo-900/20', border: 'border-indigo-200 dark:border-indigo-800/50', text: 'text-indigo-700 dark:text-indigo-300', bar: 'bg-indigo-500' },
-    student_affairs: { bg: 'bg-teal-50 dark:bg-teal-900/20',   border: 'border-teal-200 dark:border-teal-800/50',   text: 'text-teal-700 dark:text-teal-300',   bar: 'bg-teal-500' },
-    library_archives:{ bg: 'bg-amber-50 dark:bg-amber-900/20', border: 'border-amber-200 dark:border-amber-800/50', text: 'text-amber-700 dark:text-amber-300', bar: 'bg-amber-500' },
-    events:          { bg: 'bg-fuchsia-50 dark:bg-fuchsia-900/20', border: 'border-fuchsia-200 dark:border-fuchsia-800/50', text: 'text-fuchsia-700 dark:text-fuchsia-300', bar: 'bg-fuchsia-500' },
-    miscellaneous:   { bg: 'bg-gray-50 dark:bg-gray-800/40',   border: 'border-gray-200 dark:border-gray-700',      text: 'text-gray-600 dark:text-gray-400',   bar: 'bg-gray-400' },
-};
-
-const DEFAULT_COLOR = { bg: 'bg-gray-50 dark:bg-gray-800/40', border: 'border-gray-200 dark:border-gray-700', text: 'text-gray-600 dark:text-gray-400', bar: 'bg-gray-400' };
+import { VAULT_ICONS, VAULT_COLOR, DEFAULT_VAULT_COLOR, VAULT_LABELS, VAULT_THRESHOLD } from '../constants/vaults';
 
 const formatSize = (bytes) => {
     if (!bytes) return '0 B';
@@ -82,7 +48,7 @@ function VaultListView({ onSelectVault }) {
     return (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
             {vaults.map(vault => {
-                const color = VAULT_COLORS[vault.id] || DEFAULT_COLOR;
+                const color = VAULT_COLOR;
                 const count = stats[vault.id] || 0;
                 return (
                     <motion.button
@@ -112,17 +78,19 @@ function VaultListView({ onSelectVault }) {
 // ─── Vault Document View ───────────────────────────────────────────────────────
 function VaultDocumentView({ vault, onBack }) {
     const { token } = useAuth();
+    const navigate = useNavigate();
     const [searchParams, setSearchParams] = useSearchParams();
     const [documents, setDocuments] = useState([]);
     const [totalCount, setTotalCount] = useState(0);
     const [totalPages, setTotalPages] = useState(1);
     const [loading, setLoading] = useState(true);
     const [viewMode, setViewMode] = useState('grid');
+    const [selectedDoc, setSelectedDoc] = useState(null);
 
     const currentPage = parseInt(searchParams.get('page') || '1', 10);
     const LIMIT = 20;
 
-    const color = VAULT_COLORS[vault.id] || DEFAULT_COLOR;
+    const color = VAULT_COLOR;
 
     const fetchDocs = useCallback(async () => {
         setLoading(true);
@@ -230,7 +198,8 @@ function VaultDocumentView({ vault, onBack }) {
                                     key={doc._id}
                                     variants={{ hidden: { opacity: 0, y: 10 }, visible: { opacity: 1, y: 0 } }}
                                     initial="hidden" animate="visible"
-                                    className={`bg-white dark:bg-gray-900 border rounded-2xl p-5 shadow-sm hover:shadow-md hover:-translate-y-1 transition-all duration-200 ${color.border}`}
+                                    onClick={() => setSelectedDoc(doc)}
+                                    className={`bg-white dark:bg-gray-900 border rounded-2xl p-5 shadow-sm hover:shadow-md hover:-translate-y-1 transition-all duration-200 cursor-pointer ${color.border}`}
                                 >
                                     <div className="flex justify-between items-start mb-3">
                                         <div className={`w-11 h-11 rounded-xl ${color.bg} ${color.text} flex items-center justify-center flex-shrink-0`}>
@@ -257,7 +226,8 @@ function VaultDocumentView({ vault, onBack }) {
                                 <motion.div
                                     key={doc._id}
                                     initial={{ opacity: 0, x: -10 }} animate={{ opacity: 1, x: 0 }}
-                                    className={`bg-white dark:bg-gray-900 border rounded-xl p-3 flex items-center gap-4 hover:shadow-sm transition-all ${color.border}`}
+                                    onClick={() => setSelectedDoc(doc)}
+                                    className={`bg-white dark:bg-gray-900 border rounded-xl p-3 flex items-center gap-4 hover:shadow-sm transition-all cursor-pointer ${color.border}`}
                                 >
                                     <div className={`w-9 h-9 rounded-lg ${color.bg} ${color.text} flex items-center justify-center flex-shrink-0`}>
                                         <FileText className="w-4 h-4" />
@@ -283,6 +253,132 @@ function VaultDocumentView({ vault, onBack }) {
                     </motion.div>
                 </AnimatePresence>
             )}
+
+        {/* Document Preview Modal */}
+        <AnimatePresence>
+            {selectedDoc && (
+                <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 sm:p-6">
+                    <motion.div
+                        initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+                        onClick={() => setSelectedDoc(null)}
+                        className="absolute inset-0 bg-gray-900/60 backdrop-blur-sm cursor-pointer"
+                    />
+                    <motion.div
+                        initial={{ opacity: 0, scale: 0.95, y: 20 }} animate={{ opacity: 1, scale: 1, y: 0 }} exit={{ opacity: 0, scale: 0.95, y: 20 }}
+                        className="relative w-full max-w-2xl bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-3xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh]"
+                    >
+                        {/* Header */}
+                        <div className="flex items-start sm:items-center justify-between p-6 border-b border-gray-100 dark:border-gray-800/60 bg-gray-50/50 dark:bg-gray-800/20">
+                            <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4">
+                                <div className="w-12 h-12 rounded-xl bg-blue-50 dark:bg-blue-500/10 flex items-center justify-center text-blue-600 dark:text-blue-400 flex-shrink-0">
+                                    <FileText className="w-6 h-6" />
+                                </div>
+                                <div>
+                                    <h3 className="text-xl font-bold text-gray-900 dark:text-white line-clamp-2 sm:truncate max-w-md">{selectedDoc.fileName}</h3>
+                                    <div className="flex flex-wrap items-center gap-2 mt-1.5">
+                                        <span className="px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider bg-gray-200/60 dark:bg-gray-800 text-gray-700 dark:text-gray-300">
+                                            Vault Document
+                                        </span>
+                                    </div>
+                                </div>
+                            </div>
+                            <button onClick={() => setSelectedDoc(null)} className="flex-shrink-0 p-2 text-gray-400 hover:text-gray-900 dark:hover:text-white rounded-xl hover:bg-gray-200 dark:hover:bg-gray-800 transition-colors ml-4 sm:ml-0">
+                                <X className="w-5 h-5" />
+                            </button>
+                        </div>
+
+                        {/* Body */}
+                        <div className="p-6 overflow-y-auto">
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                                {/* Info Column */}
+                                <div className="space-y-6">
+                                    <div>
+                                        <p className="text-xs font-bold text-gray-400 uppercase tracking-widest mb-1.5">Description</p>
+                                        <p className="text-sm text-gray-700 dark:text-gray-300 leading-relaxed font-medium">{selectedDoc.description || 'No description provided.'}</p>
+                                    </div>
+                                    
+                                    <div>
+                                        <div className="flex items-center justify-between mb-2">
+                                            <p className="text-xs font-bold text-gray-400 uppercase tracking-widest">Metadata Tags</p>
+                                            {selectedDoc.isAITagged && (
+                                                <span className="text-[10px] font-bold text-purple-600 bg-purple-100 dark:bg-purple-900/30 dark:text-purple-400 px-1.5 py-0.5 rounded uppercase tracking-wider">AI Tagged</span>
+                                            )}
+                                        </div>
+                                        {(selectedDoc.tags?.length > 0) ? (
+                                            <div className="flex flex-wrap gap-1.5 mb-3">
+                                                {selectedDoc.tags.map((t, i) => (
+                                                    <span key={i} className="flex items-center gap-1.5 px-2 py-1 bg-blue-50 dark:bg-blue-500/10 border border-blue-100 dark:border-blue-500/20 text-blue-600 dark:text-blue-400 rounded-lg text-xs font-bold uppercase tracking-wider group">
+                                                        {t}
+                                                    </span>
+                                                ))}
+                                            </div>
+                                        ) : (
+                                            <p className="text-xs text-gray-500 italic mb-3">No tags added yet.</p>
+                                        )}
+                                    </div>
+
+                                    {/* Vaults Section */}
+                                    {selectedDoc.metadata?.vaults && selectedDoc.metadata.vaults.filter(v => v.score >= VAULT_THRESHOLD).length > 0 && (
+                                        <div>
+                                            <p className="text-xs font-bold text-gray-400 uppercase tracking-widest mb-3">Document Vaults</p>
+                                            <div className="space-y-2.5">
+                                                {selectedDoc.metadata.vaults.filter(v => v.score >= VAULT_THRESHOLD).map((vault) => {
+                                                    const vaultColor = VAULT_COLOR;
+                                                    const label = VAULT_LABELS[vault.vaultId] || vault.label;
+                                                    return (
+                                                        <div key={vault.vaultId} className={`p-3 rounded-lg border ${vaultColor.bg} ${vaultColor.border}`}>
+                                                            <div className="flex items-center justify-between gap-2 mb-2">
+                                                                <span className={`font-semibold text-sm ${vaultColor.text}`}>
+                                                                    {label}
+                                                                </span>
+                                                                <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${vaultColor.bg} ${vaultColor.text} border ${vaultColor.border}`}>
+                                                                    {`${(vault.score * 100).toFixed(2)}%`}
+                                                                </span>
+                                                            </div>
+                                                            <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-1.5 overflow-hidden">
+                                                                <div 
+                                                                    className={`${vaultColor.bar} h-full rounded-full transition-all`}
+                                                                    style={{ width: `${vault.score * 100}%` }}
+                                                                />
+                                                            </div>
+                                                        </div>
+                                                    );
+                                                })}
+                                            </div>
+                                        </div>
+                                    )}
+                                </div>
+
+                                {/* Metadata Column */}
+                                <div className="bg-gray-50/50 dark:bg-gray-800/40 rounded-3xl p-6 border border-gray-100 dark:border-gray-800/60 space-y-4">
+                                    {[
+                                        { label: 'Uploader', value: selectedDoc.uploadedBy?.name || 'Unknown' },
+                                        { label: 'Upload Date', value: new Date(selectedDoc.uploadDate).toLocaleDateString() },
+                                        { label: 'File Size', value: formatSize(selectedDoc.fileSize) },
+                                        { label: 'File Type', value: selectedDoc.mimeType },
+                                    ].map(item => (
+                                        <div key={item.label} className="flex justify-between items-center py-1">
+                                            <span className="text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-widest">{item.label}</span>
+                                            <span className="text-sm font-semibold text-gray-900 dark:text-white truncate max-w-[140px]">{item.value}</span>
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
+                        </div>
+
+                        {/* Footer */}
+                        <div className="p-6 border-t border-gray-100 dark:border-gray-800/60 bg-gray-50/50 dark:bg-gray-800/20 flex flex-wrap justify-end gap-3 sm:gap-4">
+                            <button 
+                                onClick={() => setSelectedDoc(null)} 
+                                className="flex-1 sm:flex-none px-4 py-2 rounded-lg border border-gray-200 dark:border-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 font-semibold transition-colors"
+                            >
+                                Close
+                            </button>
+                        </div>
+                    </motion.div>
+                </div>
+            )}
+        </AnimatePresence>
         </div>
     );
 }

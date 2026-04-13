@@ -11,6 +11,7 @@ import ShareModal from '../components/ShareModal';
 import LogsModal from '../components/LogsModal';
 import CreateOrgModal from '../components/CreateOrgModal';
 import ManageOrgModal from '../components/ManageOrgModal';
+import { VAULT_COLOR, DEFAULT_VAULT_COLOR, VAULT_LABELS, VAULT_THRESHOLD } from '../constants/vaults';
 
 export function Workspace({ isPublicOnly = false, isSearchPage = false }) {
     const { spaceId } = useParams();
@@ -878,6 +879,8 @@ export function Workspace({ isPublicOnly = false, isSearchPage = false }) {
         return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
     };
 
+    const formatVaultPercent = (score) => `${(score * 100).toFixed(2)}%`;
+
     const getFileType = (doc) => {
         // Priority 1: Metadata extension
         if (doc.metadata?.extension) {
@@ -934,8 +937,6 @@ export function Workspace({ isPublicOnly = false, isSearchPage = false }) {
                 return { icon: <FileText className="w-5 h-5" />, bg: 'bg-blue-50 dark:bg-blue-500/10', text: 'text-blue-600 dark:text-blue-400' };
         }
     };
-
-    const formatVaultPercent = (score) => `${(score * 100).toFixed(2)}%`;
 
     const itemsPerPage = 20; // Server limit is default 20
     const sharedToOthersRevokeTitle = selectedDocumentIds.size === 0
@@ -1294,9 +1295,9 @@ export function Workspace({ isPublicOnly = false, isSearchPage = false }) {
                                                     {doc.metadata.typeTags.length > 2 && <span className="text-[10px] text-gray-400 font-bold">+{doc.metadata.typeTags.length - 2}</span>}
                                                 </div>
                                             )} */}
-                                            {doc.isVaultRouted && doc.metadata?.vaults?.length > 0 && (
+                                            {doc.isVaultRouted && doc.metadata?.vaults?.filter(v => v.score >= VAULT_THRESHOLD).length > 0 && (
                                                 <div className="mt-2 flex flex-wrap gap-1.5 overflow-hidden max-h-5">
-                                                    {doc.metadata.vaults.slice(0, 2).map((v, i) => (
+                                                    {doc.metadata.vaults.filter(v => v.score >= VAULT_THRESHOLD).slice(0, 2).map((v, i) => (
                                                         <button
                                                             key={i}
                                                             type="button"
@@ -1310,7 +1311,7 @@ export function Workspace({ isPublicOnly = false, isSearchPage = false }) {
                                                             🗂 {v.label}
                                                         </button>
                                                     ))}
-                                                    {doc.metadata.vaults.length > 2 && <span className="text-[10px] text-gray-400 font-bold">+{doc.metadata.vaults.length - 2}</span>}
+                                                    {doc.metadata.vaults.filter(v => v.score >= VAULT_THRESHOLD).length > 2 && <span className="text-[10px] text-gray-400 font-bold">+{doc.metadata.vaults.filter(v => v.score >= VAULT_THRESHOLD).length - 2}</span>}
                                                 </div>
                                             )}
                                         </motion.div>
@@ -1355,28 +1356,20 @@ export function Workspace({ isPublicOnly = false, isSearchPage = false }) {
                                             </div>
 
                                             <div className="flex items-center gap-4 flex-shrink-0">
-                                                {doc.isTagged && doc.metadata?.typeTags?.length > 0 && (
-                                                    <div className="hidden md:flex flex-wrap gap-1.5 max-w-[160px] overflow-hidden">
-                                                        {doc.metadata.typeTags.slice(0, 1).map((tag, i) => (
-                                                            <span key={i} className="px-2 py-0.5 rounded-md bg-blue-50 dark:bg-blue-500/10 text-blue-600 dark:text-blue-400 text-[10px] font-bold uppercase tracking-wider truncate">{tag}</span>
-                                                        ))}
-                                                        {doc.metadata.typeTags.length > 1 && <span className="text-[10px] text-gray-400 font-bold">+{doc.metadata.typeTags.length - 1}</span>}
-                                                    </div>
-                                                )}
-                                                {doc.isVaultRouted && doc.metadata?.vaults?.length > 0 && (
+                                                {doc.isVaultRouted && doc.metadata?.vaults?.filter(v => v.score >= VAULT_THRESHOLD).length > 0 && (
                                                     <div className="hidden lg:flex flex-wrap gap-1.5 max-w-[160px] overflow-hidden">
                                                         <button
                                                             type="button"
                                                             onClick={(e) => {
                                                                 e.stopPropagation();
-                                                                navigate(`/vaults/${doc.metadata.vaults[0].vaultId}?page=1`);
+                                                                navigate(`/vaults/${doc.metadata.vaults.find(v => v.score >= VAULT_THRESHOLD).vaultId}?page=1`);
                                                             }}
                                                             className="px-2 py-0.5 rounded-md bg-emerald-50 dark:bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 text-[10px] font-bold truncate flex items-center gap-1 hover:bg-emerald-100 dark:hover:bg-emerald-500/20 transition-colors"
-                                                            title={`View documents in ${doc.metadata.vaults[0].label}`}
+                                                            title={`View documents in ${doc.metadata.vaults.find(v => v.score >= VAULT_THRESHOLD).label}`}
                                                         >
-                                                            🗂 {doc.metadata.vaults[0].label}
+                                                            🗂 {doc.metadata.vaults.find(v => v.score >= VAULT_THRESHOLD).label}
                                                         </button>
-                                                        {doc.metadata.vaults.length > 1 && <span className="text-[10px] text-gray-400 font-bold">+{doc.metadata.vaults.length - 1}</span>}
+                                                        {doc.metadata.vaults.filter(v => v.score >= VAULT_THRESHOLD).length > 1 && <span className="text-[10px] text-gray-400 font-bold">+{doc.metadata.vaults.filter(v => v.score >= VAULT_THRESHOLD).length - 1}</span>}
                                                     </div>
                                                 )}
 
@@ -1612,6 +1605,37 @@ export function Workspace({ isPublicOnly = false, isSearchPage = false }) {
                                                     </div>
                                                 ))}
                                             </div>
+
+                                            {/* Vaults Section */}
+                                            {selectedDoc.metadata?.vaults && selectedDoc.metadata.vaults.filter(v => v.score >= VAULT_THRESHOLD).length > 0 && (
+                                              <div className="bg-white dark:bg-gray-800 rounded-3xl p-6 border border-gray-100 dark:border-gray-800/60 space-y-3">
+                                                <p className="text-xs font-bold text-gray-400 uppercase tracking-widest mb-3">Document Vaults</p>
+                                                <div className="space-y-2.5">
+                                                  {selectedDoc.metadata.vaults.filter(v => v.score >= VAULT_THRESHOLD).map((vault) => {
+                                                    const color = VAULT_COLOR;
+                                                    const label = VAULT_LABELS[vault.vaultId] || vault.label;
+                                                    return (
+                                                      <div key={vault.vaultId} className={`p-3 rounded-lg border ${color.bg} ${color.border}`}>
+                                                        <div className="flex items-center justify-between gap-2 mb-2">
+                                                          <span className={`font-semibold text-sm ${color.text}`}>
+                                                            {label}
+                                                          </span>
+                                                          <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${color.bg} ${color.text} border ${color.border}`}>
+                                                            {formatVaultPercent(vault.score)}
+                                                          </span>
+                                                        </div>
+                                                        <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-1.5 overflow-hidden">
+                                                          <div 
+                                                            className={`${color.bar} h-full rounded-full transition-all`}
+                                                            style={{ width: `${vault.score * 100}%` }}
+                                                          />
+                                                        </div>
+                                                      </div>
+                                                    );
+                                                  })}
+                                                </div>
+                                              </div>
+                                            )}
 
                                             {isMoving && (
                                                 <div className="p-4 bg-white dark:bg-gray-800 rounded-2xl border border-gray-200 dark:border-gray-700 shadow-sm space-y-3 animate-fade-in-up">

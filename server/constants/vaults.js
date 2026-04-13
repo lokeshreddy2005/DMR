@@ -1,7 +1,7 @@
 // VAULT DEFINITIONS
 
 //Minimum confidence score (0.0 – 1.0) for a vault to be assigned to a document.
-const VAULT_THRESHOLD = 0.4444;
+const VAULT_THRESHOLD = 0.33;
 
 const VAULTS = [
     {
