@@ -68,6 +68,41 @@ async function getDownloadUrl(s3Key) {
 }
 
 /**
+ * Generate a pre-signed URL for inline preview (Content-Disposition: inline).
+ * Browsers will attempt to render supported file types instead of downloading.
+ * @param {string} s3Key - S3 object key
+ * @param {string} mimeType - MIME type of the file (e.g. 'application/pdf')
+ * @param {string} [fileName] - Original file name for the Content-Disposition header
+ * @returns {Promise<string>}
+ */
+async function getPreviewUrl(s3Key, mimeType, fileName) {
+    const safeName = (fileName || 'file').replace(/[^a-zA-Z0-9._-]/g, '_');
+    const command = new GetObjectCommand({
+        Bucket: BUCKET,
+        Key: s3Key,
+        ResponseContentDisposition: `inline; filename="${safeName}"`,
+        ResponseContentType: mimeType || 'application/octet-stream',
+    });
+
+    return getSignedUrl(s3Client, command, { expiresIn: 3600 });
+}
+
+/**
+ * Get the raw S3 object (stream + metadata) for proxying downloads.
+ * Returns { Body, ContentType, ContentLength } from the S3 response.
+ * @param {string} s3Key - S3 object key
+ * @returns {Promise<import('@aws-sdk/client-s3').GetObjectCommandOutput>}
+ */
+async function getS3ObjectStream(s3Key) {
+    const command = new GetObjectCommand({
+        Bucket: BUCKET,
+        Key: s3Key,
+    });
+
+    return s3Client.send(command);
+}
+
+/**
  * Delete a file from S3.
  * @param {string} s3Key - S3 object key
  */
@@ -80,4 +115,4 @@ async function deleteFromS3(s3Key) {
     await s3Client.send(command);
 }
 
-module.exports = { uploadToS3, getDownloadUrl, deleteFromS3 };
+module.exports = { uploadToS3, getDownloadUrl, getPreviewUrl, getS3ObjectStream, deleteFromS3 };
