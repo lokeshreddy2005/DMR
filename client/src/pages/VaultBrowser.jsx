@@ -3,9 +3,11 @@ import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import axios from 'axios';
 import API_URL from '../config/api';
 import { useAuth } from '../context/AuthContext';
-import { FileText, ChevronLeft, ChevronRight, ArrowLeft, LayoutGrid, List, X, Download, Share2, Trash2, Edit3, Eye } from 'lucide-react';
+import { FileText, ChevronLeft, ChevronRight, ArrowLeft, LayoutGrid, List, X, Download, Maximize2 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { VAULT_ICONS, VAULT_COLOR, DEFAULT_VAULT_COLOR, VAULT_LABELS, VAULT_THRESHOLD } from '../constants/vaults';
+import { Button } from '../components/ui/Button';
+import DocumentPreview, { DocumentThumbnail, FullPreviewModal } from '../components/PreviewModal';
+import { VAULT_ICONS, VAULT_COLOR, VAULT_LABELS, VAULT_THRESHOLD } from '../constants/vaults';
 
 const formatSize = (bytes) => {
     if (!bytes) return '0 B';
@@ -78,7 +80,6 @@ function VaultListView({ onSelectVault }) {
 // ─── Vault Document View ───────────────────────────────────────────────────────
 function VaultDocumentView({ vault, onBack }) {
     const { token } = useAuth();
-    const navigate = useNavigate();
     const [searchParams, setSearchParams] = useSearchParams();
     const [documents, setDocuments] = useState([]);
     const [totalCount, setTotalCount] = useState(0);
@@ -86,31 +87,42 @@ function VaultDocumentView({ vault, onBack }) {
     const [loading, setLoading] = useState(true);
     const [viewMode, setViewMode] = useState('grid');
     const [selectedDoc, setSelectedDoc] = useState(null);
+    const [expandedTags, setExpandedTags] = useState(false);
+    const [isFullPreviewOpen, setIsFullPreviewOpen] = useState(false);
 
     const currentPage = parseInt(searchParams.get('page') || '1', 10);
     const LIMIT = 20;
-
+    const effectiveTotalPages = Math.max(1, totalPages || 1);
     const color = VAULT_COLOR;
+
+    const getAuthHeaders = useCallback(() => {
+        const t = token || localStorage.getItem('dmr_token');
+        return t ? { Authorization: `Bearer ${t}` } : {};
+    }, [token]);
 
     const fetchDocs = useCallback(async () => {
         setLoading(true);
         try {
-            const headers = { Authorization: `Bearer ${token || localStorage.getItem('dmr_token')}` };
+            const headers = getAuthHeaders();
             const res = await axios.get(
                 `${API_URL}/api/documents/vault/${vault.id}?page=${currentPage}&limit=${LIMIT}`,
                 { headers }
             );
             setDocuments(res.data.documents || []);
             setTotalCount(res.data.totalCount || 0);
-            setTotalPages(res.data.totalPages || 1);
+            setTotalPages(Math.max(1, res.data.totalPages || 1));
         } catch (err) {
             console.error(err);
         } finally {
             setLoading(false);
         }
-    }, [vault.id, currentPage, token]);
+    }, [vault.id, currentPage, getAuthHeaders]);
 
     useEffect(() => { fetchDocs(); }, [fetchDocs]);
+
+    useEffect(() => {
+        setExpandedTags(false);
+    }, [selectedDoc?._id]);
 
     const goToPage = (p) => {
         const np = new URLSearchParams(searchParams);
@@ -119,6 +131,29 @@ function VaultDocumentView({ vault, onBack }) {
     };
 
     const startIndex = (currentPage - 1) * LIMIT;
+
+    const handleDownload = async (doc) => {
+        try {
+            const headers = getAuthHeaders();
+            const tokenRes = await axios.get(`${API_URL}/api/documents/${doc._id}/download`, { headers });
+            const { downloadToken, fileName } = tokenRes.data;
+            const blobRes = await axios.get(`${API_URL}/api/documents/secure-download/${downloadToken}`, { responseType: 'blob' });
+            const blob = new Blob([blobRes.data], { type: blobRes.headers['content-type'] || 'application/octet-stream' });
+            const url = window.URL.createObjectURL(blob);
+
+            const link = document.createElement('a');
+            link.href = url;
+            link.download = fileName || 'download';
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+
+            window.open(url, '_blank');
+            setTimeout(() => window.URL.revokeObjectURL(url), 15000);
+        } catch (err) {
+            console.error('Vault download failed:', err);
+        }
+    };
 
     return (
         <div className="flex flex-col gap-6">
@@ -148,13 +183,13 @@ function VaultDocumentView({ vault, onBack }) {
                     </span>
                     <div className="flex items-center gap-2">
                         {/* Pagination */}
-                        {totalPages > 1 && (
+                        {effectiveTotalPages > 1 && (
                             <div className="flex items-center gap-1 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg shadow-sm">
                                 <button onClick={() => goToPage(Math.max(1, currentPage - 1))} disabled={currentPage <= 1} className="p-1.5 text-gray-500 hover:text-blue-600 disabled:opacity-30 transition-colors">
                                     <ChevronLeft className="w-4 h-4" />
                                 </button>
-                                <span className="px-2 text-xs font-bold text-gray-700 dark:text-gray-300">{currentPage} / {totalPages}</span>
-                                <button onClick={() => goToPage(Math.min(totalPages, currentPage + 1))} disabled={currentPage >= totalPages} className="p-1.5 text-gray-500 hover:text-blue-600 disabled:opacity-30 transition-colors">
+                                <span className="px-2 text-xs font-bold text-gray-700 dark:text-gray-300">{currentPage} / {effectiveTotalPages}</span>
+                                <button onClick={() => goToPage(Math.min(effectiveTotalPages, currentPage + 1))} disabled={currentPage >= effectiveTotalPages} className="p-1.5 text-gray-500 hover:text-blue-600 disabled:opacity-30 transition-colors">
                                     <ChevronRight className="w-4 h-4" />
                                 </button>
                             </div>
@@ -209,28 +244,35 @@ function VaultDocumentView({ vault, onBack }) {
                                     variants={{ hidden: { opacity: 0, y: 10 }, visible: { opacity: 1, y: 0 } }}
                                     initial="hidden" animate="visible"
                                     onClick={() => setSelectedDoc(doc)}
-                                    className={`bg-white dark:bg-gray-900 border rounded-2xl p-5 shadow-sm hover:shadow-md hover:-translate-y-1 transition-all duration-200 cursor-pointer ${color.border}`}
+                                    className={`bg-white dark:bg-gray-900 border rounded-2xl overflow-hidden shadow-sm hover:shadow-md hover:-translate-y-1 transition-all duration-200 cursor-pointer ${color.border}`}
                                 >
-                                    <div className="flex justify-between items-start mb-3">
-                                        <div className={`w-11 h-11 rounded-xl ${color.bg} ${color.text} flex items-center justify-center flex-shrink-0`}>
-                                            <FileText className="w-5 h-5" />
+                                    <DocumentThumbnail document={doc} />
+                                    <div className="p-5">
+                                        <div className="flex justify-between items-start mb-3">
+                                            <div className={`w-11 h-11 rounded-xl ${color.bg} ${color.text} flex items-center justify-center flex-shrink-0`}>
+                                                <FileText className="w-5 h-5" />
+                                            </div>
+                                            {score !== null && (
+                                                <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${color.bg} ${color.text} ${color.border}`}>
+                                                    {score} match
+                                                </span>
+                                            )}
+                                        </div>
+                                        <h3 className="font-bold text-gray-900 dark:text-white text-sm truncate mb-1" title={doc.fileName}>{doc.fileName}</h3>
+                                        <div className="flex justify-between text-xs text-gray-500 dark:text-gray-400 font-medium mb-2">
+                                            <span>{formatSize(doc.fileSize)}</span>
+                                            <span>{new Date(doc.uploadDate).toLocaleDateString()}</span>
+                                        </div>
+                                        <div className="flex items-center justify-between text-[11px] font-semibold text-gray-500 dark:text-gray-400 mb-3">
+                                            <span>{doc.uploadedBy?.name || 'Unknown'}</span>
+                                            <span>{doc.tags?.length || 0} {(doc.tags?.length || 0) === 1 ? 'tag' : 'tags'}</span>
                                         </div>
                                         {score !== null && (
-                                            <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${color.bg} ${color.text} ${color.border}`}>
-                                                {score} match
-                                            </span>
+                                            <div className="w-full bg-gray-100 dark:bg-gray-800 rounded-full h-1">
+                                                <div className={`${color.bar} h-1 rounded-full`} style={{ width: score }} />
+                                            </div>
                                         )}
                                     </div>
-                                    <h3 className="font-bold text-gray-900 dark:text-white text-sm truncate mb-1" title={doc.fileName}>{doc.fileName}</h3>
-                                    <div className="flex justify-between text-xs text-gray-500 dark:text-gray-400 font-medium mb-3">
-                                        <span>{formatSize(doc.fileSize)}</span>
-                                        <span>{new Date(doc.uploadDate).toLocaleDateString()}</span>
-                                    </div>
-                                    {score !== null && (
-                                        <div className="w-full bg-gray-100 dark:bg-gray-800 rounded-full h-1">
-                                            <div className={`${color.bar} h-1 rounded-full`} style={{ width: score }} />
-                                        </div>
-                                    )}
                                 </motion.div>
                             ) : (
                                 <motion.div
@@ -251,6 +293,8 @@ function VaultDocumentView({ vault, onBack }) {
                                                 <span>{new Date(doc.uploadDate).toLocaleDateString()}</span>
                                                 <span>•</span>
                                                 <span className="truncate max-w-[100px]">{doc.uploadedBy?.name || 'Unknown'}</span>
+                                                <span>•</span>
+                                                <span>{doc.tags?.length || 0} tags</span>
                                             </div>
                                         </div>
                                     </div>
@@ -260,6 +304,7 @@ function VaultDocumentView({ vault, onBack }) {
                                         <div className="w-36 truncate" title={doc.uploadedBy?.name || 'Unknown'}>{doc.uploadedBy?.name || 'Unknown'}</div>
                                         <div className="w-32">{new Date(doc.uploadDate).toLocaleDateString()}</div>
                                         <div className="w-24 uppercase">{formatSize(doc.fileSize)}</div>
+                                        <div className="w-20 text-xs">{doc.tags?.length || 0} tags</div>
                                     </div>
 
                                     <div className="flex items-center justify-end md:w-20 pr-1 flex-shrink-0">
@@ -314,6 +359,8 @@ function VaultDocumentView({ vault, onBack }) {
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
                                 {/* Info Column */}
                                 <div className="space-y-6">
+                                    <DocumentPreview document={selectedDoc} />
+
                                     <div>
                                         <p className="text-xs font-bold text-gray-400 uppercase tracking-widest mb-1.5">Description</p>
                                         <p className="text-sm text-gray-700 dark:text-gray-300 leading-relaxed font-medium">{selectedDoc.description || 'No description provided.'}</p>
@@ -328,11 +375,29 @@ function VaultDocumentView({ vault, onBack }) {
                                         </div>
                                         {(selectedDoc.tags?.length > 0) ? (
                                             <div className="flex flex-wrap gap-1.5 mb-3">
-                                                {selectedDoc.tags.map((t, i) => (
+                                                {(expandedTags ? selectedDoc.tags : selectedDoc.tags.slice(0, 3)).map((t, i) => (
                                                     <span key={i} className="flex items-center gap-1.5 px-2 py-1 bg-blue-50 dark:bg-blue-500/10 border border-blue-100 dark:border-blue-500/20 text-blue-600 dark:text-blue-400 rounded-lg text-xs font-bold uppercase tracking-wider group">
                                                         {t}
                                                     </span>
                                                 ))}
+                                                {!expandedTags && selectedDoc.tags.length > 3 && (
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => setExpandedTags(true)}
+                                                        className="px-2 py-1 bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 rounded-lg text-[11px] font-bold hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors border border-gray-200 dark:border-gray-700"
+                                                    >
+                                                        +{selectedDoc.tags.length - 3}
+                                                    </button>
+                                                )}
+                                                {expandedTags && selectedDoc.tags.length > 3 && (
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => setExpandedTags(false)}
+                                                        className="px-2 py-1 bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 rounded-lg text-[11px] font-bold hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors border border-gray-200 dark:border-gray-700"
+                                                    >
+                                                        Show less
+                                                    </button>
+                                                )}
                                             </div>
                                         ) : (
                                             <p className="text-xs text-gray-500 italic mb-3">No tags added yet.</p>
@@ -390,6 +455,18 @@ function VaultDocumentView({ vault, onBack }) {
 
                         {/* Footer */}
                         <div className="p-6 border-t border-gray-100 dark:border-gray-800/60 bg-gray-50/50 dark:bg-gray-800/20 flex flex-wrap justify-end gap-3 sm:gap-4">
+                            <Button className="flex-1 sm:flex-none border-none shadow-lg shadow-blue-500/20" onClick={() => handleDownload(selectedDoc)}>
+                                <Download className="w-4 h-4 mr-2" />
+                                Download
+                            </Button>
+                            <Button
+                                variant="secondary"
+                                className="flex-1 sm:flex-none"
+                                onClick={() => setIsFullPreviewOpen(true)}
+                            >
+                                <Maximize2 className="w-4 h-4 mr-2" />
+                                Open Preview
+                            </Button>
                             <button 
                                 onClick={() => setSelectedDoc(null)} 
                                 className="flex-1 sm:flex-none px-4 py-2 rounded-lg border border-gray-200 dark:border-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 font-semibold transition-colors"
@@ -401,6 +478,13 @@ function VaultDocumentView({ vault, onBack }) {
                 </div>
             )}
         </AnimatePresence>
+
+        <FullPreviewModal
+            isOpen={isFullPreviewOpen}
+            onClose={() => setIsFullPreviewOpen(false)}
+            document={selectedDoc}
+            onDownload={handleDownload}
+        />
         </div>
     );
 }
