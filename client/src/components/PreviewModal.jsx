@@ -275,7 +275,7 @@ function DocumentPreview({ document: doc, isPublic = false }) {
         case 'pdf':
             return (<div className="w-full rounded-2xl overflow-hidden border border-gray-100 dark:border-gray-800/60 mb-4 bg-gray-100 dark:bg-gray-800/40"><iframe src={`${previewUrl}#page=1&view=Fit&toolbar=0&navpanes=0&scrollbar=0`} title={`Preview: ${doc.fileName}`} className="w-full border-0" scrolling="no" style={{ height: '500px', pointerEvents: 'none' }} /></div>);
         case 'text':
-            return (<div className="w-full rounded-2xl overflow-hidden border border-gray-100 dark:border-gray-800/60 mb-4 bg-gray-50 dark:bg-gray-950 max-h-56 overflow-y-auto p-4"><pre className="text-[11px] font-mono leading-relaxed text-gray-700 dark:text-gray-300 whitespace-pre-wrap break-words">{textContent || 'Loading…'}</pre></div>);
+            return (<div className="w-full rounded-2xl overflow-hidden border border-gray-100 dark:border-gray-800/60 mb-4 bg-gray-50 dark:bg-gray-950 p-4"><pre className="text-[11px] font-mono leading-relaxed text-gray-700 dark:text-gray-300 whitespace-pre-wrap break-words">{textContent || 'Loading…'}</pre></div>);
         default: return null;
     }
 }

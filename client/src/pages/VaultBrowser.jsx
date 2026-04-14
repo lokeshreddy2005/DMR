@@ -186,8 +186,18 @@ function VaultDocumentView({ vault, onBack }) {
                     <motion.div
                         key={viewMode}
                         initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-                        className={viewMode === 'grid' ? 'grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-4' : 'flex flex-col gap-2'}
+                        className={viewMode === 'grid' ? 'grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-4' : 'flex flex-col gap-[2px]'}
                     >
+                        {viewMode === 'list' && documents.length > 0 && (
+                            <div className="hidden md:flex items-center gap-4 px-4 py-2.5 text-[11px] font-bold text-gray-500 dark:text-gray-400 uppercase tracking-widest border-b border-gray-200 dark:border-gray-800">
+                                <div className="w-10"></div>
+                                <div className="flex-1">Name</div>
+                                <div className="w-36">Uploaded By</div>
+                                <div className="w-32">Date Modified</div>
+                                <div className="w-24">File Size</div>
+                                <div className="w-20 text-right">Vault Match</div>
+                            </div>
+                        )}
                         {documents.map(doc => {
                             // Find this vault's score in the document
                             const vaultEntry = doc.metadata?.vaults?.find(v => v.vaultId === vault.id);
@@ -227,26 +237,38 @@ function VaultDocumentView({ vault, onBack }) {
                                     key={doc._id}
                                     initial={{ opacity: 0, x: -10 }} animate={{ opacity: 1, x: 0 }}
                                     onClick={() => setSelectedDoc(doc)}
-                                    className={`bg-white dark:bg-gray-900 border rounded-xl p-3 flex items-center gap-4 hover:shadow-sm transition-all cursor-pointer ${color.border}`}
+                                    className={`bg-white dark:bg-gray-900 border-b border-gray-100 dark:border-gray-800/60 p-3 hover:bg-gray-50 dark:hover:bg-gray-800/50 cursor-pointer transition-colors flex items-center justify-between ${selectedDoc?._id === doc._id ? 'bg-blue-50 dark:bg-blue-900/10' : ''}`}
                                 >
-                                    <div className={`w-9 h-9 rounded-lg ${color.bg} ${color.text} flex items-center justify-center flex-shrink-0`}>
-                                        <FileText className="w-4 h-4" />
-                                    </div>
-                                    <div className="flex-1 min-w-0">
-                                        <h3 className="font-bold text-gray-900 dark:text-white text-sm truncate">{doc.fileName}</h3>
-                                        <div className="flex items-center gap-3 text-xs text-gray-500 mt-0.5">
-                                            <span>{formatSize(doc.fileSize)}</span>
-                                            <span>•</span>
-                                            <span>{new Date(doc.uploadDate).toLocaleDateString()}</span>
-                                            <span>•</span>
-                                            <span>{doc.uploadedBy?.name || 'Unknown'}</span>
+                                    <div className="flex items-center gap-4 flex-1 min-w-0 pr-4">
+                                        <div className={`w-10 h-10 rounded-lg ${color.bg} ${color.text} flex items-center justify-center flex-shrink-0`}>
+                                            <FileText className="w-5 h-5" />
+                                        </div>
+                                        <div className="flex flex-col min-w-0 flex-1">
+                                            <h3 className="font-semibold text-gray-900 dark:text-white text-sm truncate">{doc.fileName}</h3>
+                                            <div className="md:hidden flex items-center gap-2 text-xs text-gray-500 dark:text-gray-400 mt-1 font-medium">
+                                                <span>{formatSize(doc.fileSize)}</span>
+                                                <span>•</span>
+                                                <span>{new Date(doc.uploadDate).toLocaleDateString()}</span>
+                                                <span>•</span>
+                                                <span className="truncate max-w-[100px]">{doc.uploadedBy?.name || 'Unknown'}</span>
+                                            </div>
                                         </div>
                                     </div>
-                                    {score !== null && (
-                                        <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border flex-shrink-0 ${color.bg} ${color.text} ${color.border}`}>
-                                            {score}
-                                        </span>
-                                    )}
+                                    
+                                    {/* Desktop Columns */}
+                                    <div className="hidden md:flex items-center gap-4 flex-shrink-0 text-sm font-medium text-gray-600 dark:text-gray-400">
+                                        <div className="w-36 truncate" title={doc.uploadedBy?.name || 'Unknown'}>{doc.uploadedBy?.name || 'Unknown'}</div>
+                                        <div className="w-32">{new Date(doc.uploadDate).toLocaleDateString()}</div>
+                                        <div className="w-24 uppercase">{formatSize(doc.fileSize)}</div>
+                                    </div>
+
+                                    <div className="flex items-center justify-end md:w-20 pr-1 flex-shrink-0">
+                                        {score !== null && (
+                                            <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border flex-shrink-0 ${color.bg} ${color.text} ${color.border}`}>
+                                                {score}
+                                            </span>
+                                        )}
+                                    </div>
                                 </motion.div>
                             );
                         })}

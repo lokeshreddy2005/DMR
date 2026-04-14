@@ -994,7 +994,7 @@ export function Workspace({ isPublicOnly = false, isSearchPage = false }) {
             {/* Header & Controls */}
             <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-6 flex-shrink-0">
                 <div>
-                    <h1 className="text-3xl font-extrabold text-gray-900 dark:text-white flex items-center gap-3">
+                    <h1 className="text-2xl font-bold text-gray-900 dark:text-white flex items-center gap-3">
                         {activeSpace === 'public' && <Globe className="w-8 h-8 text-emerald-500" />}
                         {activeSpace === 'private' && <Lock className="w-8 h-8 text-blue-500" />}
                         {activeSpace === 'shared' && <Users className="w-8 h-8 text-orange-500" />}
@@ -1026,8 +1026,9 @@ export function Workspace({ isPublicOnly = false, isSearchPage = false }) {
                     </p>
                 </div>
 
-                <div className="flex items-center gap-3 w-full md:w-auto">
-                    {activeSpace === 'shared-to-others' && (
+                <div className="flex flex-col items-end gap-3 w-full md:w-auto">
+                    <div className="flex items-center gap-3 w-full md:w-auto">
+                        {activeSpace === 'shared-to-others' && (
                         <>
                             <select
                                 value={selectionMode}
@@ -1111,10 +1112,47 @@ export function Workspace({ isPublicOnly = false, isSearchPage = false }) {
                             <Trash2 className="w-4 h-4 mr-2" /> Revoke
                         </Button>
                     )}
-                    {!isPublicOnly && activeSpace !== 'shared-to-others' && (
-                        <Button onClick={() => setIsUploadOpen(true)} className="flex-shrink-0 shadow-lg shadow-blue-500/20">
-                            <FileUp className="w-4 h-4 mr-2" /> Upload
-                        </Button>
+                        {!isPublicOnly && activeSpace !== 'shared-to-others' && (
+                            <Button onClick={() => setIsUploadOpen(true)} className="flex-shrink-0 shadow-lg shadow-blue-500/20">
+                                <FileUp className="w-4 h-4 mr-2" /> Upload
+                            </Button>
+                        )}
+                    </div>
+                    
+                    {/* Pagination below Header controls */}
+                    {!isLoading && !error && totalItems > 0 && effectiveTotalPages > 1 && (
+                        <div className="flex items-center gap-4 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg shadow-sm px-3 py-1.5 self-end">
+                            <span className="text-xs font-medium text-gray-500 dark:text-gray-400">
+                                Page <span className="font-bold text-gray-900 dark:text-white">{currentPage}</span> of <span className="font-bold text-gray-900 dark:text-white">{effectiveTotalPages}</span>
+                                <span className="ml-2 text-gray-400 dark:text-gray-600">·</span>
+                                <span className="ml-2"><span className="font-bold text-blue-600 dark:text-blue-400">{totalItems}</span> total</span>
+                            </span>
+                            <div className="w-px h-5 bg-gray-200 dark:bg-gray-700" />
+                            <div className="flex items-center gap-1">
+                                <button
+                                    onClick={() => {
+                                        const newParams = new URLSearchParams(searchParams);
+                                        newParams.set('page', Math.max(1, currentPage - 1).toString());
+                                        setSearchParams(newParams);
+                                    }}
+                                    disabled={currentPage <= 1}
+                                    className="p-1 text-gray-600 dark:text-gray-300 hover:text-blue-600 dark:hover:text-blue-400 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+                                >
+                                    <ChevronLeft className="w-4 h-4" />
+                                </button>
+                                <button
+                                    onClick={() => {
+                                        const newParams = new URLSearchParams(searchParams);
+                                        newParams.set('page', Math.min(effectiveTotalPages, currentPage + 1).toString());
+                                        setSearchParams(newParams);
+                                    }}
+                                    disabled={currentPage >= effectiveTotalPages}
+                                    className="p-1 text-gray-600 dark:text-gray-300 hover:text-blue-600 dark:hover:text-blue-400 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+                                >
+                                    <ChevronRight className="w-4 h-4" />
+                                </button>
+                            </div>
+                        </div>
                     )}
                 </div>
             </div>
@@ -1214,8 +1252,19 @@ export function Workspace({ isPublicOnly = false, isSearchPage = false }) {
                                     visible: { opacity: 1, transition: { staggerChildren: 0.05 } },
                                     exit: { opacity: 0, transition: { duration: 0.15 } }
                                 }}
-                                className={viewMode === 'grid' ? "grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-4" : "flex flex-col gap-2"}
+                                className={viewMode === 'grid' ? "grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-4" : "flex flex-col gap-[2px]"}
                             >
+                                {viewMode === 'list' && paginatedDocuments.length > 0 && (
+                                    <div className="hidden md:flex items-center gap-4 px-4 py-2.5 text-[11px] font-bold text-gray-500 dark:text-gray-400 uppercase tracking-widest border-b border-gray-200 dark:border-gray-800">
+                                        {(activeSpace === 'shared-to-others' && selectionMode !== 'none') ? <div className="w-4"></div> : null}
+                                        <div className="w-10"></div>
+                                        <div className="flex-1">Name</div>
+                                        <div className="w-36">Uploaded By</div>
+                                        <div className="w-32">Date Modified</div>
+                                        <div className="w-24">File Size</div>
+                                        <div className="w-32 text-right">Actions</div>
+                                    </div>
+                                )}
                                 {paginatedDocuments.map(doc => {
                                     return viewMode === 'grid' ? (
                                         <motion.div
@@ -1231,8 +1280,9 @@ export function Workspace({ isPublicOnly = false, isSearchPage = false }) {
                                             <div className="-mx-5 -mt-5 mb-4 rounded-t-2xl overflow-hidden border-b border-gray-100 dark:border-gray-800/40">
                                                 <DocumentThumbnail document={doc} isPublic={isPublicOnly} />
                                             </div>
-                                            <div className="flex justify-between items-start mb-2">
-                                                <div className="flex items-center gap-1.5 flex-wrap justify-end">
+                                            <div className="flex justify-between items-start gap-2 mb-2">
+                                                <h3 className="font-bold text-gray-900 dark:text-white text-sm truncate flex-1 pt-0.5" title={doc.fileName}>{doc.fileName}</h3>
+                                                <div className="flex items-center gap-1.5 flex-wrap justify-end flex-shrink-0">
                                                     {isSearchPage && (
                                                         <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-gray-100 text-gray-800 dark:bg-gray-800 dark:text-gray-200 uppercase tracking-wider border border-gray-200 dark:border-gray-700">
                                                             {doc.space}
@@ -1290,7 +1340,6 @@ export function Workspace({ isPublicOnly = false, isSearchPage = false }) {
                                                     </button>
                                                 </div>
                                             </div>
-                                            <h3 className="font-bold text-gray-900 dark:text-white text-sm truncate mb-1" title={doc.fileName}>{doc.fileName}</h3>
                                             <div className="flex items-center justify-between text-xs text-gray-500 dark:text-gray-400 font-medium whitespace-nowrap overflow-hidden">
                                                 <div className="flex items-center gap-1.5 shrink-0">
                                                     <span>{formatSize(doc.fileSize)}</span>
@@ -1330,14 +1379,14 @@ export function Workspace({ isPublicOnly = false, isSearchPage = false }) {
                                     ) : (
                                         <motion.div
                                             key={doc._id}
-                                            variants={{ hidden: { opacity: 0, x: -10 }, visible: { opacity: 1, x: 0 } }}
+                                            variants={{ hidden: { opacity: 0 }, visible: { opacity: 1 } }}
                                             onClick={() => openDocumentDetails(doc)}
-                                            className={`group bg-white dark:bg-gray-900 border rounded-xl p-3 cursor-pointer transition-all duration-200 hover:shadow-sm flex items-center justify-between ${selectedDoc?._id === doc._id
-                                                ? 'border-blue-500 ring-1 ring-blue-500 shadow-sm'
-                                                : 'border-gray-200 dark:border-gray-800'
+                                            className={`group bg-white dark:bg-gray-900 border-b border-gray-100 dark:border-gray-800/60 p-3 hover:bg-gray-50 dark:hover:bg-gray-800/50 cursor-pointer transition-colors flex items-center justify-between ${selectedDoc?._id === doc._id
+                                                ? 'bg-blue-50 dark:bg-blue-900/10'
+                                                : ''
                                                 }`}
                                         >
-                                            <div className="flex items-center gap-4 flex-1 min-w-0">
+                                            <div className="flex items-center gap-4 flex-1 min-w-0 pr-4">
                                                 {activeSpace === 'shared-to-others' && selectionMode !== 'none' && (
                                                     <input 
                                                         type="checkbox" 
@@ -1355,19 +1404,27 @@ export function Workspace({ isPublicOnly = false, isSearchPage = false }) {
                                                         </div>
                                                     );
                                                 })()}
-                                                <div className="flex flex-col min-w-0 flex-1 pr-4">
-                                                    <h3 className="font-bold text-gray-900 dark:text-white text-sm truncate" title={doc.fileName}>{doc.fileName}</h3>
-                                                    <div className="flex items-center gap-3 text-xs text-gray-500 dark:text-gray-400 mt-1 uppercase tracking-wider font-semibold">
+                                                <div className="flex flex-col min-w-0 flex-1">
+                                                    <h3 className="font-semibold text-gray-900 dark:text-white text-sm truncate" title={doc.fileName}>{doc.fileName}</h3>
+                                                    {/* Mobile Only Info */}
+                                                    <div className="md:hidden flex items-center gap-2 text-xs text-gray-500 dark:text-gray-400 mt-1 font-medium">
                                                         <span>{formatSize(doc.fileSize)}</span>
                                                         <span>•</span>
-                                                        <span className="text-blue-600 dark:text-blue-400">{getFileType(doc)}</span>
-                                                        <span>•</span>
                                                         <span>{new Date(doc.uploadDate).toLocaleDateString()}</span>
+                                                        <span>•</span>
+                                                        <span className="truncate max-w-[100px]">{doc.uploadedBy?.name || 'Unknown'}</span>
                                                     </div>
                                                 </div>
                                             </div>
 
-                                            <div className="flex items-center gap-4 flex-shrink-0">
+                                            {/* Desktop Columns */}
+                                            <div className="hidden md:flex items-center gap-4 flex-shrink-0 text-sm font-medium text-gray-600 dark:text-gray-400">
+                                                <div className="w-36 truncate" title={doc.uploadedBy?.name || 'Unknown'}>{doc.uploadedBy?.name || 'Unknown'}</div>
+                                                <div className="w-32">{new Date(doc.uploadDate).toLocaleDateString()}</div>
+                                                <div className="w-24 uppercase">{formatSize(doc.fileSize)}</div>
+                                            </div>
+
+                                            <div className="flex items-center gap-2 md:w-32 justify-end flex-shrink-0 pl-4">
                                                 {doc.isVaultRouted && doc.metadata?.vaults?.filter(v => v.score >= VAULT_THRESHOLD).length > 0 && (
                                                     <div className="hidden lg:flex flex-wrap gap-1.5 max-w-[160px] overflow-hidden">
                                                         <button
@@ -1736,44 +1793,6 @@ export function Workspace({ isPublicOnly = false, isSearchPage = false }) {
                     )}
                 </AnimatePresence>
             </div>
-
-            {/* Sticky Pagination Footer */}
-            {!isLoading && !error && totalItems > 0 && effectiveTotalPages > 1 && (
-                <div className="flex-shrink-0 flex items-center justify-between px-1 py-2 border-t border-gray-200 dark:border-gray-800 bg-gray-50/80 dark:bg-gray-950/80 backdrop-blur-sm rounded-b-xl">
-                    <span className="text-xs font-medium text-gray-500 dark:text-gray-400">
-                        Page <span className="font-bold text-gray-900 dark:text-white">{currentPage}</span> of <span className="font-bold text-gray-900 dark:text-white">{effectiveTotalPages}</span>
-                        <span className="ml-2 text-gray-400 dark:text-gray-600">·</span>
-                        <span className="ml-2"><span className="font-bold text-blue-600 dark:text-blue-400">{totalItems}</span> total</span>
-                    </span>
-                    <div className="flex items-center gap-1 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg shadow-sm">
-                        <button
-                            onClick={() => {
-                                const newParams = new URLSearchParams(searchParams);
-                                newParams.set('page', Math.max(1, currentPage - 1).toString());
-                                setSearchParams(newParams);
-                            }}
-                            disabled={currentPage <= 1}
-                            className="flex items-center gap-1 pl-2 pr-3 py-1.5 text-xs font-semibold text-gray-600 dark:text-gray-300 hover:text-blue-600 dark:hover:text-blue-400 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
-                        >
-                            <ChevronLeft className="w-3.5 h-3.5" />
-                            Prev
-                        </button>
-                        <div className="w-px h-5 bg-gray-200 dark:bg-gray-700" />
-                        <button
-                            onClick={() => {
-                                const newParams = new URLSearchParams(searchParams);
-                                newParams.set('page', Math.min(effectiveTotalPages, currentPage + 1).toString());
-                                setSearchParams(newParams);
-                            }}
-                            disabled={currentPage >= effectiveTotalPages}
-                            className="flex items-center gap-1 pl-3 pr-2 py-1.5 text-xs font-semibold text-gray-600 dark:text-gray-300 hover:text-blue-600 dark:hover:text-blue-400 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
-                        >
-                            Next
-                            <ChevronRight className="w-3.5 h-3.5" />
-                        </button>
-                    </div>
-                </div>
-            )}
 
             {/* Toasts */}
             <AnimatePresence>
