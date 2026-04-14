@@ -139,12 +139,11 @@ function DocumentThumbnail({ document: doc, isPublic = false }) {
                 <iframe
                     src={`${previewUrl}#page=1&view=Fit&toolbar=0&navpanes=0&scrollbar=0`}
                     title="PDF preview"
-                    className="w-full border-0 absolute top-0 left-0"
-                    style={{ height: '500px', pointerEvents: 'none', transform: 'scale(1)', transformOrigin: 'top left' }}
+                    className="border-0 absolute top-0 left-0"
+                    style={{ width: 'calc(100% + 20px)', height: '500px', pointerEvents: 'none', transform: 'scale(1)', transformOrigin: 'top left' }}
                     scrolling="no"
                     tabIndex={-1}
                 />
-                <div className="pointer-events-none absolute top-0 right-0 h-full w-4 bg-gray-100 dark:bg-gray-800/50" />
                 {/* Overlay to prevent interaction */}
                 <div className="absolute inset-0" />
             </div>
@@ -279,11 +278,10 @@ function DocumentPreview({ document: doc, isPublic = false }) {
                     <iframe
                         src={`${previewUrl}#page=1&view=Fit&toolbar=0&navpanes=0&scrollbar=0`}
                         title={`Preview: ${doc.fileName}`}
-                        className="w-full border-0"
+                        className="border-0"
                         scrolling="no"
-                        style={{ height: '260px', pointerEvents: 'none' }}
+                        style={{ width: 'calc(100% + 20px)', height: '260px', pointerEvents: 'none' }}
                     />
-                    <div className="pointer-events-none absolute top-0 right-0 h-full w-5 bg-gray-100 dark:bg-gray-800/40" />
                 </div>
             );
         case 'text':
@@ -378,7 +376,7 @@ function FullPreviewModal({ isOpen, onClose, document: doc, isPublic = false, on
             case 'image': return (<div className="flex items-center justify-center h-full min-h-[400px] p-4 bg-[repeating-conic-gradient(#f3f4f6_0%_25%,#ffffff_0%_50%)] dark:bg-[repeating-conic-gradient(#1f2937_0%_25%,#111827_0%_50%)] bg-[length:20px_20px]"><img src={previewUrl} alt={doc.fileName} className="max-w-full max-h-[80vh] object-contain rounded-lg shadow-2xl" loading="lazy" /></div>);
             case 'video': return (<div className="flex items-center justify-center h-full min-h-[400px] p-4 bg-black/95"><video src={previewUrl} controls autoPlay={false} className="max-w-full max-h-[80vh] rounded-lg shadow-2xl" controlsList="nodownload" /></div>);
             case 'audio': return (<div className="flex flex-col items-center justify-center h-full min-h-[300px] gap-6 px-8"><div className="w-24 h-24 bg-gradient-to-br from-violet-500 to-purple-600 rounded-3xl flex items-center justify-center shadow-xl shadow-purple-500/25"><svg className="w-12 h-12 text-white" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M9 18V5l12-2v13" /><circle cx="6" cy="18" r="3" /><circle cx="18" cy="16" r="3" /></svg></div><h4 className="text-sm font-bold text-gray-900 dark:text-white truncate max-w-full">{doc.fileName}</h4><audio src={previewUrl} controls className="w-full max-w-lg" controlsList="nodownload" /></div>);
-            case 'pdf': return (<iframe src={`${previewUrl}#toolbar=0&navpanes=0`} title={`Preview: ${doc.fileName}`} className="w-full h-full min-h-[80vh] border-0" allow="fullscreen" />);
+            case 'pdf': return (<div className="w-full h-full min-h-[80vh] overflow-hidden relative"><iframe src={`${previewUrl}#toolbar=0&navpanes=0&scrollbar=0`} title={`Preview: ${doc.fileName}`} className="border-0 absolute top-0 left-0 h-full" style={{ width: 'calc(100% + 20px)' }} allow="fullscreen" /></div>);
             case 'text': return (<div className="w-full h-full min-h-[400px] overflow-auto bg-gray-50 dark:bg-gray-950 p-6"><pre className="text-sm font-mono leading-relaxed text-gray-800 dark:text-gray-200 whitespace-pre-wrap break-words">{textContent || 'Loading…'}</pre></div>);
             default: return null;
         }
