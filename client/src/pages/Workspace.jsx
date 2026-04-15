@@ -12,7 +12,7 @@ import LogsModal from '../components/LogsModal';
 import DocumentPreview, { DocumentThumbnail, FullPreviewModal } from '../components/PreviewModal';
 import CreateOrgModal from '../components/CreateOrgModal';
 import ManageOrgModal from '../components/ManageOrgModal';
-import { VAULT_COLOR, DEFAULT_VAULT_COLOR, VAULT_LABELS, VAULT_THRESHOLD } from '../constants/vaults';
+import { VAULT_COLOR, VAULT_LABELS, VAULT_THRESHOLD } from '../constants/vaults';
 
 export function Workspace({ isPublicOnly = false, isSearchPage = false }) {
     const { spaceId } = useParams();

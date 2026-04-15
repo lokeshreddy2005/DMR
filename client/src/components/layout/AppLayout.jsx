@@ -35,7 +35,7 @@ import { motion, AnimatePresence } from "framer-motion";
 
 import ShareModal from "../ShareModal";
 import AdvancedSearchPopover from "../AdvancedSearchPopover";
-import { VAULT_COLOR, DEFAULT_VAULT_COLOR, VAULT_LABELS, VAULT_THRESHOLD } from "../../constants/vaults";
+import { VAULT_COLOR, VAULT_LABELS, VAULT_THRESHOLD } from "../../constants/vaults";
 
 const SIDEBAR_LINKS = [
   { name: "Dashboard", href: "/dashboard", icon: LayoutDashboard },

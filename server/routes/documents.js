@@ -695,7 +695,6 @@ router.post('/:id/tags/ai', async (req, res) => {
  * POST /api/documents/:id/vault-route
  * Manually (re-)run vault routing for an existing document.
  * Uses the document's current tags and metadata — no re-tagging.
- * Requires edit permission.
  */
 router.post('/:id/vault-route', async (req, res) => {
   try {
