@@ -80,6 +80,7 @@ function VaultListView({ onSelectVault }) {
 // ─── Vault Document View ───────────────────────────────────────────────────────
 function VaultDocumentView({ vault, onBack }) {
     const { token } = useAuth();
+    const navigate = useNavigate();
     const [searchParams, setSearchParams] = useSearchParams();
     const [documents, setDocuments] = useState([]);
     const [totalCount, setTotalCount] = useState(0);
@@ -230,7 +231,6 @@ function VaultDocumentView({ vault, onBack }) {
                                 <div className="w-36">Uploaded By</div>
                                 <div className="w-32">Date Modified</div>
                                 <div className="w-24">File Size</div>
-                                <div className="w-20 text-right">Vault Match</div>
                             </div>
                         )}
                         {documents.map(doc => {
@@ -252,26 +252,15 @@ function VaultDocumentView({ vault, onBack }) {
                                             <div className={`w-11 h-11 rounded-xl ${color.bg} ${color.text} flex items-center justify-center flex-shrink-0`}>
                                                 <FileText className="w-5 h-5" />
                                             </div>
-                                            {score !== null && (
-                                                <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${color.bg} ${color.text} ${color.border}`}>
-                                                    {score} match
-                                                </span>
-                                            )}
                                         </div>
                                         <h3 className="font-bold text-gray-900 dark:text-white text-sm truncate mb-1" title={doc.fileName}>{doc.fileName}</h3>
                                         <div className="flex justify-between text-xs text-gray-500 dark:text-gray-400 font-medium mb-2">
                                             <span>{formatSize(doc.fileSize)}</span>
                                             <span>{new Date(doc.uploadDate).toLocaleDateString()}</span>
                                         </div>
-                                        <div className="flex items-center justify-between text-[11px] font-semibold text-gray-500 dark:text-gray-400 mb-3">
+                                        <div className="text-[11px] font-semibold text-gray-500 dark:text-gray-400 mb-3">
                                             <span>{doc.uploadedBy?.name || 'Unknown'}</span>
-                                            <span>{doc.tags?.length || 0} {(doc.tags?.length || 0) === 1 ? 'tag' : 'tags'}</span>
                                         </div>
-                                        {score !== null && (
-                                            <div className="w-full bg-gray-100 dark:bg-gray-800 rounded-full h-1">
-                                                <div className={`${color.bar} h-1 rounded-full`} style={{ width: score }} />
-                                            </div>
-                                        )}
                                     </div>
                                 </motion.div>
                             ) : (
@@ -293,8 +282,6 @@ function VaultDocumentView({ vault, onBack }) {
                                                 <span>{new Date(doc.uploadDate).toLocaleDateString()}</span>
                                                 <span>•</span>
                                                 <span className="truncate max-w-[100px]">{doc.uploadedBy?.name || 'Unknown'}</span>
-                                                <span>•</span>
-                                                <span>{doc.tags?.length || 0} tags</span>
                                             </div>
                                         </div>
                                     </div>
@@ -304,16 +291,9 @@ function VaultDocumentView({ vault, onBack }) {
                                         <div className="w-36 truncate" title={doc.uploadedBy?.name || 'Unknown'}>{doc.uploadedBy?.name || 'Unknown'}</div>
                                         <div className="w-32">{new Date(doc.uploadDate).toLocaleDateString()}</div>
                                         <div className="w-24 uppercase">{formatSize(doc.fileSize)}</div>
-                                        <div className="w-20 text-xs">{doc.tags?.length || 0} tags</div>
                                     </div>
 
-                                    <div className="flex items-center justify-end md:w-20 pr-1 flex-shrink-0">
-                                        {score !== null && (
-                                            <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border flex-shrink-0 ${color.bg} ${color.text} ${color.border}`}>
-                                                {score}
-                                            </span>
-                                        )}
-                                    </div>
+
                                 </motion.div>
                             );
                         })}
@@ -414,20 +394,12 @@ function VaultDocumentView({ vault, onBack }) {
                                                     const label = VAULT_LABELS[vault.vaultId] || vault.label;
                                                     return (
                                                         <div key={vault.vaultId} className={`p-3 rounded-lg border ${vaultColor.bg} ${vaultColor.border}`}>
-                                                            <div className="flex items-center justify-between gap-2 mb-2">
-                                                                <span className={`font-semibold text-sm ${vaultColor.text}`}>
-                                                                    {label}
-                                                                </span>
-                                                                <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${vaultColor.bg} ${vaultColor.text} border ${vaultColor.border}`}>
-                                                                    {`${(vault.score * 100).toFixed(2)}%`}
-                                                                </span>
-                                                            </div>
-                                                            <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-1.5 overflow-hidden">
-                                                                <div 
-                                                                    className={`${vaultColor.bar} h-full rounded-full transition-all`}
-                                                                    style={{ width: `${vault.score * 100}%` }}
-                                                                />
-                                                            </div>
+                                                            <button
+                                                              onClick={() => navigate(`/vaults/${vault.vaultId}`)}
+                                                              className={`font-semibold text-sm ${vaultColor.text} hover:opacity-80 transition-opacity cursor-pointer`}
+                                                            >
+                                                                {label}
+                                                            </button>
                                                         </div>
                                                     );
                                                 })}

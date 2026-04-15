@@ -523,20 +523,12 @@ export function AppLayout() {
                             const label = VAULT_LABELS[vault.vaultId] || vault.label;
                             return (
                               <div key={vault.vaultId} className={`p-3 rounded-lg border ${color.bg} ${color.border}`}>
-                                <div className="flex items-center justify-between gap-2 mb-2">
-                                  <span className={`font-semibold text-sm ${color.text}`}>
-                                    {label}
-                                  </span>
-                                  <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${color.bg} ${color.text} border ${color.border}`}>
-                                    {formatVaultPercent(vault.score)}
-                                  </span>
-                                </div>
-                                <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-1.5 overflow-hidden">
-                                  <div 
-                                    className={`${color.bar} h-full rounded-full transition-all`}
-                                    style={{ width: `${vault.score * 100}%` }}
-                                  />
-                                </div>
+                                <button
+                                  onClick={() => navigate(`/vaults/${vault.vaultId}`)}
+                                  className={`font-semibold text-sm ${color.text} hover:opacity-80 transition-opacity cursor-pointer`}
+                                >
+                                  {label}
+                                </button>
                               </div>
                             );
                           })}
