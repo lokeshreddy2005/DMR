@@ -1,0 +1,1 @@
+This is a plain text test file for compression testing. Let's make sure the AI tagger can read this file and generate keywords.

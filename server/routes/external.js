@@ -208,15 +208,28 @@ router.post('/upload', upload.single('document'), async (req, res) => {
             );
         }
 
-        // Upload to S3
-        const fileBuffer = fs.readFileSync(req.file.path);
-        const { s3Key, s3Url } = await uploadToS3(
-            fileBuffer,
-            req.file.originalname,
-            req.file.mimetype,
-            space,
-            organizationId
-        );
+        // Read file into memory only if auto-tagging is enabled
+        let fileBuffer = null;
+        if (autoTag === 'true' || autoTag === true) {
+            fileBuffer = fs.readFileSync(req.file.path);
+        }
+
+        // Stream file to S3 (with automatic gzip for compressible MIME types)
+        let s3Result;
+        try {
+            s3Result = await uploadToS3(
+                req.file.path,
+                req.file.originalname,
+                req.file.mimetype,
+                space,
+                organizationId
+            );
+        } finally {
+            // Guarantee cleanup of temporary file even if S3 upload fails
+            cleanupFile(req.file.path);
+        }
+
+        const { s3Key, s3Url, isCompressed, compressedSize } = s3Result;
 
         const ext = path.extname(req.file.originalname);
         const baseName = path.basename(req.file.originalname, ext);
@@ -230,7 +243,9 @@ router.post('/upload', upload.single('document'), async (req, res) => {
             s3Key,
             s3Url,
             mimeType: req.file.mimetype,
-            fileSize: req.file.size,
+            originalSize: req.file.size,
+            fileSize: compressedSize,
+            isCompressed,
             permissions: [Document.buildPermission(req.user._id, 'owner', req.user._id)],
             metadata: { extension: ext.toLowerCase() }
         });
@@ -246,6 +261,7 @@ router.post('/upload', upload.single('document'), async (req, res) => {
         if (autoTag === 'true' || autoTag === true) {
             try {
                 console.log(`🏷️  Auto-tagging "${req.file.originalname}"...`);
+                if (!fileBuffer) fileBuffer = fs.readFileSync(req.file.path); // Fallback
                 const tagResult = await autoTagDocument(fileBuffer, req.file.mimetype, req.file.originalname);
                 doc.tags = [...new Set([...doc.tags, ...tagResult.tags])];
                 doc.metadata = { ...doc.metadata, ...tagResult.metadata };
@@ -269,7 +285,11 @@ router.post('/upload', upload.single('document'), async (req, res) => {
         }
 
         await doc.save();
-        cleanupFile(req.file.path);
+
+        if (isCompressed) {
+            const savedPct = ((1 - compressedSize / req.file.size) * 100).toFixed(1);
+            console.log(`🗜️  Compressed "${req.file.originalname}": ${(req.file.size / 1024).toFixed(1)}KB → ${(compressedSize / 1024).toFixed(1)}KB (saved ${savedPct}%)`);
+        }
 
         // (#49) Detailed success response
         res.status(201).json({
@@ -281,7 +301,9 @@ router.post('/upload', upload.single('document'), async (req, res) => {
                 description: doc.description,
                 space: doc.space,
                 mimeType: doc.mimeType,
+                originalSize: doc.originalSize,
                 fileSize: doc.fileSize,
+                isCompressed: doc.isCompressed,
                 tags: doc.tags,
                 isAITagged: doc.isAITagged,
                 isVaultRouted: doc.isVaultRouted,

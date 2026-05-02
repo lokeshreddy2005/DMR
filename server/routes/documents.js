@@ -2,6 +2,7 @@ const express = require('express');
 const multer = require('multer');
 const fs = require('fs');
 const path = require('path');
+const zlib = require('zlib');
 const Document = require('../models/Document');
 const { ROLE_PRESETS, VALID_ROLES } = require('../models/Document');
 const Organization = require('../models/Organization');
@@ -45,8 +46,10 @@ setInterval(() => {
 
 /**
  * GET /api/documents/secure-download/:token
- * Consume a one-time download token and stream the file from S3.
- * This route is BEFORE authMiddleware so it doesn't require JWT — the token IS the auth.
+ * Consume a one-time download token and either redirect to S3 or stream the file.
+ * For compressed files, we redirect to a Presigned URL — the browser handles
+ * gzip decompression natively via Content-Encoding, so zero server CPU is used.
+ * For non-compressed files, we stream directly (backward compatible).
  */
 router.get('/secure-download/:token', async (req, res) => {
   try {
@@ -71,12 +74,22 @@ router.get('/secure-download/:token', async (req, res) => {
     const safeName = (tokenData.fileName || 'download').replace(/[^a-zA-Z0-9._-]/g, '_');
     res.setHeader('Content-Type', tokenData.mimeType || 'application/octet-stream');
     res.setHeader('Content-Disposition', `attachment; filename="${safeName}"`);
-    if (s3Response.ContentLength) {
-      res.setHeader('Content-Length', s3Response.ContentLength);
-    }
 
-    // Pipe the S3 stream to the response
-    s3Response.Body.pipe(res);
+    // If the file was compressed during upload, decompress it on-the-fly
+    // so the user receives the original file format.
+    if (tokenData.isCompressed) {
+      // Use originalSize for Content-Length since the decompressed output
+      // will be larger than the S3 object
+      if (tokenData.originalSize) {
+        res.setHeader('Content-Length', tokenData.originalSize);
+      }
+      s3Response.Body.pipe(zlib.createGunzip()).pipe(res);
+    } else {
+      if (s3Response.ContentLength) {
+        res.setHeader('Content-Length', s3Response.ContentLength);
+      }
+      s3Response.Body.pipe(res);
+    }
   } catch (err) {
     console.error('Secure download error:', err);
     if (!res.headersSent) {
@@ -88,6 +101,7 @@ router.get('/secure-download/:token', async (req, res) => {
 /**
  * GET /api/documents/secure-preview/:token
  * Proxy the S3 object for preview purposes (with range support).
+ * For compressed files, redirect to Presigned URL for browser-native decompression.
  */
 router.get('/secure-preview/:token', async (req, res) => {
   try {
@@ -102,6 +116,20 @@ router.get('/secure-preview/:token', async (req, res) => {
       return res.status(410).json({ error: 'Preview link has expired.' });
     }
 
+    // If the document is compressed, decompress on-the-fly for preview
+    if (tokenData.isCompressed) {
+      const s3Response = await getS3ObjectStream(tokenData.s3Key);
+      const safeName = (tokenData.fileName || 'file').replace(/[^a-zA-Z0-9._-]/g, '_');
+      res.setHeader('Content-Type', tokenData.mimeType || 'application/octet-stream');
+      res.setHeader('Content-Disposition', `inline; filename="${safeName}"`);
+      if (tokenData.originalSize) {
+        res.setHeader('Content-Length', tokenData.originalSize);
+      }
+      s3Response.Body.pipe(zlib.createGunzip()).pipe(res);
+      return;
+    }
+
+    // For non-compressed files, stream with range support (original behavior)
     const rangeHeader = req.headers.range;
     const s3Response = await getS3ObjectStream(tokenData.s3Key, rangeHeader);
 
@@ -327,15 +355,28 @@ router.post('/upload', upload.single('document'), async (req, res) => {
       });
     }
 
-    // Read file and upload to S3
-    const fileBuffer = fs.readFileSync(req.file.path);
-    const { s3Key, s3Url } = await uploadToS3(
-      fileBuffer,
-      req.file.originalname,
-      req.file.mimetype,
-      space,
-      organizationId
-    );
+    // Read file into memory only if auto-tagging is enabled (to save memory for regular uploads)
+    let fileBuffer = null;
+    if (autoTag === 'true' || autoTag === true) {
+      fileBuffer = fs.readFileSync(req.file.path);
+    }
+
+    // Stream file to S3 (with automatic gzip for compressible MIME types)
+    let s3Result;
+    try {
+      s3Result = await uploadToS3(
+        req.file.path,
+        req.file.originalname,
+        req.file.mimetype,
+        space,
+        organizationId
+      );
+    } finally {
+      // Guarantee cleanup of temporary file even if S3 upload fails
+      cleanupFile(req.file.path);
+    }
+
+    const { s3Key, s3Url, isCompressed, compressedSize } = s3Result;
 
     const ext = path.extname(req.file.originalname);
     const baseName = path.basename(req.file.originalname, ext);
@@ -350,7 +391,9 @@ router.post('/upload', upload.single('document'), async (req, res) => {
       s3Key,
       s3Url,
       mimeType: req.file.mimetype,
-      fileSize: req.file.size,
+      originalSize: req.file.size,
+      fileSize: compressedSize,
+      isCompressed,
       permissions: [Document.buildPermission(req.user._id, 'owner', req.user._id)],
       metadata: { extension: ext.toLowerCase() }
     });
@@ -391,10 +434,11 @@ router.post('/upload', upload.single('document'), async (req, res) => {
       doc.isTagged = true;
     }
 
-    // Auto-tag if requested
+    // Auto-tag if requested (using the local uncompressed buffer read earlier)
     if (autoTag === 'true' || autoTag === true) {
       try {
         console.log(`🏷️  Auto-tagging "${req.file.originalname}"...`);
+        if (!fileBuffer) fileBuffer = fs.readFileSync(req.file.path); // Fallback (should not be needed)
         const tagResult = await autoTagDocument(fileBuffer, req.file.mimetype, req.file.originalname);
         doc.tags = [...new Set([...initialTags, ...tagResult.tags])];
         // Merge metadata — don't replace outright so extension is preserved
@@ -420,11 +464,13 @@ router.post('/upload', upload.single('document'), async (req, res) => {
       }
     }
 
+    if (isCompressed) {
+      const savedPct = ((1 - compressedSize / req.file.size) * 100).toFixed(1);
+      console.log(`🗜️  Compressed "${req.file.originalname}": ${(req.file.size / 1024).toFixed(1)}KB → ${(compressedSize / 1024).toFixed(1)}KB (saved ${savedPct}%)`);
+    }
 
     await doc.save();
     await doc.populate('uploadedBy', 'name email avatarColor');
-
-    cleanupFile(req.file.path);
 
     res.status(201).json({
       message: 'Document uploaded successfully!',
@@ -622,6 +668,8 @@ router.post('/:id/copy', async (req, res) => {
       s3Url: doc.s3Url,
       mimeType: doc.mimeType,
       fileSize: doc.fileSize,
+      originalSize: doc.originalSize,
+      isCompressed: doc.isCompressed,
       tags: [...doc.tags],
       metadata: { ...doc.toObject().metadata, vaults: [] },
       isTagged: doc.isTagged,
@@ -1640,6 +1688,76 @@ router.get('/storage', async (req, res) => {
 });
 
 /**
+ * GET /api/documents/metrics/compression
+ * Aggregated compression savings across all documents.
+ * Returns total original size, total compressed (stored) size, bytes saved,
+ * compression ratio, and per-document breakdown counts.
+ */
+router.get('/metrics/compression', async (req, res) => {
+  try {
+    const [result] = await Document.aggregate([
+      {
+        // Only count documents uploaded after compression feature was added.
+        // Pre-existing documents have originalSize: 0 and would skew metrics.
+        $match: { originalSize: { $gt: 0 } },
+      },
+      {
+        $group: {
+          _id: null,
+          totalOriginalSize: { $sum: '$originalSize' },
+          totalStoredSize: { $sum: '$fileSize' },
+          totalDocuments: { $sum: 1 },
+          compressedDocuments: {
+            $sum: { $cond: ['$isCompressed', 1, 0] },
+          },
+          uncompressedDocuments: {
+            $sum: { $cond: ['$isCompressed', 0, 1] },
+          },
+        },
+      },
+    ]);
+
+    if (!result) {
+      return res.json({
+        metrics: {
+          totalOriginalSize: 0,
+          totalStoredSize: 0,
+          totalStorageSaved: 0,
+          compressionRatio: 0,
+          totalDocuments: 0,
+          compressedDocuments: 0,
+          uncompressedDocuments: 0,
+        },
+      });
+    }
+
+    const totalStorageSaved = result.totalOriginalSize - result.totalStoredSize;
+    const compressionRatio = result.totalOriginalSize > 0
+      ? ((totalStorageSaved / result.totalOriginalSize) * 100).toFixed(2)
+      : 0;
+
+    res.json({
+      metrics: {
+        totalOriginalSize: result.totalOriginalSize,
+        totalStoredSize: result.totalStoredSize,
+        totalStorageSaved,
+        compressionRatio: Number(compressionRatio),
+        totalDocuments: result.totalDocuments,
+        compressedDocuments: result.compressedDocuments,
+        uncompressedDocuments: result.uncompressedDocuments,
+        // Human-readable
+        totalOriginalSizeMB: (result.totalOriginalSize / 1024 / 1024).toFixed(2),
+        totalStoredSizeMB: (result.totalStoredSize / 1024 / 1024).toFixed(2),
+        totalStorageSavedMB: (totalStorageSaved / 1024 / 1024).toFixed(2),
+      },
+    });
+  } catch (err) {
+    console.error('Compression metrics error:', err);
+    res.status(500).json({ error: 'Failed to fetch compression metrics.' });
+  }
+});
+
+/**
  * GET /api/documents/:id
  */
 router.get('/:id', async (req, res) => {
@@ -1758,6 +1876,8 @@ router.get('/:id/preview', async (req, res) => {
       s3Key: doc.s3Key,
       fileName: doc.fileName,
       mimeType: doc.mimeType,
+      isCompressed: doc.isCompressed || false,
+      originalSize: doc.originalSize || 0,
       documentId: doc._id.toString(),
       createdAt: Date.now(),
     });
@@ -1805,6 +1925,8 @@ router.get('/:id/download', async (req, res) => {
       s3Key: doc.s3Key,
       fileName: doc.fileName,
       mimeType: doc.mimeType,
+      isCompressed: doc.isCompressed || false,
+      originalSize: doc.originalSize || 0,
       userId: req.user._id.toString(),
       documentId: doc._id.toString(),
       createdAt: Date.now(),

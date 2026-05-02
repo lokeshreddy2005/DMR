@@ -206,6 +206,14 @@ const documentSchema = new mongoose.Schema({
     type: Number,
     default: 0,
   },
+  originalSize: {
+    type: Number,
+    default: 0,
+  },
+  isCompressed: {
+    type: Boolean,
+    default: false,
+  },
   // Auto-tagging
   tags: {
     type: [String],
@@ -266,7 +274,7 @@ documentSchema.index({ fileName: 'text', tags: 'text' });
 
 // Virtual for formatted file size
 documentSchema.virtual('formattedSize').get(function () {
-  const bytes = this.fileSize;
+  const bytes = this.originalSize || this.fileSize;
   if (bytes === 0) return '0 Bytes';
   const sizes = ['Bytes', 'KB', 'MB', 'GB'];
   const i = Math.floor(Math.log(bytes) / Math.log(1024));

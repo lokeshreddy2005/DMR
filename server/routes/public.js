@@ -2,6 +2,7 @@ const express = require('express');
 const crypto = require('crypto');
 const Document = require('../models/Document');
 const { getDownloadUrl, getPreviewUrl, getS3ObjectStream } = require('../services/s3');
+const zlib = require('zlib');
 
 const router = express.Router();
 
@@ -52,11 +53,16 @@ router.get('/secure-download/:token', async (req, res) => {
     const safeName = (tokenData.fileName || 'download').replace(/[^a-zA-Z0-9._-]/g, '_');
     res.setHeader('Content-Type', tokenData.mimeType || 'application/octet-stream');
     res.setHeader('Content-Disposition', `attachment; filename="${safeName}"`);
-    if (s3Response.ContentLength) {
-      res.setHeader('Content-Length', s3Response.ContentLength);
-    }
 
-    s3Response.Body.pipe(res);
+    if (tokenData.isCompressed) {
+      if (tokenData.originalSize) res.setHeader('Content-Length', tokenData.originalSize);
+      s3Response.Body.pipe(zlib.createGunzip()).pipe(res);
+    } else {
+      if (s3Response.ContentLength) {
+        res.setHeader('Content-Length', s3Response.ContentLength);
+      }
+      s3Response.Body.pipe(res);
+    }
   } catch (err) {
     console.error('Public secure download error:', err);
     if (!res.headersSent) {
@@ -84,6 +90,15 @@ router.get('/secure-preview/:token', async (req, res) => {
 
     const rangeHeader = req.headers.range;
     const s3Response = await getS3ObjectStream(tokenData.s3Key, rangeHeader);
+
+    if (tokenData.isCompressed) {
+      const safeName = (tokenData.fileName || 'file').replace(/[^a-zA-Z0-9._-]/g, '_');
+      res.setHeader('Content-Type', tokenData.mimeType || 'application/octet-stream');
+      res.setHeader('Content-Disposition', `inline; filename="${safeName}"`);
+      if (tokenData.originalSize) res.setHeader('Content-Length', tokenData.originalSize);
+      s3Response.Body.pipe(zlib.createGunzip()).pipe(res);
+      return;
+    }
 
     const safeName = (tokenData.fileName || 'file').replace(/[^a-zA-Z0-9._-]/g, '_');
     res.setHeader('Content-Type', tokenData.mimeType || 'application/octet-stream');
@@ -306,6 +321,8 @@ router.get('/documents/:id/preview', async (req, res) => {
             s3Key: doc.s3Key,
             fileName: doc.fileName,
             mimeType: doc.mimeType,
+            isCompressed: doc.isCompressed || false,
+            originalSize: doc.originalSize || 0,
             documentId: doc._id.toString(),
             createdAt: Date.now(),
         });
@@ -334,6 +351,8 @@ router.get('/documents/:id/download', async (req, res) => {
             s3Key: doc.s3Key,
             fileName: doc.fileName,
             mimeType: doc.mimeType,
+            isCompressed: doc.isCompressed || false,
+            originalSize: doc.originalSize || 0,
             documentId: doc._id.toString(),
             createdAt: Date.now(),
         });
@@ -389,14 +408,53 @@ router.get('/shared/:token', async (req, res) => {
         };
 
         if (canDownload) {
-            const downloadUrl = await getDownloadUrl(doc.s3Key);
-            result.downloadUrl = downloadUrl;
+            result.downloadUrl = `${process.env.API_URL || 'http://localhost:5000'}/api/public/shared/${req.params.token}/download`;
         }
 
         res.json(result);
     } catch (err) {
         console.error('Shared link access error:', err);
         res.status(500).json({ error: 'Failed to access shared document.' });
+    }
+});
+
+/**
+ * GET /api/public/shared/:token/download
+ * Download a document via a share link token.
+ */
+router.get('/shared/:token/download', async (req, res) => {
+    try {
+        const doc = await Document.findOne({ 'linkSharing.token': req.params.token });
+
+        if (!doc || !doc.linkSharing?.enabled || doc.linkSharing.mode === 'organization') {
+            return res.status(404).json({ error: 'Shared link not found, disabled, or requires login.' });
+        }
+
+        const linkRole = doc.linkSharing.role || 'viewer';
+        if (linkRole !== 'downloader' && linkRole !== 'manager') {
+            return res.status(403).json({ error: 'This shared link does not allow downloading.' });
+        }
+
+        const s3Response = await getS3ObjectStream(doc.s3Key);
+        const safeName = (doc.fileName || 'download').replace(/[^a-zA-Z0-9._-]/g, '_');
+        
+        res.setHeader('Content-Type', doc.mimeType || 'application/octet-stream');
+        res.setHeader('Content-Disposition', `attachment; filename="${safeName}"`);
+
+        if (doc.isCompressed) {
+            if (doc.originalSize) res.setHeader('Content-Length', doc.originalSize);
+            s3Response.Body.pipe(zlib.createGunzip()).pipe(res);
+        } else {
+            if (s3Response.ContentLength) {
+                res.setHeader('Content-Length', s3Response.ContentLength);
+            }
+            s3Response.Body.pipe(res);
+        }
+    } catch (err) {
+        console.error('Shared link download error:', err);
+        if (!res.headersSent) {
+            res.status(500).json({ error: 'Failed to download shared document.' });
+        }
     }
 });
 
