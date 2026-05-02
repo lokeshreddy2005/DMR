@@ -4,7 +4,7 @@ import { useAuth } from '../context/AuthContext';
 import axios from 'axios';
 import API_URL from '../config/api';
 import { Button } from '../components/ui/Button';
-import { FileText, Download, Trash2, Search, FileUp, MoreVertical, Globe, Lock, Building2, Users, Edit3, Eye, X, LayoutGrid, List, ChevronLeft, ChevronRight, Share2, Clock, UserCheck, Plus, Settings, UserPlus, FileImage, FileSpreadsheet, Presentation, FileCode, FileType2 } from 'lucide-react';
+import { FileText, Download, Trash2, Search, FileUp, MoreVertical, Globe, Lock, Building2, Users, Edit3, Eye, X, LayoutGrid, List, ChevronLeft, ChevronRight, Share2, Clock, UserCheck, Plus, Settings, UserPlus, FileImage, FileSpreadsheet, Presentation, FileCode, FileType2, MessageSquare } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import UploadModal from '../components/UploadModal';
 import ShareModal from '../components/ShareModal';
@@ -387,6 +387,7 @@ export function Workspace({ isPublicOnly = false, isSearchPage = false }) {
 
     const canUserMove = (doc) => {
         if (isPublicOnly || !doc) return false;
+        if (activeSpace === 'shared-to-others') return false;
         // No move for org documents — use Copy instead
         if (doc.space === 'organization') return false;
         const role = getAccessLevel(doc);
@@ -1293,10 +1294,11 @@ export function Workspace({ isPublicOnly = false, isSearchPage = false }) {
                                                         if (!expiry) return null;
                                                         return (
                                                             <span
-                                                                className={`inline-flex items-center justify-center w-6 h-6 rounded-full ${expiry.isExpired ? 'bg-red-100 text-red-600 dark:bg-red-900/30 dark:text-red-400 border border-red-200 dark:border-red-800' : 'bg-orange-100 text-orange-600 dark:bg-orange-900/30 dark:text-orange-400 border border-orange-200 dark:border-orange-800'}`}
+                                                                className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider border ${expiry.isExpired ? 'bg-red-100 text-red-600 dark:bg-red-900/30 dark:text-red-400 border-red-200 dark:border-red-800' : 'bg-orange-100 text-orange-600 dark:bg-orange-900/30 dark:text-orange-400 border-orange-200 dark:border-orange-800'}`}
                                                                 title={expiry.tooltip}
                                                             >
-                                                                <Clock className="w-3.5 h-3.5" />
+                                                                <Clock className="w-3 h-3" />
+                                                                {expiry.relativeLabel}
                                                             </span>
                                                         );
                                                     })()}
@@ -1481,10 +1483,11 @@ export function Workspace({ isPublicOnly = false, isSearchPage = false }) {
                                                         if (!expiry) return null;
                                                         return (
                                                             <span
-                                                                className={`hidden sm:inline-flex items-center justify-center w-6 h-6 rounded-full ${expiry.isExpired ? 'bg-red-100 text-red-600 dark:bg-red-900/30 dark:text-red-400 border border-red-200 dark:border-red-800' : 'bg-orange-100 text-orange-600 dark:bg-orange-900/30 dark:text-orange-400 border border-orange-200 dark:border-orange-800'}`}
+                                                                className={`hidden sm:inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider border ${expiry.isExpired ? 'bg-red-100 text-red-600 dark:bg-red-900/30 dark:text-red-400 border-red-200 dark:border-red-800' : 'bg-orange-100 text-orange-600 dark:bg-orange-900/30 dark:text-orange-400 border-orange-200 dark:border-orange-800'}`}
                                                                 title={expiry.tooltip}
                                                             >
-                                                                <Clock className="w-3.5 h-3.5" />
+                                                                <Clock className="w-3 h-3" />
+                                                                {expiry.relativeLabel}
                                                             </span>
                                                         );
                                                     })()}
@@ -1604,6 +1607,26 @@ export function Workspace({ isPublicOnly = false, isSearchPage = false }) {
                                                 <p className="text-sm text-gray-700 dark:text-gray-300 leading-relaxed font-medium">{selectedDoc.description || 'No description provided.'}</p>
                                             </div>
                                             
+                                            {/* Share Message (if any) */}
+                                            {(() => {
+                                                const myPerm = selectedDoc.permissions?.find(p => {
+                                                    const pid = p.user?._id || p.user;
+                                                    const uid = user?._id || user?.id;
+                                                    return pid?.toString() === uid?.toString();
+                                                });
+                                                if (myPerm && myPerm.message) {
+                                                    return (
+                                                        <div className="bg-blue-50/50 dark:bg-blue-900/10 p-4 rounded-xl border border-blue-100 dark:border-blue-800/30">
+                                                            <p className="text-xs font-bold text-blue-500 uppercase tracking-widest mb-1.5 flex items-center gap-1.5">
+                                                                <MessageSquare className="w-3.5 h-3.5" /> Message from sharer
+                                                            </p>
+                                                            <p className="text-sm text-gray-700 dark:text-gray-300 italic">"{myPerm.message}"</p>
+                                                        </div>
+                                                    );
+                                                }
+                                                return null;
+                                            })()}
+
                                             <div>
                                                 <div className="flex items-center justify-between mb-2">
                                                     <p className="text-xs font-bold text-gray-400 uppercase tracking-widest">Metadata Tags</p>

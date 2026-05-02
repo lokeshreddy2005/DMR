@@ -37,6 +37,7 @@ export default function ShareModal({ isOpen, onClose, document, onUpdate }) {
     const [editingUserId, setEditingUserId] = useState(null);
     const [expiresIn, setExpiresIn] = useState('0');
     const [customDays, setCustomDays] = useState('');
+    const [message, setMessage] = useState('');
     const [showSettings, setShowSettings] = useState(false);
     const [linkSharing, setLinkSharing] = useState({ enabled: false, mode: 'restricted', role: 'viewer', token: null });
     const [linkCopied, setLinkCopied] = useState(false);
@@ -71,6 +72,7 @@ export default function ShareModal({ isOpen, onClose, document, onUpdate }) {
             setSelectedRole('viewer');
             setExpiresIn('0');
             setCustomDays('');
+            setMessage('');
             setLinkSharing(document?.linkSharing || { enabled: false, mode: 'restricted', role: 'viewer', token: null });
             setLinkCopied(false);
         }
@@ -99,13 +101,14 @@ export default function ShareModal({ isOpen, onClose, document, onUpdate }) {
             }
             const res = await axios.post(
                 `${API_URL}/api/documents/${document._id}/permissions`,
-                { email: email.trim(), role: selectedRole, expiresIn: actualExpiresIn },
+                { email: email.trim(), role: selectedRole, expiresIn: actualExpiresIn, message: message.trim() },
                 { headers }
             );
             setSuccess(res.data.message);
             setEmail('');
             setExpiresIn('0');
             setCustomDays('');
+            setMessage('');
             fetchPermissions();
             if (onUpdate) onUpdate(res.data.document);
         } catch (err) {
@@ -326,6 +329,16 @@ export default function ShareModal({ isOpen, onClose, document, onUpdate }) {
                                 {isSubmitting ? <Loader2 className="w-4 h-4 animate-spin" /> : <UserPlus className="w-4 h-4" />}
                                 Share
                             </button>
+                        </div>
+                        
+                        {/* Optional Message Field */}
+                        <div className="mt-3">
+                            <textarea
+                                value={message}
+                                onChange={(e) => setMessage(e.target.value)}
+                                placeholder="Add a message (optional)..."
+                                className="w-full px-4 py-2.5 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all text-gray-900 dark:text-white placeholder-gray-400 resize-none min-h-[60px]"
+                            />
                         </div>
 
                         {/* Settings toggle */}

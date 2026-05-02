@@ -23,12 +23,22 @@ const SHAREABLE_ROLES = ['viewer', 'collaborator'];
 const DOWNLOAD_TOKEN_EXPIRY_MS = 60 * 1000; // 60 seconds
 const downloadTokens = new Map();
 
+// ─── In-Memory Preview Token Store ──────────────────────────────────────────────
+// Tokens expire after 60 minutes for prolonged viewing (e.g. video, large PDF)
+const PREVIEW_TOKEN_EXPIRY_MS = 60 * 60 * 1000; // 60 minutes
+const previewTokens = new Map();
+
 // Auto-cleanup expired tokens every 2 minutes
 setInterval(() => {
   const now = Date.now();
   for (const [token, data] of downloadTokens.entries()) {
     if (now - data.createdAt > DOWNLOAD_TOKEN_EXPIRY_MS) {
       downloadTokens.delete(token);
+    }
+  }
+  for (const [token, data] of previewTokens.entries()) {
+    if (now - data.createdAt > PREVIEW_TOKEN_EXPIRY_MS) {
+      previewTokens.delete(token);
     }
   }
 }, 2 * 60 * 1000);
@@ -75,6 +85,44 @@ router.get('/secure-download/:token', async (req, res) => {
   }
 });
 
+/**
+ * GET /api/documents/secure-preview/:token
+ * Proxy the S3 object for preview purposes (with range support).
+ */
+router.get('/secure-preview/:token', async (req, res) => {
+  try {
+    const tokenData = previewTokens.get(req.params.token);
+
+    if (!tokenData) {
+      return res.status(404).json({ error: 'Preview link expired or invalid.' });
+    }
+
+    if (Date.now() - tokenData.createdAt > PREVIEW_TOKEN_EXPIRY_MS) {
+      previewTokens.delete(req.params.token);
+      return res.status(410).json({ error: 'Preview link has expired.' });
+    }
+
+    const rangeHeader = req.headers.range;
+    const s3Response = await getS3ObjectStream(tokenData.s3Key, rangeHeader);
+
+    const safeName = (tokenData.fileName || 'file').replace(/[^a-zA-Z0-9._-]/g, '_');
+    res.setHeader('Content-Type', tokenData.mimeType || 'application/octet-stream');
+    res.setHeader('Content-Disposition', `inline; filename="${safeName}"`);
+
+    if (s3Response.ContentLength) res.setHeader('Content-Length', s3Response.ContentLength);
+    if (s3Response.ContentRange) res.setHeader('Content-Range', s3Response.ContentRange);
+    if (s3Response.AcceptRanges) res.setHeader('Accept-Ranges', s3Response.AcceptRanges);
+
+    res.status(rangeHeader && s3Response.ContentRange ? 206 : 200);
+    s3Response.Body.pipe(res);
+  } catch (err) {
+    console.error('Secure preview error:', err);
+    if (!res.headersSent) {
+      res.status(500).json({ error: 'Failed to preview file.' });
+    }
+  }
+});
+
 // All document routes below require authentication
 router.use(authMiddleware);
 
@@ -109,7 +157,7 @@ function ensureShareLogs(doc) {
   }
 }
 
-function appendShareLog(doc, { action, targetUser, role, actorId, expiresAt, isActive }) {
+function appendShareLog(doc, { action, targetUser, role, actorId, expiresAt, message, isActive }) {
   ensureShareLogs(doc);
   const now = new Date();
 
@@ -120,6 +168,7 @@ function appendShareLog(doc, { action, targetUser, role, actorId, expiresAt, isA
     email: targetUser.email?.toLowerCase?.() || '',
     role: role || 'viewer',
     expiresAt: expiresAt || null,
+    message: message || '',
     isActive: isActive !== undefined ? isActive : action !== 'revoked',
     eventAt: now,
     eventBy: actorId,
@@ -1704,7 +1753,16 @@ router.get('/:id/preview', async (req, res) => {
       { upsert: true }
     );
 
-    const previewUrl = await getPreviewUrl(doc.s3Key, doc.mimeType, doc.fileName);
+    const previewToken = crypto.randomBytes(32).toString('hex');
+    previewTokens.set(previewToken, {
+      s3Key: doc.s3Key,
+      fileName: doc.fileName,
+      mimeType: doc.mimeType,
+      documentId: doc._id.toString(),
+      createdAt: Date.now(),
+    });
+    
+    const previewUrl = `${process.env.API_URL || 'http://localhost:5000'}/api/documents/secure-preview/${previewToken}`;
     res.json({ previewUrl, fileName: doc.fileName, mimeType: doc.mimeType, fileSize: doc.fileSize });
   } catch (err) {
     console.error('Preview error:', err);
@@ -1771,7 +1829,7 @@ router.post('/:id/permissions', async (req, res) => {
       return res.status(403).json({ error: 'You do not have permission to manage access.' });
     }
 
-    const { email, role, expiresIn } = req.body;
+    const { email, role, expiresIn, message } = req.body;
     if (!email) return res.status(400).json({ error: 'Email is required.' });
 
     const targetUser = await User.findOne({ email: email.toLowerCase() });
@@ -1818,6 +1876,9 @@ router.post('/:id/permissions', async (req, res) => {
     }
 
     const newPerm = Document.buildPermission(targetUser._id, assignRole, req.user._id, expiresAt);
+    if (message !== undefined) {
+      newPerm.message = message;
+    }
 
     if (existingIdx >= 0) {
       // Never allow modifying the owner's permission
@@ -1838,6 +1899,7 @@ router.post('/:id/permissions', async (req, res) => {
       role: assignRole,
       actorId: req.user._id,
       expiresAt,
+      message: message || '',
       isActive: true,
     });
 

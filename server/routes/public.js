@@ -9,11 +9,20 @@ const router = express.Router();
 const DOWNLOAD_TOKEN_EXPIRY_MS = 60 * 1000; // 60 seconds
 const publicDownloadTokens = new Map();
 
+// ─── Public Preview Token Store ─────────────────────────────────────────────────
+const PREVIEW_TOKEN_EXPIRY_MS = 60 * 60 * 1000; // 60 minutes
+const publicPreviewTokens = new Map();
+
 setInterval(() => {
   const now = Date.now();
   for (const [token, data] of publicDownloadTokens.entries()) {
     if (now - data.createdAt > DOWNLOAD_TOKEN_EXPIRY_MS) {
       publicDownloadTokens.delete(token);
+    }
+  }
+  for (const [token, data] of publicPreviewTokens.entries()) {
+    if (now - data.createdAt > PREVIEW_TOKEN_EXPIRY_MS) {
+      publicPreviewTokens.delete(token);
     }
   }
 }, 2 * 60 * 1000);
@@ -52,6 +61,44 @@ router.get('/secure-download/:token', async (req, res) => {
     console.error('Public secure download error:', err);
     if (!res.headersSent) {
       res.status(500).json({ error: 'Failed to download file.' });
+    }
+  }
+});
+
+/**
+ * GET /api/public/secure-preview/:token
+ * Proxy the S3 object for public preview purposes (with range support).
+ */
+router.get('/secure-preview/:token', async (req, res) => {
+  try {
+    const tokenData = publicPreviewTokens.get(req.params.token);
+
+    if (!tokenData) {
+      return res.status(404).json({ error: 'Preview link expired or invalid.' });
+    }
+
+    if (Date.now() - tokenData.createdAt > PREVIEW_TOKEN_EXPIRY_MS) {
+      publicPreviewTokens.delete(req.params.token);
+      return res.status(410).json({ error: 'Preview link has expired.' });
+    }
+
+    const rangeHeader = req.headers.range;
+    const s3Response = await getS3ObjectStream(tokenData.s3Key, rangeHeader);
+
+    const safeName = (tokenData.fileName || 'file').replace(/[^a-zA-Z0-9._-]/g, '_');
+    res.setHeader('Content-Type', tokenData.mimeType || 'application/octet-stream');
+    res.setHeader('Content-Disposition', `inline; filename="${safeName}"`);
+
+    if (s3Response.ContentLength) res.setHeader('Content-Length', s3Response.ContentLength);
+    if (s3Response.ContentRange) res.setHeader('Content-Range', s3Response.ContentRange);
+    if (s3Response.AcceptRanges) res.setHeader('Accept-Ranges', s3Response.AcceptRanges);
+
+    res.status(rangeHeader && s3Response.ContentRange ? 206 : 200);
+    s3Response.Body.pipe(res);
+  } catch (err) {
+    console.error('Public secure preview error:', err);
+    if (!res.headersSent) {
+      res.status(500).json({ error: 'Failed to preview file.' });
     }
   }
 });
@@ -254,7 +301,16 @@ router.get('/documents/:id/preview', async (req, res) => {
             return res.status(404).json({ error: 'Document not found.' });
         }
 
-        const previewUrl = await getPreviewUrl(doc.s3Key, doc.mimeType, doc.fileName);
+        const previewToken = crypto.randomBytes(32).toString('hex');
+        publicPreviewTokens.set(previewToken, {
+            s3Key: doc.s3Key,
+            fileName: doc.fileName,
+            mimeType: doc.mimeType,
+            documentId: doc._id.toString(),
+            createdAt: Date.now(),
+        });
+        
+        const previewUrl = `${process.env.API_URL || 'http://localhost:5000'}/api/public/secure-preview/${previewToken}`;
         res.json({ previewUrl, fileName: doc.fileName, mimeType: doc.mimeType, fileSize: doc.fileSize });
     } catch (err) {
         console.error('Public preview error:', err);

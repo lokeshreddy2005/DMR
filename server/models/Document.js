@@ -43,6 +43,11 @@ const permissionSchema = new mongoose.Schema({
     type: Date,
     default: null,
   },
+  message: {
+    type: String,
+    trim: true,
+    default: '',
+  },
   grantedAt: {
     type: Date,
     default: Date.now,
@@ -86,6 +91,11 @@ const shareLogSchema = new mongoose.Schema({
   expiresAt: {
     type: Date,
     default: null,
+  },
+  message: {
+    type: String,
+    trim: true,
+    default: '',
   },
   isActive: {
     type: Boolean,

@@ -89,15 +89,20 @@ async function getPreviewUrl(s3Key, mimeType, fileName) {
 
 /**
  * Get the raw S3 object (stream + metadata) for proxying downloads.
- * Returns { Body, ContentType, ContentLength } from the S3 response.
+ * Returns { Body, ContentType, ContentLength, ContentRange, AcceptRanges } from the S3 response.
  * @param {string} s3Key - S3 object key
+ * @param {string} [rangeHeader] - Optional Range header for partial content
  * @returns {Promise<import('@aws-sdk/client-s3').GetObjectCommandOutput>}
  */
-async function getS3ObjectStream(s3Key) {
-    const command = new GetObjectCommand({
+async function getS3ObjectStream(s3Key, rangeHeader) {
+    const params = {
         Bucket: BUCKET,
         Key: s3Key,
-    });
+    };
+    if (rangeHeader) {
+        params.Range = rangeHeader;
+    }
+    const command = new GetObjectCommand(params);
 
     return s3Client.send(command);
 }
