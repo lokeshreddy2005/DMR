@@ -439,7 +439,7 @@ router.get('/documents', async (req, res) => {
         if (tags) {
             const tagArr = tags.split(',').map(t => t.trim()).filter(Boolean);
             if (tagArr.length > 0) {
-                filterQuery.tags = { $in: tagArr.map(t => new RegExp(`^${t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i')) };
+                filterQuery.tags = { $in: tagArr.map(t => new RegExp(t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i')) };
             }
         }
 

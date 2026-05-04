@@ -3,6 +3,7 @@ const crypto = require('crypto');
 const Document = require('../models/Document');
 const { getDownloadUrl, getPreviewUrl, getS3ObjectStream } = require('../services/s3');
 const zlib = require('zlib');
+const { getCache, setCache } = require('../services/redisClient');
 
 const router = express.Router();
 
@@ -203,7 +204,7 @@ router.get('/documents', async (req, res) => {
 
         if (tags) {
             const tagsArray = tags.split(',').map(t => t.trim()).filter(Boolean);
-            const tagRegexes = tagsArray.map(t => ({ $regex: `^${t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, $options: 'i' }));
+            const tagRegexes = tagsArray.map(t => new RegExp(t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i'));
             filterQuery.tags = tagsMode === 'all' ? { $all: tagRegexes } : { $in: tagRegexes };
         }
 
@@ -268,6 +269,12 @@ router.get('/documents', async (req, res) => {
  */
 router.get('/documents/tags', async (req, res) => {
     try {
+        const cacheKey = 'tags:public:all';
+        const cachedData = await getCache(cacheKey);
+        if (cachedData) {
+            return res.json({ tags: cachedData });
+        }
+
         const tagAgg = await Document.aggregate([
             { $match: { space: 'public', isTagged: true } },
             { $unwind: '$tags' },
@@ -277,6 +284,9 @@ router.get('/documents/tags', async (req, res) => {
         ]);
 
         const tags = tagAgg.map((t) => ({ tag: t._id, count: t.count }));
+        
+        await setCache(cacheKey, tags, 3600); // 1 hour
+
         res.json({ tags });
     } catch (err) {
         console.error('Tags aggregation error:', err);
@@ -290,12 +300,20 @@ router.get('/documents/tags', async (req, res) => {
  */
 router.get('/documents/:id', async (req, res) => {
     try {
-        const doc = await Document.findById(req.params.id)
-            .populate('uploadedBy', 'name avatarColor')
-            .select('-permissions -shareLogs -s3Key');
+        const cacheKey = `doc:public:${req.params.id}`;
+        let doc = await getCache(cacheKey);
+        
+        if (!doc) {
+            const dbDoc = await Document.findById(req.params.id)
+                .populate('uploadedBy', 'name avatarColor')
+                .select('-permissions -shareLogs -s3Key');
 
-        if (!doc || doc.space !== 'public') {
-            return res.status(404).json({ error: 'Document not found.' });
+            if (!dbDoc || dbDoc.space !== 'public') {
+                return res.status(404).json({ error: 'Document not found.' });
+            }
+            
+            doc = dbDoc.toJSON ? dbDoc.toJSON() : dbDoc;
+            await setCache(cacheKey, doc, 900); // 15 mins
         }
 
         res.json({ document: doc });

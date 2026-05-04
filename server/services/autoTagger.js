@@ -1,6 +1,8 @@
 const Groq = require('groq-sdk');
 const fs = require('fs');
 const pdfParse = require('pdf-parse');
+const crypto = require('crypto');
+const { getCache, setCache } = require('./redisClient');
 
 const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
 
@@ -32,6 +34,15 @@ async function extractText(fileBuffer, mimeType, fileName) {
  * @returns {Promise<{tags: string[], metadata: object}>}
  */
 async function autoTagDocument(fileBuffer, mimeType, fileName) {
+    const fileHash = crypto.createHash('sha256').update(fileBuffer).digest('hex');
+    const cacheKey = `ai_tags:hash:${fileHash}`;
+
+    const cachedData = await getCache(cacheKey);
+    if (cachedData) {
+        console.log('⚡ Using cached AI tags for document hash:', fileHash);
+        return cachedData;
+    }
+
     const text = await extractText(fileBuffer, mimeType, fileName);
 
     // Truncate long documents (Groq context limit)
@@ -88,7 +99,12 @@ ${truncated}`;
             academicYear: parsed.document_identity?.academic_year || 'Unknown',
         };
 
-        return { tags, metadata, raw: parsed };
+        const result = { tags, metadata, raw: parsed };
+        
+        // Cache AI results for 30 days
+        await setCache(cacheKey, result, 30 * 24 * 60 * 60);
+
+        return result;
     } catch (err) {
         console.error('Groq auto-tag error:', err.message);
         // Return fallback tags from filename

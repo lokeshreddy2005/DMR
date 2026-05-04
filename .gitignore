@@ -41,6 +41,7 @@ tagging_test/
 implementation_plan.md
 implementation_plan_front.md
 implementation_plan_2.md
+cache_test_plan.md
 
 ## 
 test_regex.js
@@ -48,5 +49,4 @@ test_api.js
 test_filter.js
 test_query.js
 test_api.js
-
 

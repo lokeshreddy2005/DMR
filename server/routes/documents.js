@@ -15,6 +15,7 @@ const { autoTagDocument } = require('../services/autoTagger');
 const RecentAccess = require('../models/RecentAccess');
 const { routeDocumentToVaults, VAULT_THRESHOLD } = require('../services/vaultRouter');
 const { VAULTS, VAULT_MAP } = require('../constants/vaults');
+const { getCache, setCache, delCache, invalidatePattern } = require('../services/redisClient');
 
 const router = express.Router();
 const SHAREABLE_ROLES = ['viewer', 'collaborator'];
@@ -472,6 +473,16 @@ router.post('/upload', upload.single('document'), async (req, res) => {
     await doc.save();
     await doc.populate('uploadedBy', 'name email avatarColor');
 
+    // --- Cache Invalidation ---
+    // Invalidate stats for this user
+    await delCache(`stats:user:${req.user._id}`);
+    // If it's a public space or shared, invalidate public tag searches just in case
+    if (space === 'public') {
+      await invalidatePattern('tags:public:search:*');
+      await delCache('tags:public:all');
+    }
+    // --------------------------
+
     res.status(201).json({
       message: 'Document uploaded successfully!',
       document: doc,
@@ -610,6 +621,15 @@ router.put('/:id/change-space', async (req, res) => {
     await doc.populate('uploadedBy', 'name email avatarColor');
     if (doc.organization) await doc.populate('organization', 'name avatarColor');
 
+    // --- Cache Invalidation ---
+    await delCache(`stats:user:${req.user._id}`);
+    await delCache(`doc:${doc._id}`);
+    if (previousSpace === 'public' || targetSpace === 'public') {
+      await invalidatePattern('tags:public:search:*');
+      await delCache('tags:public:all');
+    }
+    // --------------------------
+
     res.json({ message: 'Document moved successfully!', document: doc });
   } catch (err) {
     console.error('Change space error:', err);
@@ -733,6 +753,14 @@ router.put('/:id/tags', async (req, res) => {
     await doc.populate('uploadedBy', 'name email avatarColor');
     if (doc.organization) await doc.populate('organization', 'name avatarColor');
 
+    // --- Cache Invalidation ---
+    await delCache(`doc:${doc._id}`);
+    if (doc.space === 'public') {
+      await invalidatePattern('tags:public:search:*');
+      await delCache('tags:public:all');
+    }
+    // --------------------------
+
     res.json({ message: 'Tags updated successfully.', document: doc });
   } catch (err) {
     console.error('Update tags error:', err);
@@ -780,6 +808,14 @@ router.post('/:id/tags/ai', async (req, res) => {
     await doc.save();
     await doc.populate('uploadedBy', 'name email avatarColor');
     if (doc.organization) await doc.populate('organization', 'name avatarColor');
+
+    // --- Cache Invalidation ---
+    await delCache(`doc:${doc._id}`);
+    if (doc.space === 'public') {
+      await invalidatePattern('tags:public:search:*');
+      await delCache('tags:public:all');
+    }
+    // --------------------------
 
     res.json({ message: 'AI auto-tagging successful!', document: doc });
   } catch (err) {
@@ -987,7 +1023,7 @@ router.get('/', async (req, res) => {
     // Case-insensitive tag match; tagsMode=all requires ALL tags, default is ANY (or)
     if (tags) {
       const tagsArray = tags.split(',').map(t => t.trim()).filter(Boolean);
-      const tagRegexes = tagsArray.map(t => ({ $regex: `^${t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, $options: 'i' }));
+      const tagRegexes = tagsArray.map(t => new RegExp(t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i'));
       if (tagsMode === 'all') {
         // Must have ALL listed tags
         filterQuery.tags = { $all: tagRegexes };
@@ -1119,6 +1155,14 @@ router.get('/tags/search', async (req, res) => {
     const { q } = req.query;
     if (!q) return res.json({ tags: [] });
 
+    // --- Cache Check ---
+    const cacheKey = `tags:user:${req.user._id}:search:${q.toLowerCase()}`;
+    const cachedData = await getCache(cacheKey);
+    if (cachedData) {
+      return res.json({ tags: cachedData });
+    }
+    // -------------------
+
     // Restrict search space to what the user can reasonably see
     const userOrgs = await Organization.find({ 'members.user': req.user._id }).select('_id');
     const accessQuery = {
@@ -1141,6 +1185,11 @@ router.get('/tags/search', async (req, res) => {
     ]);
 
     const tags = tagAgg.map((t) => ({ tag: t._id }));
+    
+    // --- Cache Set ---
+    await setCache(cacheKey, tags, 3600); // Cache for 1 hour
+    // -----------------
+
     res.json({ tags });
   } catch (err) {
     console.error('Tags search error:', err);
@@ -1640,6 +1689,15 @@ router.get('/vaults/stats', async (req, res) => {
 router.get('/stats', async (req, res) => {
   try {
     const userId = req.user._id;
+
+    // --- Cache Check ---
+    const cacheKey = `stats:user:${userId}`;
+    const cachedData = await getCache(cacheKey);
+    if (cachedData) {
+      return res.json({ stats: cachedData });
+    }
+    // -------------------
+
     const userOrgs = await Organization.find({ 'members.user': userId }).select('_id');
     const orgIds = userOrgs.map((o) => o._id);
 
@@ -1659,15 +1717,19 @@ router.get('/stats', async (req, res) => {
       }),
     ]);
 
-    res.json({
-      stats: {
-        public: { count: publicCount, label: 'Public', icon: '🌐' },
-        private: { count: privateCount, label: 'Private', icon: '🔒' },
-        shared: { count: sharedCount, label: 'Shared with Me', icon: '👥' },
-        organization: { count: orgCount, label: 'Organizations', icon: '🏢' },
-        total: publicCount + privateCount + orgCount + sharedCount,
-      },
-    });
+    const statsData = {
+      public: { count: publicCount, label: 'Public', icon: '🌐' },
+      private: { count: privateCount, label: 'Private', icon: '🔒' },
+      shared: { count: sharedCount, label: 'Shared with Me', icon: '👥' },
+      organization: { count: orgCount, label: 'Organizations', icon: '🏢' },
+      total: publicCount + privateCount + orgCount + sharedCount,
+    };
+
+    // --- Cache Set ---
+    await setCache(cacheKey, statsData, 300); // Cache for 5 minutes
+    // -----------------
+
+    res.json({ stats: statsData });
   } catch (err) {
     console.error('Stats error:', err);
     res.status(500).json({ error: 'Failed to fetch stats.' });
@@ -1762,18 +1824,42 @@ router.get('/metrics/compression', async (req, res) => {
  */
 router.get('/:id', async (req, res) => {
   try {
-    const doc = await Document.findById(req.params.id)
-      .populate('uploadedBy', 'name email avatarColor')
-      .populate('permissions.user', 'name email avatarColor')
-      .populate('permissions.grantedBy', 'name email')
-      .populate('organization', 'name avatarColor')
-      .populate('shareLogs.user', 'name email avatarColor')
-      .populate('shareLogs.eventBy', 'name email')
-      .populate('shareLogs.sharedBy', 'name email')
-      .populate('shareLogs.lastUpdatedBy', 'name email')
-      .populate('shareLogs.revokedBy', 'name email');
+    // const doc = await Document.findById(req.params.id)
+    //   .populate('uploadedBy', 'name email avatarColor')
+    //   .populate('permissions.user', 'name email avatarColor')
+    //   .populate('permissions.grantedBy', 'name email')
+    //   .populate('organization', 'name avatarColor')
+    //   .populate('shareLogs.user', 'name email avatarColor')
+    //   .populate('shareLogs.eventBy', 'name email')
+    //   .populate('shareLogs.sharedBy', 'name email')
+    //   .populate('shareLogs.lastUpdatedBy', 'name email')
+    //   .populate('shareLogs.revokedBy', 'name email');
 
-    if (!doc) return res.status(404).json({ error: 'Document not found.' });
+    // if (!doc) return res.status(404).json({ error: 'Document not found.' });
+
+    // --- Cache Check ---
+    const cacheKey = `doc:${req.params.id}`;
+    let doc = await getCache(cacheKey);
+    
+    if (!doc) {
+      const dbDoc = await Document.findById(req.params.id)
+        .populate('uploadedBy', 'name email avatarColor')
+        .populate('permissions.user', 'name email avatarColor')
+        .populate('organization', 'name avatarColor')
+        .populate('shareLogs.user', 'name email avatarColor')
+        .populate('shareLogs.eventBy', 'name email')
+        .populate('shareLogs.sharedBy', 'name email')
+        .populate('shareLogs.lastUpdatedBy', 'name email')
+        .populate('shareLogs.revokedBy', 'name email');
+      
+      if (!dbDoc) {
+        return res.status(404).json({ error: 'Document not found.' });
+      }
+      
+      // We store the JSON representation in cache
+      doc = dbDoc.toJSON ? dbDoc.toJSON() : dbDoc;
+      await setCache(cacheKey, doc, 900); // Cache for 15 minutes
+    }
 
     if (!await checkDocAccess(doc, req.user._id)) {
       return res.status(403).json({ error: 'You do not have access to this document.' });
@@ -1804,6 +1890,10 @@ router.put('/:id', async (req, res) => {
 
     await doc.save();
     await doc.populate('uploadedBy', 'name email avatarColor');
+
+    // --- Cache Invalidation ---
+    await delCache(`doc:${doc._id}`);
+    // --------------------------
 
     res.json({ message: 'Document updated!', document: doc });
   } catch (err) {
@@ -1844,6 +1934,16 @@ router.delete('/:id', async (req, res) => {
     }
 
     await Document.findByIdAndDelete(req.params.id);
+
+    // --- Cache Invalidation ---
+    await delCache(`stats:user:${req.user._id}`);
+    await delCache(`doc:${req.params.id}`);
+    if (doc.space === 'public') {
+      await invalidatePattern('tags:public:search:*');
+      await delCache('tags:public:all');
+    }
+    // --------------------------
+
     res.json({ message: 'Document deleted.' });
   } catch (err) {
     console.error('Delete doc error:', err);
@@ -1871,18 +1971,8 @@ router.get('/:id/preview', async (req, res) => {
       { upsert: true }
     );
 
-    const previewToken = crypto.randomBytes(32).toString('hex');
-    previewTokens.set(previewToken, {
-      s3Key: doc.s3Key,
-      fileName: doc.fileName,
-      mimeType: doc.mimeType,
-      isCompressed: doc.isCompressed || false,
-      originalSize: doc.originalSize || 0,
-      documentId: doc._id.toString(),
-      createdAt: Date.now(),
-    });
-    
-    const previewUrl = `${process.env.API_URL || 'http://localhost:5000'}/api/documents/secure-preview/${previewToken}`;
+    const previewUrl = await getPreviewUrl(doc.s3Key, doc.mimeType, doc.fileName);
+
     res.json({ previewUrl, fileName: doc.fileName, mimeType: doc.mimeType, fileSize: doc.fileSize });
   } catch (err) {
     console.error('Preview error:', err);

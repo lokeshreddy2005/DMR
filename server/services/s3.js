@@ -5,6 +5,7 @@ const path = require('path');
 const crypto = require('crypto');
 const fs = require('fs');
 const zlib = require('zlib');
+const { getCache, setCache } = require('./redisClient');
 
 const s3Client = new S3Client({
     region: process.env.AWS_REGION || 'ap-south-1',
@@ -135,12 +136,18 @@ async function uploadToS3(filePath, originalName, mimeType, space, orgId) {
  * @returns {Promise<string>}
  */
 async function getDownloadUrl(s3Key) {
+    const cacheKey = `s3:download:${s3Key}`;
+    const cachedUrl = await getCache(cacheKey);
+    if (cachedUrl) return cachedUrl;
+
     const command = new GetObjectCommand({
         Bucket: BUCKET,
         Key: s3Key,
     });
 
-    return getSignedUrl(s3Client, command, { expiresIn: 3600 });
+    const url = await getSignedUrl(s3Client, command, { expiresIn: 3600 });
+    await setCache(cacheKey, url, 3300); // Cache for 55 minutes
+    return url;
 }
 
 /**
@@ -152,6 +159,10 @@ async function getDownloadUrl(s3Key) {
  * @returns {Promise<string>}
  */
 async function getPreviewUrl(s3Key, mimeType, fileName) {
+    const cacheKey = `s3:preview:${s3Key}`;
+    const cachedUrl = await getCache(cacheKey);
+    if (cachedUrl) return cachedUrl;
+
     const safeName = (fileName || 'file').replace(/[^a-zA-Z0-9._-]/g, '_');
     const command = new GetObjectCommand({
         Bucket: BUCKET,
@@ -160,7 +171,9 @@ async function getPreviewUrl(s3Key, mimeType, fileName) {
         ResponseContentType: mimeType || 'application/octet-stream',
     });
 
-    return getSignedUrl(s3Client, command, { expiresIn: 3600 });
+    const url = await getSignedUrl(s3Client, command, { expiresIn: 3600 });
+    await setCache(cacheKey, url, 3300); // Cache for 55 minutes
+    return url;
 }
 
 /**
