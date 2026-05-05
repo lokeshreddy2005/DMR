@@ -786,11 +786,11 @@ export function Workspace({ isPublicOnly = false, isSearchPage = false }) {
     };
 
     const handleDelete = async (docId) => {
-        if (!confirm('Permanently delete this document?')) return;
+        if (!confirm('Move this document to Trash?')) return;
         try {
             const headers = getAuthHeaders();
-            await axios.delete(`${API_URL}/api/documents/${docId}`, { headers });
-            showToast('success', 'Document deleted.');
+            const res = await axios.delete(`${API_URL}/api/documents/${docId}`, { headers });
+            showToast('success', res.data.message || 'Document deleted.');
             fetchDocuments();
             if (selectedDoc?._id === docId) setSelectedDoc(null);
         } catch (err) { showToast('error', err.response?.data?.error || 'Delete failed.'); }

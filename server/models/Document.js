@@ -259,6 +259,19 @@ const documentSchema = new mongoose.Schema({
     type: Date,
     default: Date.now,
   },
+  isTrashed: {
+    type: Boolean,
+    default: false,
+  },
+  trashedAt: {
+    type: Date,
+    default: null,
+  },
+  trashedBy: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'User',
+    default: null,
+  },
 });
 
 // ─── Indexes for Performance ───

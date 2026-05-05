@@ -4,7 +4,13 @@ const pdfParse = require('pdf-parse');
 const crypto = require('crypto');
 const { getCache, setCache } = require('./redisClient');
 
-const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
+let groq = null;
+function getGroqClient() {
+    if (!groq) {
+        groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
+    }
+    return groq;
+}
 
 /**
  * Extract text from a file buffer based on mime type.
@@ -77,7 +83,7 @@ DOCUMENT CONTENT:
 ${truncated}`;
 
     try {
-        const completion = await groq.chat.completions.create({
+        const completion = await getGroqClient().chat.completions.create({
             messages: [{ role: 'user', content: prompt }],
             model: 'llama-3.3-70b-versatile',
             temperature: 0.1,

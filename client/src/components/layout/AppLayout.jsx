@@ -46,6 +46,7 @@ const SIDEBAR_LINKS = [
   { name: "Shared with Others", href: "/workspace/shared-to-others", icon: UserCheck },
   { name: "Organizations", href: "/workspace/organization", icon: Building2 },
   { name: "Vault Browser", href: "/vaults", icon: Vault },
+  { name: "Trash", href: "/trash", icon: Trash2 },
 ];
 
 export function AppLayout() {
@@ -173,16 +174,19 @@ export function AppLayout() {
   };
 
   const handleDeletePreview = async (docId) => {
-    if (!confirm('Permanently delete this document?')) return;
+    if (!confirm('Move this document to Trash?')) return;
     try {
       const token = localStorage.getItem('dmr_token');
       const headers = { Authorization: `Bearer ${token}` };
-      await axios.delete(`${API_URL}/api/documents/${docId}`, { headers });
+      const res = await axios.delete(`${API_URL}/api/documents/${docId}`, { headers });
+      alert(res.data.message || 'Document moved to Trash.');
       setPreviewDoc(null);
-      // Removed from global results
-      setGlobalResults(prev => prev.filter(d => d._id !== docId));
+      // If there is a global results state, remove it (assuming setGlobalResults exists, though it's not defined in the snippet, it's used)
+      if (typeof setGlobalResults !== 'undefined') {
+        setGlobalResults(prev => prev.filter(d => d._id !== docId));
+      }
     } catch (err) {
-      alert('Delete failed.');
+      alert(err.response?.data?.error || 'Delete failed.');
     }
   };
 

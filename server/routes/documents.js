@@ -1078,6 +1078,10 @@ router.get('/', async (req, res) => {
       };
     }
 
+    // Handle Trashed filter
+    const isTrashedFilter = req.query.trashed === 'true' ? true : { $ne: true };
+    filterQuery.isTrashed = isTrashedFilter;
+
     // 3. Merge Queries & Execute
     const finalQuery = Object.keys(filterQuery).length > 0
       ? { $and: [accessQuery, filterQuery] }
@@ -1929,11 +1933,78 @@ router.delete('/:id', async (req, res) => {
       return res.status(403).json({ error: 'You do not have permission to delete this document.' });
     }
 
-    try { await deleteFromS3(doc.s3Key); } catch (s3Err) {
-      console.error('S3 delete warning:', s3Err.message);
+    const forceDelete = req.query.force === 'true';
+
+    if (doc.isTrashed || forceDelete) {
+      try { await deleteFromS3(doc.s3Key); } catch (s3Err) {
+        console.error('S3 delete warning:', s3Err.message);
+      }
+      await Document.findByIdAndDelete(req.params.id);
+      
+      // --- Cache Invalidation ---
+      await delCache(`stats:user:${req.user._id}`);
+      await delCache(`doc:${req.params.id}`);
+      if (doc.space === 'public') {
+        await invalidatePattern('tags:public:search:*');
+        await delCache('tags:public:all');
+      }
+      // --------------------------
+      return res.json({ message: 'Document permanently deleted.' });
+    } else {
+      // Soft Delete
+      doc.isTrashed = true;
+      doc.trashedAt = new Date();
+      doc.trashedBy = req.user._id;
+      await doc.save();
+      
+      // --- Cache Invalidation ---
+      await delCache(`stats:user:${req.user._id}`);
+      await delCache(`doc:${req.params.id}`);
+      if (doc.space === 'public') {
+        await invalidatePattern('tags:public:search:*');
+        await delCache('tags:public:all');
+      }
+      // --------------------------
+      return res.json({ message: 'Document moved to Trash.' });
+    }
+  } catch (err) {
+    console.error('Delete doc error:', err);
+    res.status(500).json({ error: 'Failed to delete document.' });
+  }
+});
+
+/**
+ * PUT /api/documents/:id/recover
+ * Recover a soft-deleted document
+ */
+router.put('/:id/recover', async (req, res) => {
+  try {
+    const doc = await Document.findById(req.params.id);
+    if (!doc) return res.status(404).json({ error: 'Document not found.' });
+
+    // Ensure the user has access to recover it (owner or org admin)
+    let canRecover = doc.canDeleteDoc(req.user._id);
+    if (!canRecover && (doc.space === 'organization') && doc.organization) {
+      const orgId = (doc.organization._id || doc.organization).toString();
+      const org = await Organization.findById(orgId);
+      if (org) {
+        const orgRole = org.getMemberRole(req.user._id);
+        if (orgRole === 'admin' || orgRole === 'collaborator') canRecover = true;
+      }
     }
 
-    await Document.findByIdAndDelete(req.params.id);
+    if (!canRecover) {
+      return res.status(403).json({ error: 'You do not have permission to recover this document.' });
+    }
+
+    if (!doc.isTrashed) {
+      return res.status(400).json({ error: 'Document is not in Trash.' });
+    }
+
+    doc.isTrashed = false;
+    doc.trashedAt = null;
+    doc.trashedBy = null;
+    await doc.save();
 
     // --- Cache Invalidation ---
     await delCache(`stats:user:${req.user._id}`);
@@ -1944,10 +2015,19 @@ router.delete('/:id', async (req, res) => {
     }
     // --------------------------
 
-    res.json({ message: 'Document deleted.' });
+    let destinationStr = `${doc.space} space`;
+    if (doc.space === 'organization' && doc.organization) {
+      const orgId = (doc.organization._id || doc.organization).toString();
+      const org = await Organization.findById(orgId);
+      if (org) {
+        destinationStr = `${org.name} organization`;
+      }
+    }
+
+    res.json({ message: `Document recovered to ${destinationStr}.`, document: doc });
   } catch (err) {
-    console.error('Delete doc error:', err);
-    res.status(500).json({ error: 'Failed to delete document.' });
+    console.error('Recover doc error:', err);
+    res.status(500).json({ error: 'Failed to recover document.' });
   }
 });
 

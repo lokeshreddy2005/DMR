@@ -8,6 +8,7 @@ const organizationRoutes = require('./routes/organizations');
 const publicRoutes = require('./routes/public');
 const apiKeyRoutes = require('./routes/apiKeys');
 const externalRoutes = require('./routes/external');
+require('./services/trashPurger'); // Start cron jobs
 
 const app = express();
 const PORT = process.env.PORT || 5000;

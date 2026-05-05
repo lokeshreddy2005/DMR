@@ -18,6 +18,7 @@ import { Profile } from './pages/Profile';
 import { EmbedUpload } from './pages/EmbedUpload';
 import { EmbedRetrieve } from './pages/EmbedRetrieve';
 import { VaultBrowser } from './pages/VaultBrowser';
+import { Trash } from './pages/Trash';
 
 // Route Guards
 const ProtectedRoute = ({ children }) => {
@@ -64,6 +65,7 @@ function App() {
                     <Route path="/profile" element={<Profile />} />
                     <Route path="/vaults" element={<VaultBrowser />} />
                     <Route path="/vaults/:vaultId" element={<VaultBrowser />} />
+                    <Route path="/trash" element={<Trash />} />
                 </Route>
 
                 {/* Catch all */}
