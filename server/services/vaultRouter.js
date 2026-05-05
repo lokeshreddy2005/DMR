@@ -1,5 +1,6 @@
 const Groq = require('groq-sdk');
-const { VAULTS, VAULT_THRESHOLD } = require('../constants/vaults');
+const { VAULT_THRESHOLD } = require('../constants/vaults');
+const Vault = require('../models/Vault');
 
 //Vault Router Service
 
@@ -9,6 +10,12 @@ const groqVault = new Groq({ apiKey: process.env.GROQ_VAULT_API_KEY });
  * Route a document to one or more vaults based on its tags and metadata.
  */
 async function routeDocumentToVaults(tags = [], metadata = {}, fileName = '') {
+    // Fetch all active vaults from DB
+    const vaults = await Vault.find();
+    if (!vaults || vaults.length === 0) {
+        console.warn('No vaults found in DB, skipping routing.');
+        return [];
+    }
     // Build a concise document summary for the prompt
     const docSummary = [
         fileName ? `File name: ${fileName}` : '',
@@ -21,9 +28,15 @@ async function routeDocumentToVaults(tags = [], metadata = {}, fileName = '') {
         .join('\n');
 
     // Build vault catalogue for the prompt
-    const vaultList = VAULTS.map(
+    const vaultList = vaults.map(
         (v) => `- "${v.id}": ${v.label} — ${v.description} (hints: ${v.keywords.join(', ')})`
     ).join('\n');
+
+    // Generate JSON template from DB vaults
+    const vaultScoresTemplate = vaults.reduce((acc, v) => {
+        acc[v.id] = 0.0;
+        return acc;
+    }, {});
 
     const prompt = `You are a document vault classification system.
 
@@ -37,21 +50,7 @@ ${vaultList}
 
 Return ONLY valid JSON in exactly this format:
 {
-  "vault_scores": {
-    "academics": 0.0,
-    "finance": 0.0,
-    "operations": 0.0,
-    "governance": 0.0,
-    "research": 0.0,
-    "hr": 0.0,
-    "engineering": 0.0,
-    "marketing": 0.0,
-    "it_systems": 0.0,
-    "student_affairs": 0.0,
-    "library_archives": 0.0,
-    "events": 0.0,
-    "miscellaneous": 0.0
-  }
+  "vault_scores": ${JSON.stringify(vaultScoresTemplate, null, 4)}
 }
 
 RULES:
@@ -72,8 +71,8 @@ RULES:
         const parsed = JSON.parse(responseText);
         const rawScores = parsed.vault_scores || {};
 
-        // Keep all 13 vaults and normalize across all of them so probabilities sum to 1.0 (100%).
-        const allVaults = VAULTS.map((v) => {
+        // Keep all vaults and normalize across all of them so probabilities sum to 1.0 (100%).
+        const allVaults = vaults.map((v) => {
             const value = parseFloat(rawScores[v.id]);
             const safeValue = Number.isFinite(value) ? Math.max(0, Math.min(1, value)) : 0;
             return {
@@ -115,7 +114,7 @@ RULES:
     } catch (err) {
         console.error('Vault router error:', err.message);
         // On any error, return a valid probability distribution across all vaults.
-        return VAULTS.map((v) => ({
+        return vaults.map((v) => ({
             vaultId: v.id,
             label: v.label,
             score: v.id === 'miscellaneous' ? 1 : 0,

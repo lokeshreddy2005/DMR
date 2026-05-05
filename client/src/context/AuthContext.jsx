@@ -93,9 +93,6 @@ export function AuthProvider({ children }) {
         logout,
         updateProfile,
         changePassword,
-        isSuperAdmin: user?.role === 'superadmin',
-        isAdmin: user?.role === 'admin' || user?.role === 'superadmin', // admins and superadmins
-        isUser: user?.role === 'user',
     };
 
     return (

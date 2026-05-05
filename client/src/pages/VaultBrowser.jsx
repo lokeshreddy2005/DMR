@@ -3,7 +3,7 @@ import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import axios from 'axios';
 import API_URL from '../config/api';
 import { useAuth } from '../context/AuthContext';
-import { FileText, ChevronLeft, ChevronRight, ArrowLeft, LayoutGrid, List, X, Download, Maximize2 } from 'lucide-react';
+import { FileText, ChevronLeft, ChevronRight, ArrowLeft, LayoutGrid, List, X, Download, Maximize2, Plus, Trash2 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Button } from '../components/ui/Button';
 import DocumentPreview, { DocumentThumbnail, FullPreviewModal } from '../components/PreviewModal';
@@ -20,13 +20,19 @@ const formatVaultPercent = (score) => `${(score * 100).toFixed(2)}%`;
 
 // ─── Vault List View ───────────────────────────────────────────────────────────
 function VaultListView({ onSelectVault }) {
-    const { token } = useAuth();
+    const { token, user } = useAuth();
+    const isAdmin = user?.role === 'admin';
     const [vaults, setVaults] = useState([]);
     const [stats, setStats] = useState({});
     const [loading, setLoading] = useState(true);
+    const [showCreate, setShowCreate] = useState(false);
+    const [newVault, setNewVault] = useState({ id: '', label: '', description: '', keywords: '' });
+    const [toast, setToast] = useState(null);
+    const headers = { Authorization: `Bearer ${token || localStorage.getItem('dmr_token')}` };
 
-    useEffect(() => {
-        const headers = { Authorization: `Bearer ${token || localStorage.getItem('dmr_token')}` };
+    const showToastMsg = (msg, type = 'success') => { setToast({ msg, type }); setTimeout(() => setToast(null), 3000); };
+
+    const fetchVaults = () => {
         Promise.all([
             axios.get(`${API_URL}/api/documents/vaults/list`, { headers }),
             axios.get(`${API_URL}/api/documents/vaults/stats`, { headers }),
@@ -37,7 +43,30 @@ function VaultListView({ onSelectVault }) {
             setStats(statsMap);
         }).catch(console.error)
           .finally(() => setLoading(false));
-    }, [token]);
+    };
+
+    useEffect(() => { fetchVaults(); }, [token]);
+
+    const handleCreateVault = async (e) => {
+        e.preventDefault();
+        try {
+            const payload = { ...newVault, keywords: newVault.keywords.split(',').map(k => k.trim()).filter(Boolean) };
+            await axios.post(`${API_URL}/api/admin/vaults`, payload, { headers });
+            setNewVault({ id: '', label: '', description: '', keywords: '' });
+            setShowCreate(false);
+            showToastMsg('Vault created!');
+            fetchVaults();
+        } catch (e) { showToastMsg(e.response?.data?.error || 'Failed to create vault', 'error'); }
+    };
+
+    const handleDeleteVault = async (id) => {
+        if (!confirm('Delete this vault?')) return;
+        try {
+            await axios.delete(`${API_URL}/api/admin/vaults/${id}`, { headers });
+            showToastMsg('Vault deleted');
+            fetchVaults();
+        } catch (e) { showToastMsg('Failed to delete vault', 'error'); }
+    };
 
     if (loading) return (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
@@ -47,8 +76,44 @@ function VaultListView({ onSelectVault }) {
         </div>
     );
 
+    const inputCls = "w-full bg-white dark:bg-gray-900 border border-gray-300 dark:border-gray-700 rounded-lg p-2.5 text-sm text-gray-900 dark:text-white outline-none focus:ring-2 focus:ring-blue-500";
+
     return (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+        <div className="space-y-6">
+            {toast && (
+                <motion.div initial={{ opacity: 0, y: -20 }} animate={{ opacity: 1, y: 0 }}
+                    className={`fixed top-6 right-6 z-[200] px-5 py-3 rounded-xl shadow-lg text-white font-semibold text-sm ${toast.type === 'error' ? 'bg-red-500' : 'bg-emerald-500'}`}>
+                    {toast.msg}
+                </motion.div>
+            )}
+
+            {/* Admin: Create Vault */}
+            {isAdmin && (
+                <div>
+                    {!showCreate ? (
+                        <button onClick={() => setShowCreate(true)}
+                            className="flex items-center gap-2 px-4 py-2 bg-emerald-50 dark:bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-500/30 rounded-xl text-sm font-semibold hover:bg-emerald-100 dark:hover:bg-emerald-500/20 transition-colors">
+                            <Plus className="w-4 h-4" /> Create New Vault
+                        </button>
+                    ) : (
+                        <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-2xl p-5 shadow-sm">
+                            <h3 className="font-bold text-gray-900 dark:text-white mb-4 flex items-center gap-2"><Plus className="w-4 h-4 text-emerald-500" /> New Vault</h3>
+                            <form onSubmit={handleCreateVault} className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                                <div><label className="block text-xs font-bold text-gray-500 mb-1">VAULT ID</label><input required className={inputCls} placeholder="e.g. legal_docs" value={newVault.id} onChange={e => setNewVault(p => ({...p, id: e.target.value}))} /></div>
+                                <div><label className="block text-xs font-bold text-gray-500 mb-1">LABEL</label><input required className={inputCls} placeholder="e.g. Legal Documents" value={newVault.label} onChange={e => setNewVault(p => ({...p, label: e.target.value}))} /></div>
+                                <div className="md:col-span-2"><label className="block text-xs font-bold text-gray-500 mb-1">DESCRIPTION</label><input className={inputCls} placeholder="Short description…" value={newVault.description} onChange={e => setNewVault(p => ({...p, description: e.target.value}))} /></div>
+                                <div className="md:col-span-2"><label className="block text-xs font-bold text-gray-500 mb-1">KEYWORDS (comma-separated)</label><input className={inputCls} placeholder="legal, contract, nda" value={newVault.keywords} onChange={e => setNewVault(p => ({...p, keywords: e.target.value}))} /></div>
+                                <div className="md:col-span-2 flex gap-2 justify-end">
+                                    <button type="button" onClick={() => setShowCreate(false)} className="px-4 py-2 text-sm font-semibold rounded-xl border border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors">Cancel</button>
+                                    <Button type="submit"><Plus className="w-4 h-4 mr-1" /> Create Vault</Button>
+                                </div>
+                            </form>
+                        </div>
+                    )}
+                </div>
+            )}
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
             {vaults.map(vault => {
                 const color = VAULT_COLOR;
                 const count = stats[vault.id] || 0;
@@ -58,8 +123,17 @@ function VaultListView({ onSelectVault }) {
                         onClick={() => onSelectVault(vault)}
                         whileHover={{ y: -3, scale: 1.01 }}
                         whileTap={{ scale: 0.98 }}
-                        className={`text-left p-5 rounded-2xl border ${color.bg} ${color.border} shadow-sm hover:shadow-md transition-all duration-200 flex flex-col gap-3`}
+                        className={`text-left p-5 rounded-2xl border ${color.bg} ${color.border} shadow-sm hover:shadow-md transition-all duration-200 flex flex-col gap-3 relative group`}
                     >
+                        {isAdmin && (
+                            <button
+                                onClick={e => { e.stopPropagation(); handleDeleteVault(vault.id); }}
+                                className="absolute top-3 right-3 p-1 text-red-400 hover:text-red-600 bg-white/70 dark:bg-gray-900/70 rounded-lg opacity-0 group-hover:opacity-100 transition-opacity"
+                                title="Delete vault"
+                            >
+                                <Trash2 className="w-4 h-4" />
+                            </button>
+                        )}
                         <div className="flex items-start justify-between">
                             <span className="text-2xl">{VAULT_ICONS[vault.id] || '🗂️'}</span>
                             <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${color.bg} ${color.text} border ${color.border}`}>
@@ -73,6 +147,7 @@ function VaultListView({ onSelectVault }) {
                     </motion.button>
                 );
             })}
+            </div>
         </div>
     );
 }

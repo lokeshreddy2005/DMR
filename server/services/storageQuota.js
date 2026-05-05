@@ -2,36 +2,35 @@ const Document = require('../models/Document');
 const Organization = require('../models/Organization');
 const User = require('../models/User');
 
+// Storage quotas in bytes
+const QUOTAS = {
+    PUBLIC_TOTAL: 500 * 1024 * 1024,       // 500 MB total public space
+    PRIVATE_PER_USER: 100 * 1024 * 1024,   // 100 MB per user private space
+    ORG_TOTAL: 200 * 1024 * 1024,          // 200 MB per organization
+};
+
 /**
  * Get storage usage for a specific context.
  */
-async function getPublicUsage(orgId) {
+async function getPublicUsage() {
     const result = await Document.aggregate([
-        { $match: { space: 'public', organizationId: orgId } },
+        { $match: { space: 'public' } },
         { $group: { _id: null, total: { $sum: '$fileSize' }, count: { $sum: 1 } } },
     ]);
     return { total: result[0]?.total || 0, count: result[0]?.count || 0 };
 }
 
-async function getPrivateUsage(userId, orgId) {
+async function getPrivateUsage(userId) {
     const result = await Document.aggregate([
-        { $match: { space: 'private', uploadedBy: userId, organizationId: orgId } },
+        { $match: { space: 'private', uploadedBy: userId } },
         { $group: { _id: null, total: { $sum: '$fileSize' }, count: { $sum: 1 } } },
     ]);
     return { total: result[0]?.total || 0, count: result[0]?.count || 0 };
 }
 
-async function getTeamUsage(orgId) {
+async function getOrgUsage(orgId) {
     const result = await Document.aggregate([
-        { $match: { space: 'organization', organizationId: orgId } },
-        { $group: { _id: null, total: { $sum: '$fileSize' }, count: { $sum: 1 } } },
-    ]);
-    return { total: result[0]?.total || 0, count: result[0]?.count || 0 };
-}
-
-async function getTotalOrgUsage(orgId) {
-    const result = await Document.aggregate([
-        { $match: { organizationId: orgId } },
+        { $match: { space: 'organization', organization: orgId } },
         { $group: { _id: null, total: { $sum: '$fileSize' }, count: { $sum: 1 } } },
     ]);
     return { total: result[0]?.total || 0, count: result[0]?.count || 0 };
@@ -42,38 +41,19 @@ async function getTotalOrgUsage(orgId) {
  * Returns { allowed, used, limit, remaining } or throws error.
  */
 async function checkQuota(space, userId, orgId, fileSize) {
-    if (!orgId) throw new Error('Organization ID is required');
-
-    const org = await Organization.findById(orgId);
-    if (!org) throw new Error('Organization not found');
-
-    const user = await User.findById(userId);
-    if (!user) throw new Error('User not found');
-
-    const quota = org.storageQuota;
-    
-    // First, check if the organization's TOTAL limit is exceeded
-    const totalOrgUsage = await getTotalOrgUsage(orgId);
-    if (totalOrgUsage.total + fileSize > quota.totalStorageLimitBytes) {
-        return { 
-            allowed: false, 
-            used: totalOrgUsage.total, 
-            limit: quota.totalStorageLimitBytes, 
-            remaining: Math.max(0, quota.totalStorageLimitBytes - totalOrgUsage.total) 
-        };
-    }
-
     let used, limit;
 
     if (space === 'public') {
-        used = (await getPublicUsage(orgId)).total;
-        limit = quota.publicSpaceLimitBytes;
+        used = (await getPublicUsage()).total;
+        limit = QUOTAS.PUBLIC_TOTAL;
     } else if (space === 'private') {
-        used = (await getPrivateUsage(userId, orgId)).total;
-        limit = user.privateStorageLimitBytes;
+        used = (await getPrivateUsage(userId)).total;
+        const user = await User.findById(userId);
+        limit = user ? user.storageLimit : QUOTAS.PRIVATE_PER_USER;
     } else if (space === 'organization') {
-        used = (await getTeamUsage(orgId)).total;
-        limit = quota.teamSpaceLimitBytes;
+        used = (await getOrgUsage(orgId)).total;
+        const org = await Organization.findById(orgId);
+        limit = org ? org.storageLimit : QUOTAS.ORG_TOTAL;
     } else {
         throw new Error('Invalid space type');
     }
@@ -88,60 +68,50 @@ async function checkQuota(space, userId, orgId, fileSize) {
  * Get full storage summary for a user.
  */
 async function getStorageSummary(userId) {
-    const user = await User.findById(userId);
-    if (!user || !user.organizationId) {
-        return {
-            public: { used: 0, count: 0, limit: 0, percentage: 0 },
-            private: { used: 0, count: 0, limit: 0, percentage: 0 },
-            organizations: []
-        };
+    const publicData = await getPublicUsage();
+    const privateData = await getPrivateUsage(userId);
+
+    // Get all user's orgs
+    const userOrgs = await Organization.find({ 'members.user': userId }).select('_id name storageLimit');
+    const orgUsages = [];
+    for (const org of userOrgs) {
+        const orgData = await getOrgUsage(org._id);
+        const orgLimit = org.storageLimit || QUOTAS.ORG_TOTAL;
+        orgUsages.push({
+            orgId: org._id,
+            orgName: org.name,
+            used: orgData.total,
+            count: orgData.count,
+            limit: orgLimit,
+            percentage: Math.round((orgData.total / orgLimit) * 100),
+        });
     }
 
-    const orgId = user.organizationId;
-    const org = await Organization.findById(orgId);
-    if (!org) throw new Error('Organization not found');
-
-    const quota = org.storageQuota;
-
-    const publicData = await getPublicUsage(orgId);
-    const privateData = await getPrivateUsage(userId, orgId);
-    const teamData = await getTeamUsage(orgId);
-    const totalData = await getTotalOrgUsage(orgId);
+    const user = await User.findById(userId);
+    const userLimit = user ? user.storageLimit : QUOTAS.PRIVATE_PER_USER;
 
     return {
         public: {
             used: publicData.total,
             count: publicData.count,
-            limit: quota.publicSpaceLimitBytes,
-            percentage: quota.publicSpaceLimitBytes ? Math.round((publicData.total / quota.publicSpaceLimitBytes) * 100) : 0,
+            limit: QUOTAS.PUBLIC_TOTAL,
+            percentage: Math.round((publicData.total / QUOTAS.PUBLIC_TOTAL) * 100),
         },
         private: {
             used: privateData.total,
             count: privateData.count,
-            limit: user.privateStorageLimitBytes,
-            percentage: user.privateStorageLimitBytes ? Math.round((privateData.total / user.privateStorageLimitBytes) * 100) : 0,
+            limit: userLimit,
+            percentage: Math.round((privateData.total / userLimit) * 100),
         },
-        organizations: [{
-            orgId: org._id,
-            orgName: org.name,
-            used: teamData.total,
-            count: teamData.count,
-            limit: quota.teamSpaceLimitBytes,
-            percentage: quota.teamSpaceLimitBytes ? Math.round((teamData.total / quota.teamSpaceLimitBytes) * 100) : 0,
-            
-            // Added total org usage for the admin/superadmin UI
-            totalOrgUsed: totalData.total,
-            totalOrgLimit: quota.totalStorageLimitBytes,
-            totalOrgPercentage: quota.totalStorageLimitBytes ? Math.round((totalData.total / quota.totalStorageLimitBytes) * 100) : 0
-        }],
+        organizations: orgUsages,
     };
 }
 
 function formatBytes(bytes) {
-    if (bytes === 0 || !bytes) return '0 B';
+    if (bytes === 0) return '0 B';
     const sizes = ['B', 'KB', 'MB', 'GB'];
     const i = Math.floor(Math.log(bytes) / Math.log(1024));
     return parseFloat((bytes / Math.pow(1024, i)).toFixed(1)) + ' ' + sizes[i];
 }
 
-module.exports = { checkQuota, getStorageSummary, formatBytes, getPublicUsage, getPrivateUsage, getTeamUsage, getTotalOrgUsage };
+module.exports = { checkQuota, getStorageSummary, formatBytes, QUOTAS };

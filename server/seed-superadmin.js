@@ -1,49 +1,29 @@
 require('dotenv').config();
 const mongoose = require('mongoose');
 const User = require('./models/User');
+const { connectDB } = require('./config/db');
 
-async function seed() {
-    const args = process.argv.slice(2);
-    let email, password, name;
+const ADMINS = [
+    { name: 'Root Admin',    email: 'root@dmr.admin',    password: 'RootAdmin@2024!' },
+    { name: 'Sys Admin',     email: 'sysadmin@dmr.admin', password: 'SysAdmin@2024!' },
+    { name: 'Lokesh Admin',  email: 'lokesh@dmr.admin',  password: 'Lokesh@Admin24!' },
+];
 
-    for (let i = 0; i < args.length; i++) {
-        if (args[i] === '--email') email = args[i + 1];
-        if (args[i] === '--password') password = args[i + 1];
-        if (args[i] === '--name') name = args[i + 1];
-    }
-
-    if (!email || !password || !name) {
-        console.error('Usage: node seed-superadmin.js --email <email> --password <password> --name <name>');
-        process.exit(1);
-    }
-
-    try {
-        await mongoose.connect(process.env.MONGO_URI);
-        console.log('Connected to MongoDB');
-
-        const existingUser = await User.findOne({ email: email.toLowerCase() });
-        if (existingUser) {
-            console.log('User already exists, updating role to superadmin...');
-            existingUser.role = 'superadmin';
-            existingUser.name = name;
-            existingUser.password = password; // Will be hashed by pre-save hook
-            await existingUser.save();
-            console.log('User updated successfully.');
+async function seedAdmins() {
+    await connectDB();
+    for (const a of ADMINS) {
+        let u = await User.findOne({ email: a.email });
+        if (u) {
+            u.role = 'admin';
+            await u.save();
+            console.log(`✅ Upgraded existing → ${a.email}`);
         } else {
-            const user = new User({
-                name,
-                email: email.toLowerCase(),
-                password,
-                role: 'superadmin'
-            });
-            await user.save();
-            console.log('Super Admin created successfully.');
+            u = new User({ name: a.name, email: a.email, password: a.password, role: 'admin' });
+            await u.save();
+            console.log(`✅ Created admin → ${a.email} | ${a.password}`);
         }
-    } catch (err) {
-        console.error('Error seeding superadmin:', err);
-    } finally {
-        await mongoose.disconnect();
     }
+    process.exit(0);
 }
 
-seed();
+seedAdmins().catch(e => { console.error(e); process.exit(1); });

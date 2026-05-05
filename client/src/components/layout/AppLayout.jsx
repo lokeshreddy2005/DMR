@@ -25,7 +25,8 @@ import {
   Eye,
   Download,
   UserCheck,
-  Vault
+  Vault,
+  ShieldAlert
 } from "lucide-react";
 import { useState, useEffect } from "react";
 import axios from "axios";
@@ -44,20 +45,18 @@ const USER_SIDEBAR_LINKS = [
   { name: "Private Space", href: "/workspace/private", icon: Lock },
   { name: "Shared with Me", href: "/workspace/shared", icon: Users },
   { name: "Shared with Others", href: "/workspace/shared-to-others", icon: UserCheck },
-  { name: "Team Space", href: "/workspace/organization", icon: Building2 },
+  { name: "Organizations", href: "/workspace/organization", icon: Building2 },
   { name: "Vault Browser", href: "/vaults", icon: Vault },
   { name: "Trash", href: "/trash", icon: Trash2 },
 ];
 
 const ADMIN_SIDEBAR_LINKS = [
-  { name: "Organization Dashboard", href: "/admin/dashboard", icon: LayoutDashboard },
-  { name: "Vault Management", href: "/vaults", icon: Vault },
-  { name: "My Workspace", href: "/dashboard", icon: FolderClosed },
-];
-
-const SUPER_ADMIN_SIDEBAR_LINKS = [
-  { name: "Global Dashboard", href: "/superadmin/dashboard", icon: LayoutDashboard },
-  { name: "My Workspace", href: "/dashboard", icon: FolderClosed },
+  { name: "Dashboard", href: "/dashboard", icon: LayoutDashboard },
+  { name: "Public Space", href: "/workspace/public", icon: Globe },
+  { name: "All Users", href: "/admin/users", icon: Users },
+  { name: "Private Space", href: "/admin/private", icon: Lock },
+  { name: "Organizations", href: "/admin/organizations", icon: Building2 },
+  { name: "Vault Browser", href: "/vaults", icon: Vault },
 ];
 
 export function AppLayout() {
@@ -258,14 +257,24 @@ export function AppLayout() {
 
         {/* Navigation Links */}
         <nav className="flex-1 px-4 py-6 space-y-1 overflow-y-auto overflow-x-hidden">
-          {(() => {
-            let links = USER_SIDEBAR_LINKS;
-            if (user?.role === 'superadmin') links = SUPER_ADMIN_SIDEBAR_LINKS;
-            else if (user?.role === 'admin') links = ADMIN_SIDEBAR_LINKS;
-
-            return links.map((link) => {
+          {user?.role === 'admin' && (
+            <Link
+              to="/admin"
+              title={isSidebarCollapsed ? "Admin Dashboard" : undefined}
+              className={cn(
+                "flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-semibold transition-all whitespace-nowrap overflow-hidden bg-red-50 text-red-600 dark:bg-red-500/10 dark:text-red-400 mb-2",
+                isSidebarCollapsed && "lg:px-0 lg:justify-center"
+              )}
+            >
+              <ShieldAlert className="w-5 h-5 flex-shrink-0 text-red-600 dark:text-red-400" />
+              <span className={cn("transition-opacity duration-300", isSidebarCollapsed ? "lg:opacity-0 lg:w-0" : "opacity-100")}>Admin Dashboard</span>
+            </Link>
+          )}
+          {(user?.role === 'admin' ? ADMIN_SIDEBAR_LINKS : USER_SIDEBAR_LINKS).map((link) => {
             const isActive = link.href === '/vaults'
               ? location.pathname.startsWith('/vaults')
+              : link.href.startsWith('/admin/')
+              ? location.pathname.startsWith(link.href)
               : location.pathname === link.href;
             return (
               <Link
@@ -284,7 +293,7 @@ export function AppLayout() {
                 <span className={cn("transition-opacity duration-300", isSidebarCollapsed ? "lg:opacity-0 lg:w-0" : "opacity-100")}>{link.name}</span>
               </Link>
             );
-          })})()}
+          })}
         </nav>
 
         {/* Sidebar Footer */}

@@ -39,8 +39,8 @@ router.post('/signup', async (req, res) => {
             return res.status(400).json({ error: 'An account with this email already exists.' });
         }
 
-        // Create user (force role to 'user' for public signup)
-        const user = new User({ name, email, password, role: 'user' });
+        // Create user
+        const user = new User({ name, email, password });
         await user.save();
 
         // Generate token
@@ -53,9 +53,8 @@ router.post('/signup', async (req, res) => {
                 id: user._id,
                 name: user.name,
                 email: user.email,
-                avatarColor: user.avatarColor,
                 role: user.role,
-                organizationId: user.organizationId,
+                avatarColor: user.avatarColor,
                 createdAt: user.createdAt,
             },
         });
@@ -106,9 +105,8 @@ router.post('/login', async (req, res) => {
                 id: user._id,
                 name: user.name,
                 email: user.email,
-                avatarColor: user.avatarColor,
                 role: user.role,
-                organizationId: user.organizationId,
+                avatarColor: user.avatarColor,
                 createdAt: user.createdAt,
             },
         });
@@ -128,9 +126,10 @@ router.get('/me', authMiddleware, async (req, res) => {
             id: req.user._id,
             name: req.user.name,
             email: req.user.email,
-            avatarColor: req.user.avatarColor,
             role: req.user.role,
-            organizationId: req.user.organizationId,
+            avatarColor: req.user.avatarColor,
+            storageUsed: req.user.storageUsed,
+            storageLimit: req.user.storageLimit,
             createdAt: req.user.createdAt,
         },
     });
@@ -166,6 +165,7 @@ router.put('/profile', authMiddleware, async (req, res) => {
                 id: user._id,
                 name: user.name,
                 email: user.email,
+                role: user.role,
                 avatarColor: user.avatarColor,
                 createdAt: user.createdAt,
             },

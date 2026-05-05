@@ -103,15 +103,6 @@ export function Signup() {
           Sign in instead
         </Link>
       </div>
-
-      <div className="mt-6 p-4 bg-yellow-50/50 dark:bg-yellow-900/10 border border-yellow-100 dark:border-yellow-800/50 rounded-xl text-left">
-        <p className="text-xs font-bold text-yellow-800 dark:text-yellow-300 mb-1 uppercase tracking-wider flex items-center gap-1.5">
-          <Lock className="w-3.5 h-3.5" /> Note on Roles
-        </p>
-        <p className="text-xs text-yellow-700 dark:text-yellow-400/80 leading-relaxed">
-          Public signups are automatically assigned the standard <strong>User</strong> role. Super Admin and Admin accounts cannot be created here. They must be seeded via the CLI or promoted by an existing Super Admin.
-        </p>
-      </div>
     </div>
   );
 }

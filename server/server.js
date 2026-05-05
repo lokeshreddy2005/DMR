@@ -8,8 +8,9 @@ const organizationRoutes = require('./routes/organizations');
 const publicRoutes = require('./routes/public');
 const apiKeyRoutes = require('./routes/apiKeys');
 const externalRoutes = require('./routes/external');
-const superAdminRoutes = require('./routes/superadmin');
 const adminRoutes = require('./routes/admin');
+const Vault = require('./models/Vault');
+const { VAULTS } = require('./constants/vaults');
 require('./services/trashPurger'); // Start cron jobs
 
 const app = express();
@@ -48,7 +49,6 @@ app.use('/api/orgs', organizationRoutes);
 app.use('/api/public', publicRoutes); // No auth required
 app.use('/api/api-keys', apiKeyRoutes);
 app.use('/api/external', externalRoutes); // External API
-app.use('/api/superadmin', superAdminRoutes);
 app.use('/api/admin', adminRoutes);
 
 // Health check
@@ -66,9 +66,21 @@ app.use((err, req, res, next) => {
 async function start() {
   await connectDB();
 
+  // Seed default vaults if empty
+  try {
+    const vaultCount = await Vault.countDocuments();
+    if (vaultCount === 0) {
+      console.log('Seeding default vaults...');
+      await Vault.insertMany(VAULTS);
+      console.log('Default vaults seeded successfully.');
+    }
+  } catch (err) {
+    console.error('Error seeding vaults:', err);
+  }
+
   app.listen(PORT, () => {
     console.log(`🚀 DMR Server running on http://localhost:${PORT}`);
-    console.log(`📡 Routes: /api/auth, /api/documents, /api/orgs, /api/public, /api/api-keys, /api/external, /api/health`);
+    console.log(`📡 Routes: /api/auth, /api/documents, /api/orgs, /api/public, /api/api-keys, /api/external, /api/admin, /api/health`);
   });
 }
 

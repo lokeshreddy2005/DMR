@@ -37,14 +37,6 @@ const organizationSchema = new mongoose.Schema({
         required: true,
     },
     members: [memberSchema],
-    storageQuota: {
-        // Controlled by Super Admin
-        totalStorageLimitBytes: { type: Number, default: 10 * 1024 * 1024 * 1024 }, // 10GB default
-        
-        // Controlled by Admin (must sum + users' private limits <= totalStorageLimitBytes)
-        publicSpaceLimitBytes: { type: Number, default: 2 * 1024 * 1024 * 1024 }, // 2GB default
-        teamSpaceLimitBytes: { type: Number, default: 5 * 1024 * 1024 * 1024 }, // 5GB default
-    },
     sharingPolicy: {
         defaultRole: {
             type: String,
@@ -61,6 +53,14 @@ const organizationSchema = new mongoose.Schema({
             ];
             return colors[Math.floor(Math.random() * colors.length)];
         },
+    },
+    storageLimit: {
+        type: Number,
+        default: 524288000, // 500MB
+    },
+    storageUsed: {
+        type: Number,
+        default: 0,
     },
     createdAt: {
         type: Date,

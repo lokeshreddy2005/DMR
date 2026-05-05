@@ -14,7 +14,7 @@ const { checkQuota, getStorageSummary } = require('../services/storageQuota');
 const { autoTagDocument } = require('../services/autoTagger');
 const RecentAccess = require('../models/RecentAccess');
 const { routeDocumentToVaults, VAULT_THRESHOLD } = require('../services/vaultRouter');
-const { VAULTS, VAULT_MAP } = require('../constants/vaults');
+const Vault = require('../models/Vault');
 const { getCache, setCache, delCache, invalidatePattern } = require('../services/redisClient');
 
 const router = express.Router();
@@ -224,7 +224,7 @@ async function populateDocumentForAccessUi(doc) {
 }
 
 async function sanitizeDocumentForViewer(doc, userId) {
-  const payload = typeof doc.toObject === 'function' ? doc.toObject() : { ...doc };
+  const payload = doc.toObject();
   const canManage = await checkDocManageAccess(doc, userId);
   if (!canManage) {
     delete payload.shareLogs;
@@ -1583,9 +1583,13 @@ router.get('/search', async (req, res) => {
  * Return all vault definitions (id, label, description).
  * Useful for populating vault filter UIs or navigation sidebars.
  */
-router.get('/vaults/list', (req, res) => {
-  const vaultList = VAULTS.map(({ id, label, description }) => ({ id, label, description }));
-  res.json({ vaults: vaultList });
+router.get('/vaults/list', async (req, res) => {
+  try {
+    const vaults = await Vault.find().select('id label description -_id').sort({ label: 1 });
+    res.json({ vaults });
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to fetch vaults.' });
+  }
 });
 
 /**
@@ -1597,7 +1601,8 @@ router.get('/vault/:vaultId', async (req, res) => {
   try {
     const { vaultId } = req.params;
 
-    if (!VAULT_MAP[vaultId]) {
+    const vaultObj = await Vault.findOne({ id: vaultId }).select('id label description -_id');
+    if (!vaultObj) {
       return res.status(404).json({ error: `Unknown vault: "${vaultId}". Valid vault IDs can be retrieved from GET /api/documents/vaults/list` });
     }
 
@@ -1644,7 +1649,7 @@ router.get('/vault/:vaultId', async (req, res) => {
     ]);
 
     res.json({
-      vault: VAULT_MAP[vaultId],
+      vault: vaultObj,
       documents,
       totalCount,
       currentPage: parseInt(page),
@@ -2398,11 +2403,7 @@ async function checkDocAccess(doc, userId) {
   if (doc.space === 'public') return true;
   if (doc.uploadedBy.toString() === userId.toString() ||
     doc.uploadedBy._id?.toString() === userId.toString()) return true;
-
-  // Handle both Mongoose documents and plain objects from cache
-  const DocumentModel = require('../models/Document');
-  if (DocumentModel.prototype.canView.call(doc, userId)) return true;
-
+  if (doc.canView(userId)) return true;
   if (doc.space === 'organization' && doc.organization) {
     const orgId = doc.organization._id || doc.organization;
     const org = await Organization.findById(orgId);

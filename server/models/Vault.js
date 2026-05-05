@@ -1,34 +1,31 @@
 const mongoose = require('mongoose');
 
 const vaultSchema = new mongoose.Schema({
-    name: {
+    id: {
         type: String,
-        required: true,
+        required: [true, 'Vault ID is required'],
+        unique: true,
+        trim: true,
+        lowercase: true,
+    },
+    label: {
+        type: String,
+        required: [true, 'Vault label is required'],
         trim: true,
     },
     description: {
         type: String,
-        default: '',
         trim: true,
+        default: '',
     },
-    organizationId: {
-        type: mongoose.Schema.Types.ObjectId,
-        ref: 'Organization',
-        required: true,
-    },
-    createdBy: {
-        type: mongoose.Schema.Types.ObjectId,
-        ref: 'User',
-        required: true,
+    keywords: {
+        type: [String],
+        default: [],
     },
     createdAt: {
         type: Date,
         default: Date.now,
     },
 });
-
-// Indexes for performance
-vaultSchema.index({ organizationId: 1 });
-vaultSchema.index({ organizationId: 1, name: 1 }, { unique: true });
 
 module.exports = mongoose.model('Vault', vaultSchema);
