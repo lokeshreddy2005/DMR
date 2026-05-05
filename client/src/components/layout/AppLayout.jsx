@@ -37,16 +37,27 @@ import ShareModal from "../ShareModal";
 import AdvancedSearchPopover from "../AdvancedSearchPopover";
 import { VAULT_COLOR, VAULT_LABELS, VAULT_THRESHOLD } from "../../constants/vaults";
 
-const SIDEBAR_LINKS = [
+const USER_SIDEBAR_LINKS = [
   { name: "Dashboard", href: "/dashboard", icon: LayoutDashboard },
   { name: "Recently Accessed", href: "/workspace/recent", icon: Clock },
   { name: "Public Space", href: "/workspace/public", icon: Globe },
   { name: "Private Space", href: "/workspace/private", icon: Lock },
   { name: "Shared with Me", href: "/workspace/shared", icon: Users },
   { name: "Shared with Others", href: "/workspace/shared-to-others", icon: UserCheck },
-  { name: "Organizations", href: "/workspace/organization", icon: Building2 },
+  { name: "Team Space", href: "/workspace/organization", icon: Building2 },
   { name: "Vault Browser", href: "/vaults", icon: Vault },
   { name: "Trash", href: "/trash", icon: Trash2 },
+];
+
+const ADMIN_SIDEBAR_LINKS = [
+  { name: "Organization Dashboard", href: "/admin/dashboard", icon: LayoutDashboard },
+  { name: "Vault Management", href: "/vaults", icon: Vault },
+  { name: "My Workspace", href: "/dashboard", icon: FolderClosed },
+];
+
+const SUPER_ADMIN_SIDEBAR_LINKS = [
+  { name: "Global Dashboard", href: "/superadmin/dashboard", icon: LayoutDashboard },
+  { name: "My Workspace", href: "/dashboard", icon: FolderClosed },
 ];
 
 export function AppLayout() {
@@ -247,7 +258,12 @@ export function AppLayout() {
 
         {/* Navigation Links */}
         <nav className="flex-1 px-4 py-6 space-y-1 overflow-y-auto overflow-x-hidden">
-          {SIDEBAR_LINKS.map((link) => {
+          {(() => {
+            let links = USER_SIDEBAR_LINKS;
+            if (user?.role === 'superadmin') links = SUPER_ADMIN_SIDEBAR_LINKS;
+            else if (user?.role === 'admin') links = ADMIN_SIDEBAR_LINKS;
+
+            return links.map((link) => {
             const isActive = link.href === '/vaults'
               ? location.pathname.startsWith('/vaults')
               : location.pathname === link.href;
@@ -268,7 +284,7 @@ export function AppLayout() {
                 <span className={cn("transition-opacity duration-300", isSidebarCollapsed ? "lg:opacity-0 lg:w-0" : "opacity-100")}>{link.name}</span>
               </Link>
             );
-          })}
+          })})()}
         </nav>
 
         {/* Sidebar Footer */}

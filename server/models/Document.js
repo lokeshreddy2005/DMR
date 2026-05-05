@@ -145,6 +145,16 @@ const documentSchema = new mongoose.Schema({
     required: true,
     trim: true,
   },
+  vaultId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Vault',
+    default: null,
+  },
+  organizationId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Organization',
+    required: true, // Crucial for multi-tenant quota tracking
+  },
   description: {
     type: String,
     trim: true,
@@ -277,6 +287,8 @@ const documentSchema = new mongoose.Schema({
 // ─── Indexes for Performance ───
 // Single Field Indexes for sorting/filtering
 documentSchema.index({ uploadDate: -1 });
+documentSchema.index({ organizationId: 1 });
+documentSchema.index({ vaultId: 1 });
 documentSchema.index({ 'metadata.extension': 1 });
 documentSchema.index({ 'metadata.departmentOwner': 1 });
 documentSchema.index({ 'metadata.vaults.vaultId': 1 });

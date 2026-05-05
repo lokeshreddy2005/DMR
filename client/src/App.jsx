@@ -11,8 +11,11 @@ import { EmbedLayout } from './components/layout/EmbedLayout';
 // Pages
 import { Home } from './pages/Home';
 import { Login } from './pages/Login';
+import { AdminLogin } from './pages/AdminLogin';
 import { Signup } from './pages/Signup';
 import { Dashboard } from './pages/Dashboard';
+import { AdminDashboard } from './pages/AdminDashboard';
+import { SuperAdminDashboard } from './pages/SuperAdminDashboard';
 import { Workspace } from './pages/Workspace';
 import { Profile } from './pages/Profile';
 import { EmbedUpload } from './pages/EmbedUpload';
@@ -25,6 +28,13 @@ const ProtectedRoute = ({ children }) => {
     const { isAuthenticated, loading } = useAuth();
     if (loading) return null;
     if (!isAuthenticated) return <Navigate to="/login" replace />;
+    return children;
+};
+
+const RoleRoute = ({ roles, children }) => {
+    const { user, loading } = useAuth();
+    if (loading) return null;
+    if (!roles.includes(user?.role)) return <Navigate to="/dashboard" replace />;
     return children;
 };
 
@@ -54,12 +64,26 @@ function App() {
                 {/* Authentication Routes */}
                 <Route element={<PublicOnlyRoute><AuthLayout /></PublicOnlyRoute>}>
                     <Route path="/login" element={<Login />} />
+                    <Route path="/admin-login" element={<AdminLogin />} />
                     <Route path="/signup" element={<Signup />} />
                 </Route>
 
                 {/* Protected Application Routes */}
                 <Route element={<ProtectedRoute><AppLayout /></ProtectedRoute>}>
-                    <Route path="/dashboard" element={<Dashboard />} />
+                    {/* Role-Aware Dashboard Redirect */}
+                    <Route path="/dashboard" element={
+                        <RoleRoute roles={['user', 'admin', 'superadmin']}>
+                            {/* We'll handle the redirect inside a component or just render the right one */}
+                            <DashboardRouter />
+                        </RoleRoute>
+                    } />
+                    
+                    {/* Super Admin Routes */}
+                    <Route path="/superadmin/dashboard" element={<RoleRoute roles={['superadmin']}><SuperAdminDashboard /></RoleRoute>} />
+                    
+                    {/* Admin Routes */}
+                    <Route path="/admin/dashboard" element={<RoleRoute roles={['admin', 'superadmin']}><AdminDashboard /></RoleRoute>} />
+                    
                     <Route path="/search" element={<Workspace isSearchPage={true} />} />
                     <Route path="/workspace/:spaceId" element={<Workspace />} />
                     <Route path="/profile" element={<Profile />} />
@@ -73,6 +97,13 @@ function App() {
             </Routes>
         </Router>
     );
+}
+
+function DashboardRouter() {
+    const { user } = useAuth();
+    if (user?.role === 'superadmin') return <Navigate to="/superadmin/dashboard" replace />;
+    if (user?.role === 'admin') return <Navigate to="/admin/dashboard" replace />;
+    return <Dashboard />;
 }
 
 export default App;

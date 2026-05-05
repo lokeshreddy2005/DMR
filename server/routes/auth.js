@@ -39,8 +39,8 @@ router.post('/signup', async (req, res) => {
             return res.status(400).json({ error: 'An account with this email already exists.' });
         }
 
-        // Create user
-        const user = new User({ name, email, password });
+        // Create user (force role to 'user' for public signup)
+        const user = new User({ name, email, password, role: 'user' });
         await user.save();
 
         // Generate token
@@ -54,6 +54,8 @@ router.post('/signup', async (req, res) => {
                 name: user.name,
                 email: user.email,
                 avatarColor: user.avatarColor,
+                role: user.role,
+                organizationId: user.organizationId,
                 createdAt: user.createdAt,
             },
         });
@@ -105,6 +107,8 @@ router.post('/login', async (req, res) => {
                 name: user.name,
                 email: user.email,
                 avatarColor: user.avatarColor,
+                role: user.role,
+                organizationId: user.organizationId,
                 createdAt: user.createdAt,
             },
         });
@@ -125,6 +129,8 @@ router.get('/me', authMiddleware, async (req, res) => {
             name: req.user.name,
             email: req.user.email,
             avatarColor: req.user.avatarColor,
+            role: req.user.role,
+            organizationId: req.user.organizationId,
             createdAt: req.user.createdAt,
         },
     });

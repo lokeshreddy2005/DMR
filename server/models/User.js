@@ -23,6 +23,20 @@ const userSchema = new mongoose.Schema({
         minlength: [6, 'Password must be at least 6 characters'],
         select: false, // Don't include password in queries by default
     },
+    role: {
+        type: String,
+        enum: ['user', 'admin', 'superadmin'],
+        default: 'user',
+    },
+    organizationId: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'Organization',
+        default: null,
+    },
+    privateStorageLimitBytes: {
+        type: Number,
+        default: 1 * 1024 * 1024 * 1024, // Default 1GB
+    },
     avatarColor: {
         type: String,
         default: function () {

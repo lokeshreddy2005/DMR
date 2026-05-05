@@ -224,7 +224,7 @@ async function populateDocumentForAccessUi(doc) {
 }
 
 async function sanitizeDocumentForViewer(doc, userId) {
-  const payload = doc.toObject();
+  const payload = typeof doc.toObject === 'function' ? doc.toObject() : { ...doc };
   const canManage = await checkDocManageAccess(doc, userId);
   if (!canManage) {
     delete payload.shareLogs;
@@ -2398,7 +2398,11 @@ async function checkDocAccess(doc, userId) {
   if (doc.space === 'public') return true;
   if (doc.uploadedBy.toString() === userId.toString() ||
     doc.uploadedBy._id?.toString() === userId.toString()) return true;
-  if (doc.canView(userId)) return true;
+
+  // Handle both Mongoose documents and plain objects from cache
+  const DocumentModel = require('../models/Document');
+  if (DocumentModel.prototype.canView.call(doc, userId)) return true;
+
   if (doc.space === 'organization' && doc.organization) {
     const orgId = doc.organization._id || doc.organization;
     const org = await Organization.findById(orgId);

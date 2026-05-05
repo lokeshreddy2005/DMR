@@ -8,6 +8,8 @@ const organizationRoutes = require('./routes/organizations');
 const publicRoutes = require('./routes/public');
 const apiKeyRoutes = require('./routes/apiKeys');
 const externalRoutes = require('./routes/external');
+const superAdminRoutes = require('./routes/superadmin');
+const adminRoutes = require('./routes/admin');
 require('./services/trashPurger'); // Start cron jobs
 
 const app = express();
@@ -46,6 +48,8 @@ app.use('/api/orgs', organizationRoutes);
 app.use('/api/public', publicRoutes); // No auth required
 app.use('/api/api-keys', apiKeyRoutes);
 app.use('/api/external', externalRoutes); // External API
+app.use('/api/superadmin', superAdminRoutes);
+app.use('/api/admin', adminRoutes);
 
 // Health check
 app.get('/api/health', (req, res) => {

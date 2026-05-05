@@ -64,4 +64,37 @@ async function optionalAuth(req, res, next) {
     next();
 }
 
-module.exports = { authMiddleware, optionalAuth };
+// ─── RBAC Middleware ───
+
+// Role hierarchy: superadmin > admin > user
+const ROLE_HIERARCHY = { user: 1, admin: 2, superadmin: 3 };
+
+/**
+ * Requires the user to have one of the exact specified roles.
+ */
+function requireRole(...allowedRoles) {
+    return (req, res, next) => {
+        if (!req.user) return res.status(401).json({ error: 'Authentication required.' });
+        if (!allowedRoles.includes(req.user.role)) {
+            return res.status(403).json({ error: 'Insufficient permissions. Requires one of: ' + allowedRoles.join(', ') });
+        }
+        next();
+    };
+}
+
+/**
+ * Requires the user to have a role at or above the specified minimum role in the hierarchy.
+ */
+function requireMinRole(minRole) {
+    return (req, res, next) => {
+        if (!req.user) return res.status(401).json({ error: 'Authentication required.' });
+        const userLevel = ROLE_HIERARCHY[req.user.role] || 0;
+        const requiredLevel = ROLE_HIERARCHY[minRole] || 999;
+        if (userLevel < requiredLevel) {
+            return res.status(403).json({ error: 'Insufficient permissions. Minimum role required: ' + minRole });
+        }
+        next();
+    };
+}
+
+module.exports = { authMiddleware, optionalAuth, requireRole, requireMinRole, ROLE_HIERARCHY };
