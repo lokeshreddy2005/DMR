@@ -66,6 +66,16 @@ const organizationSchema = new mongoose.Schema({
         type: Date,
         default: Date.now,
     },
+    isDeleted: {
+        type: Boolean,
+        default: false,
+    },
+    deletedAt: {
+        type: Date,
+    },
+    scheduledDeletionDate: {
+        type: Date,
+    },
 });
 
 // Ensure creator is always an admin member

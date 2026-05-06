@@ -24,20 +24,44 @@ router.use(authMiddleware);
 router.use(requireAdmin);
 
 // ─── SYSTEM STATS ────────────────────────────────────────────────────────────
+// Helper: Permanently delete items that have been in trash for more than 14 days
+const cleanupTrash = async () => {
+    try {
+        const now = new Date();
+        const deletedUsers = await User.find({ isDeleted: true, scheduledDeletionDate: { $lte: now } });
+        const deletedOrgs = await Organization.find({ isDeleted: true, scheduledDeletionDate: { $lte: now } });
+
+        for (const u of deletedUsers) {
+            await Document.deleteMany({ uploadedBy: u._id });
+            await User.findByIdAndDelete(u._id);
+        }
+        for (const o of deletedOrgs) {
+            await Document.deleteMany({ organization: o._id });
+            await Organization.findByIdAndDelete(o._id);
+        }
+    } catch (e) {
+        console.error('Trash cleanup error:', e);
+    }
+};
 
 router.get('/stats', async (req, res) => {
     try {
+        await cleanupTrash();
         const [
             totalUsers, totalAdmins, totalOrgs, totalDocs,
-            storageAgg, publicStorageAgg, vaultCount
+            storageAgg, publicStorageAgg, vaultCount, savingsAgg
         ] = await Promise.all([
-            User.countDocuments({ role: 'user' }),
-            User.countDocuments({ role: 'admin' }),
-            Organization.countDocuments(),
+            User.countDocuments({ role: 'user', isDeleted: { $ne: true } }),
+            User.countDocuments({ role: 'admin', isDeleted: { $ne: true } }),
+            Organization.countDocuments({ isDeleted: { $ne: true } }),
             Document.countDocuments({ isDeleted: { $ne: true } }),
             Document.aggregate([{ $match: { isDeleted: { $ne: true } } }, { $group: { _id: null, total: { $sum: '$fileSize' } } }]),
             Document.aggregate([{ $match: { space: 'public', isDeleted: { $ne: true } } }, { $group: { _id: null, total: { $sum: '$fileSize' } } }]),
             Vault.countDocuments(),
+            Document.aggregate([
+                { $match: { isDeleted: { $ne: true }, isCompressed: true } },
+                { $group: { _id: null, totalSaved: { $sum: { $subtract: ["$originalSize", "$fileSize"] } } } }
+            ])
         ]);
 
         res.json({
@@ -48,8 +72,10 @@ router.get('/stats', async (req, res) => {
             totalStorageUsed: storageAgg[0]?.total || 0,
             publicStorageUsed: publicStorageAgg[0]?.total || 0,
             vaultCount,
+            compressionSavings: savingsAgg[0]?.totalSaved || 0,
         });
     } catch (err) {
+        console.error('Admin stats error:', err);
         res.status(500).json({ error: 'Failed to fetch stats' });
     }
 });
@@ -59,7 +85,7 @@ router.get('/stats', async (req, res) => {
 // Get all users
 router.get('/users', async (req, res) => {
     try {
-        const users = await User.find().select('-password -apiKeys').sort({ createdAt: -1 });
+        const users = await User.find({ isDeleted: { $ne: true } }).select('-password -apiKeys').sort({ createdAt: -1 });
         
         // Calculate real storage used per user (private space)
         const usersWithStorage = await Promise.all(users.map(async (user) => {
@@ -152,17 +178,28 @@ router.put('/users/:id/role', async (req, res) => {
     }
 });
 
-// Delete a user
+// Delete a user (Soft Delete)
 router.delete('/users/:id', async (req, res) => {
     try {
         if (req.params.id === req.user.id.toString()) {
             return res.status(400).json({ error: 'You cannot delete your own account' });
         }
-        const user = await User.findByIdAndDelete(req.params.id);
+        
+        const now = new Date();
+        const scheduledDate = new Date(now.getTime() + 14 * 24 * 60 * 60 * 1000); // 14 days later
+
+        const user = await User.findByIdAndUpdate(req.params.id, {
+            isDeleted: true,
+            deletedAt: now,
+            scheduledDeletionDate: scheduledDate
+        }, { new: true });
+
         if (!user) return res.status(404).json({ error: 'User not found' });
-        // Optionally soft-delete their documents
+        
+        // Mark their documents as deleted too
         await Document.updateMany({ uploadedBy: req.params.id }, { isDeleted: true });
-        res.json({ message: `User ${user.name} deleted successfully` });
+        
+        res.json({ message: `User ${user.name} moved to trash. Permanent deletion in 14 days.` });
     } catch (err) {
         res.status(500).json({ error: 'Failed to delete user' });
     }
@@ -173,7 +210,7 @@ router.delete('/users/:id', async (req, res) => {
 // Get all organizations
 router.get('/organizations', async (req, res) => {
     try {
-        const orgs = await Organization.find()
+        const orgs = await Organization.find({ isDeleted: { $ne: true } })
             .populate('createdBy', 'name email avatarColor')
             .sort({ createdAt: -1 });
         // Add member count and actual storage used
@@ -213,14 +250,24 @@ router.put('/organizations/:id/limit', async (req, res) => {
     }
 });
 
-// Delete an organization
+// Delete an organization (Soft Delete)
 router.delete('/organizations/:id', async (req, res) => {
     try {
-        const org = await Organization.findByIdAndDelete(req.params.id);
+        const now = new Date();
+        const scheduledDate = new Date(now.getTime() + 14 * 24 * 60 * 60 * 1000); // 14 days later
+
+        const org = await Organization.findByIdAndUpdate(req.params.id, {
+            isDeleted: true,
+            deletedAt: now,
+            scheduledDeletionDate: scheduledDate
+        }, { new: true });
+
         if (!org) return res.status(404).json({ error: 'Organization not found' });
+        
         // Move org docs to deleted
         await Document.updateMany({ organization: req.params.id }, { isDeleted: true });
-        res.json({ message: `Organization "${org.name}" deleted successfully` });
+        
+        res.json({ message: `Organization "${org.name}" moved to trash. Permanent deletion in 14 days.` });
     } catch (err) {
         res.status(500).json({ error: 'Failed to delete organization' });
     }
@@ -322,6 +369,62 @@ router.delete('/documents/:id', async (req, res) => {
         res.json({ message: 'Document deleted by admin', document: doc });
     } catch (err) {
         res.status(500).json({ error: 'Failed to delete document' });
+    }
+});
+
+// ─── TRASH MANAGEMENT ────────────────────────────────────────────────────────
+// Get all trashed items
+router.get('/trash', async (req, res) => {
+    try {
+        const [users, orgs] = await Promise.all([
+            User.find({ isDeleted: true }).select('name email avatarColor deletedAt scheduledDeletionDate'),
+            Organization.find({ isDeleted: true }).select('name avatarColor deletedAt scheduledDeletionDate').populate('createdBy', 'name email')
+        ]);
+        res.json({ users, organizations: orgs });
+    } catch (err) {
+        res.status(500).json({ error: 'Failed to fetch trash items' });
+    }
+});
+
+// Restore a trashed item
+router.post('/trash/restore/:type/:id', async (req, res) => {
+    try {
+        const { type, id } = req.params;
+        let item;
+        if (type === 'user') {
+            item = await User.findByIdAndUpdate(id, { isDeleted: false, deletedAt: null, scheduledDeletionDate: null }, { new: true });
+            if (item) await Document.updateMany({ uploadedBy: id, space: { $ne: 'deleted_forever' } }, { isDeleted: false });
+        } else if (type === 'organization') {
+            item = await Organization.findByIdAndUpdate(id, { isDeleted: false, deletedAt: null, scheduledDeletionDate: null }, { new: true });
+            if (item) await Document.updateMany({ organization: id, space: { $ne: 'deleted_forever' } }, { isDeleted: false });
+        } else {
+            return res.status(400).json({ error: 'Invalid type' });
+        }
+
+        if (!item) return res.status(404).json({ error: 'Item not found' });
+        res.json({ message: `${type === 'user' ? 'User' : 'Organization'} restored successfully`, item });
+    } catch (err) {
+        res.status(500).json({ error: 'Failed to restore item' });
+    }
+});
+
+// Permanently delete a trashed item
+router.delete('/trash/permanent/:type/:id', async (req, res) => {
+    try {
+        const { type, id } = req.params;
+        if (type === 'user') {
+            if (id === req.user.id.toString()) return res.status(400).json({ error: 'Cannot delete self' });
+            await Document.deleteMany({ uploadedBy: id });
+            await User.findByIdAndDelete(id);
+        } else if (type === 'organization') {
+            await Document.deleteMany({ organization: id });
+            await Organization.findByIdAndDelete(id);
+        } else {
+            return res.status(400).json({ error: 'Invalid type' });
+        }
+        res.json({ message: 'Permanently deleted' });
+    } catch (err) {
+        res.status(500).json({ error: 'Failed to delete permanently' });
     }
 });
 

@@ -7,7 +7,8 @@ import { motion } from 'framer-motion';
 import { Button } from '../components/ui/Button';
 import {
     Users, Building2, Server, Trash2, Plus, Save, ShieldAlert,
-    ShieldCheck, UserX, BarChart3, HardDrive, FileText, Edit3, X, Check
+    ShieldCheck, UserX, BarChart3, HardDrive, FileText, Edit3, X, Check,
+    Zap, RotateCcw, Trash
 } from 'lucide-react';
 import { CircularProgress, getStorageHeaderColor, getWarningMessage } from '../components/ui/CircularProgress';
 
@@ -38,6 +39,7 @@ export function SuperAdminDashboard() {
     const [users, setUsers] = useState([]);
     const [organizations, setOrganizations] = useState([]);
     const [vaults, setVaults] = useState([]);
+    const [trash, setTrash] = useState({ users: [], organizations: [] });
     const [isLoading, setIsLoading] = useState(true);
     const [toast, setToast] = useState(null);
 
@@ -61,16 +63,18 @@ export function SuperAdminDashboard() {
     const fetchAll = useCallback(async () => {
         setIsLoading(true);
         try {
-            const [statsRes, usersRes, orgsRes, vaultsRes] = await Promise.all([
+            const [statsRes, usersRes, orgsRes, vaultsRes, trashRes] = await Promise.all([
                 api.get(`${API_URL}/api/admin/stats`, { headers }),
                 api.get(`${API_URL}/api/admin/users`, { headers }),
                 api.get(`${API_URL}/api/admin/organizations`, { headers }),
                 api.get(`${API_URL}/api/admin/vaults`, { headers }),
+                api.get(`${API_URL}/api/admin/trash`, { headers }),
             ]);
             setStats(statsRes.data);
             setUsers(usersRes.data);
             setOrganizations(orgsRes.data);
             setVaults(vaultsRes.data);
+            setTrash(trashRes.data);
         } catch (e) { console.error(e); }
         finally { setIsLoading(false); }
     }, [token]);
@@ -97,13 +101,22 @@ export function SuperAdminDashboard() {
     };
 
     const deleteUser = (id, name) => {
-        if (!confirm(`Delete user "${name}"? This cannot be undone.`)) return;
-        apiCall(() => api.delete(`${API_URL}/api/admin/users/${id}`, { headers }), `User deleted`);
+        if (!confirm(`Move user "${name}" to Trash? Account will be scheduled for deletion in 14 days.`)) return;
+        apiCall(() => api.delete(`${API_URL}/api/admin/users/${id}`, { headers }), `User moved to trash`);
     };
 
     const deleteOrg = (id, name) => {
-        if (!confirm(`Delete organization "${name}"? This cannot be undone.`)) return;
-        apiCall(() => api.delete(`${API_URL}/api/admin/organizations/${id}`, { headers }), 'Organization deleted');
+        if (!confirm(`Move organization "${name}" to Trash? Data will be scheduled for deletion in 14 days.`)) return;
+        apiCall(() => api.delete(`${API_URL}/api/admin/organizations/${id}`, { headers }), 'Organization moved to trash');
+    };
+
+    const restoreItem = (type, id) => {
+        apiCall(() => api.post(`${API_URL}/api/admin/trash/restore/${type}/${id}`, {}, { headers }), `${type === 'user' ? 'User' : 'Organization'} restored`);
+    };
+
+    const permanentDelete = (type, id, name) => {
+        if (!confirm(`Permanently delete ${type} "${name}"? This action is irreversible and will delete all associated documents.`)) return;
+        apiCall(() => api.delete(`${API_URL}/api/admin/trash/permanent/${type}/${id}`, { headers }), 'Deleted permanently');
     };
 
     const createVault = async (e) => {
@@ -132,6 +145,7 @@ export function SuperAdminDashboard() {
         { id: 'users', label: 'Users', icon: Users },
         { id: 'organizations', label: 'Organizations', icon: Building2 },
         { id: 'vaults', label: 'Vaults', icon: Server },
+        { id: 'trash', label: 'Trash', icon: Trash2 },
     ];
 
     if (isLoading) return <div className="flex justify-center items-center h-64"><div className="animate-spin h-10 w-10 rounded-full border-b-2 border-purple-500" /></div>;
@@ -406,6 +420,109 @@ export function SuperAdminDashboard() {
                                 )}
                             </div>
                         ))}
+                    </div>
+                </div>
+            )}
+
+            {/* ── TRASH ── */}
+            {activeTab === 'trash' && (
+                <div className="space-y-6">
+                    <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-2xl p-6 shadow-sm">
+                        <h3 className="text-lg font-bold text-gray-900 dark:text-white mb-4 flex items-center gap-2 text-red-500">
+                            <Trash2 className="w-5 h-5" /> Trashed Items
+                        </h3>
+                        <p className="text-sm text-gray-500 mb-6">These items are scheduled for permanent deletion 14 days after being moved here. You can restore them at any time before then.</p>
+
+                        <div className="space-y-8">
+                            {/* Trashed Users */}
+                            <div>
+                                <h4 className="text-sm font-bold text-gray-400 uppercase tracking-wider mb-3">Users ({trash.users.length})</h4>
+                                {trash.users.length === 0 ? (
+                                    <p className="text-sm text-gray-400 italic py-4 border border-dashed rounded-xl text-center">No users in trash.</p>
+                                ) : (
+                                    <div className="overflow-x-auto border border-gray-100 dark:border-gray-800 rounded-xl">
+                                        <table className="w-full text-sm text-left">
+                                            <thead className="text-xs text-gray-500 uppercase bg-gray-50 dark:bg-gray-800">
+                                                <tr>
+                                                    <th className="px-5 py-3">User</th>
+                                                    <th className="px-5 py-3">Deleted At</th>
+                                                    <th className="px-5 py-3">Auto-Delete In</th>
+                                                    <th className="px-5 py-3">Actions</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody>
+                                                {trash.users.map(u => {
+                                                    const daysLeft = Math.ceil((new Date(u.scheduledDeletionDate) - new Date()) / (1000 * 60 * 60 * 24));
+                                                    return (
+                                                        <tr key={u._id} className="border-t border-gray-100 dark:border-gray-800">
+                                                            <td className="px-5 py-3">
+                                                                <div className="font-semibold text-gray-900 dark:text-white">{u.name}</div>
+                                                                <div className="text-xs text-gray-500">{u.email}</div>
+                                                            </td>
+                                                            <td className="px-5 py-3 text-gray-500">{new Date(u.deletedAt).toLocaleDateString()}</td>
+                                                            <td className="px-5 py-3">
+                                                                <span className={`px-2 py-0.5 rounded-full text-xs font-bold ${daysLeft <= 3 ? 'bg-red-100 text-red-600' : 'bg-orange-100 text-orange-600'}`}>
+                                                                    {daysLeft} days
+                                                                </span>
+                                                            </td>
+                                                            <td className="px-5 py-3">
+                                                                <div className="flex gap-2">
+                                                                    <button onClick={() => restoreItem('user', u._id)} className="p-1.5 text-emerald-600 hover:bg-emerald-50 rounded-lg transition-colors" title="Restore User"><RotateCcw className="w-4 h-4" /></button>
+                                                                    <button onClick={() => permanentDelete('user', u._id, u.name)} className="p-1.5 text-red-600 hover:bg-red-50 rounded-lg transition-colors" title="Delete Permanently"><Trash className="w-4 h-4" /></button>
+                                                                </div>
+                                                            </td>
+                                                        </tr>
+                                                    );
+                                                })}
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                )}
+                            </div>
+
+                            {/* Trashed Organizations */}
+                            <div>
+                                <h4 className="text-sm font-bold text-gray-400 uppercase tracking-wider mb-3">Organizations ({trash.organizations.length})</h4>
+                                {trash.organizations.length === 0 ? (
+                                    <p className="text-sm text-gray-400 italic py-4 border border-dashed rounded-xl text-center">No organizations in trash.</p>
+                                ) : (
+                                    <div className="overflow-x-auto border border-gray-100 dark:border-gray-800 rounded-xl">
+                                        <table className="w-full text-sm text-left">
+                                            <thead className="text-xs text-gray-500 uppercase bg-gray-50 dark:bg-gray-800">
+                                                <tr>
+                                                    <th className="px-5 py-3">Organization</th>
+                                                    <th className="px-5 py-3">Creator</th>
+                                                    <th className="px-5 py-3">Auto-Delete In</th>
+                                                    <th className="px-5 py-3">Actions</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody>
+                                                {trash.organizations.map(o => {
+                                                    const daysLeft = Math.ceil((new Date(o.scheduledDeletionDate) - new Date()) / (1000 * 60 * 60 * 24));
+                                                    return (
+                                                        <tr key={o._id} className="border-t border-gray-100 dark:border-gray-800">
+                                                            <td className="px-5 py-3 font-semibold text-gray-900 dark:text-white">{o.name}</td>
+                                                            <td className="px-5 py-3 text-gray-500">{o.createdBy?.name || o.createdBy?.email}</td>
+                                                            <td className="px-5 py-3">
+                                                                <span className={`px-2 py-0.5 rounded-full text-xs font-bold ${daysLeft <= 3 ? 'bg-red-100 text-red-600' : 'bg-orange-100 text-orange-600'}`}>
+                                                                    {daysLeft} days
+                                                                </span>
+                                                            </td>
+                                                            <td className="px-5 py-3">
+                                                                <div className="flex gap-2">
+                                                                    <button onClick={() => restoreItem('organization', o._id)} className="p-1.5 text-emerald-600 hover:bg-emerald-50 rounded-lg transition-colors" title="Restore Organization"><RotateCcw className="w-4 h-4" /></button>
+                                                                    <button onClick={() => permanentDelete('organization', o._id, o.name)} className="p-1.5 text-red-600 hover:bg-red-50 rounded-lg transition-colors" title="Delete Permanently"><Trash className="w-4 h-4" /></button>
+                                                                </div>
+                                                            </td>
+                                                        </tr>
+                                                    );
+                                                })}
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                )}
+                            </div>
+                        </div>
                     </div>
                 </div>
             )}

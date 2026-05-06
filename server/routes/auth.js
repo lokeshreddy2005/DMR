@@ -89,6 +89,12 @@ router.post('/login', async (req, res) => {
             return res.status(401).json({ error: 'Invalid email or password.' });
         }
 
+        if (user.isDeleted) {
+            return res.status(403).json({ 
+                error: 'This account has been scheduled for deletion. Please contact support if this was an error.' 
+            });
+        }
+
         // Compare password
         const isMatch = await user.comparePassword(password);
         if (!isMatch) {
@@ -226,6 +232,7 @@ router.get('/users/search', authMiddleware, async (req, res) => {
 
         const regex = new RegExp(req.query.q.trim(), 'i');
         const users = await User.find({
+            isDeleted: { $ne: true },
             $or: [
                 { name: { $regex: regex } },
                 { email: { $regex: regex } }
