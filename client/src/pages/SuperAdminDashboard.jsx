@@ -9,6 +9,7 @@ import {
     Users, Building2, Server, Trash2, Plus, Save, ShieldAlert,
     ShieldCheck, UserX, BarChart3, HardDrive, FileText, Edit3, X, Check
 } from 'lucide-react';
+import { CircularProgress, getStorageHeaderColor, getWarningMessage } from '../components/ui/CircularProgress';
 
 const MB = 1048576;
 const fmt = (b) => { if (!b) return '0 B'; const k = 1024, s = ['B','KB','MB','GB']; const i = Math.floor(Math.log(b)/Math.log(k)); return parseFloat((b/Math.pow(k,i)).toFixed(1))+' '+s[i]; };
@@ -163,13 +164,84 @@ export function SuperAdminDashboard() {
 
             {/* ── OVERVIEW ── */}
             {activeTab === 'overview' && stats && (
-                <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
-                    <StatCard icon={Users} label="Regular Users" value={stats.totalUsers} color="bg-blue-50 dark:bg-blue-500/10 text-blue-500" />
-                    <StatCard icon={ShieldCheck} label="Admins" value={stats.totalAdmins} color="bg-red-50 dark:bg-red-500/10 text-red-500" />
-                    <StatCard icon={Building2} label="Organizations" value={stats.totalOrgs} color="bg-purple-50 dark:bg-purple-500/10 text-purple-500" />
-                    <StatCard icon={FileText} label="Documents" value={stats.totalDocs} color="bg-emerald-50 dark:bg-emerald-500/10 text-emerald-500" />
-                    <StatCard icon={HardDrive} label="Total Storage" value={fmt(stats.totalStorageUsed)} color="bg-orange-50 dark:bg-orange-500/10 text-orange-500" />
-                    <StatCard icon={Server} label="Vaults" value={stats.vaultCount} color="bg-cyan-50 dark:bg-cyan-500/10 text-cyan-500" />
+                <div className="space-y-6">
+                    <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-7 gap-4">
+                        <StatCard icon={Users} label="Regular Users" value={stats.totalUsers} color="bg-blue-50 dark:bg-blue-500/10 text-blue-500" />
+                        <StatCard icon={ShieldCheck} label="Admins" value={stats.totalAdmins} color="bg-red-50 dark:bg-red-500/10 text-red-500" />
+                        <StatCard icon={Building2} label="Organizations" value={stats.totalOrgs} color="bg-purple-50 dark:bg-purple-500/10 text-purple-500" />
+                        <StatCard icon={FileText} label="Documents" value={stats.totalDocs} color="bg-emerald-50 dark:bg-emerald-500/10 text-emerald-500" />
+                        <StatCard icon={HardDrive} label="Total Storage" value={fmt(stats.totalStorageUsed)} color="bg-orange-50 dark:bg-orange-500/10 text-orange-500" />
+                        <StatCard icon={Server} label="Vaults" value={stats.vaultCount} color="bg-cyan-50 dark:bg-cyan-500/10 text-cyan-500" />
+                        <StatCard icon={Zap} label="Saved by Compression" value={fmt(stats.compressionSavings)} color="bg-yellow-50 dark:bg-yellow-500/10 text-yellow-500" />
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mt-6">
+                        {(() => {
+                            const totalPrivateUsed = users.reduce((acc, u) => acc + (u.storageUsed || 0), 0);
+                            const totalPrivateLimit = users.reduce((acc, u) => acc + (u.storageLimit || 0), 0);
+                            const privatePercentage = totalPrivateLimit > 0 ? Math.round(Math.min(100, (totalPrivateUsed / totalPrivateLimit) * 100)) : 0;
+                            
+                            const totalOrgUsed = organizations.reduce((acc, o) => acc + (o.storageUsed || 0), 0);
+                            const totalOrgLimit = organizations.reduce((acc, o) => acc + (o.settings?.storageLimit || 10737418240), 0); // Default to 10GB if not set
+                            const orgPercentage = totalOrgLimit > 0 ? Math.round(Math.min(100, (totalOrgUsed / totalOrgLimit) * 100)) : 0;
+
+                            const publicUsed = stats.publicStorageUsed || 0;
+                            const totalUsed = stats.totalStorageUsed || 1; // Avoid div by zero
+                            const publicPercentage = Math.round((publicUsed / totalUsed) * 100);
+
+                            return (
+                                <>
+                                    <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-2xl p-6 shadow-sm flex items-center justify-between">
+                                        <div>
+                                            <h3 className="text-lg font-bold text-gray-900 dark:text-white flex items-center gap-2">
+                                                <Users className="w-5 h-5 text-blue-500" /> All Private Spaces
+                                            </h3>
+                                            <p className="text-sm text-gray-500 mt-1">Sum of all users' individual storage</p>
+                                            <div className="mt-4">
+                                                <p className="text-2xl font-black text-gray-900 dark:text-white">{fmt(totalPrivateUsed)}</p>
+                                                <p className="text-xs font-semibold text-gray-500">used of {fmt(totalPrivateLimit)}</p>
+                                            </div>
+                                        </div>
+                                        <div className="w-24 h-24 flex-shrink-0">
+                                            <CircularProgress percentage={privatePercentage} colorClass="text-blue-500" />
+                                        </div>
+                                    </div>
+
+                                    <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-2xl p-6 shadow-sm flex items-center justify-between">
+                                        <div>
+                                            <h3 className="text-lg font-bold text-gray-900 dark:text-white flex items-center gap-2">
+                                                <Building2 className="w-5 h-5 text-purple-500" /> Organization Spaces
+                                            </h3>
+                                            <p className="text-sm text-gray-500 mt-1">Sum of all organization storage</p>
+                                            <div className="mt-4">
+                                                <p className="text-2xl font-black text-gray-900 dark:text-white">{fmt(totalOrgUsed)}</p>
+                                                <p className="text-xs font-semibold text-gray-500">used of {fmt(totalOrgLimit)}</p>
+                                            </div>
+                                        </div>
+                                        <div className="w-24 h-24 flex-shrink-0">
+                                            <CircularProgress percentage={orgPercentage} colorClass="text-purple-500" />
+                                        </div>
+                                    </div>
+
+                                    <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-2xl p-6 shadow-sm flex items-center justify-between">
+                                        <div>
+                                            <h3 className="text-lg font-bold text-gray-900 dark:text-white flex items-center gap-2">
+                                                <FileText className="w-5 h-5 text-emerald-500" /> Total Public Space
+                                            </h3>
+                                            <p className="text-sm text-gray-500 mt-1">Total storage used by public files</p>
+                                            <div className="mt-4">
+                                                <p className="text-2xl font-black text-gray-900 dark:text-white">{fmt(publicUsed)}</p>
+                                                <p className="text-xs font-semibold text-gray-500">{publicPercentage}% of total storage</p>
+                                            </div>
+                                        </div>
+                                        <div className="w-24 h-24 flex-shrink-0">
+                                            <CircularProgress percentage={publicPercentage} colorClass="text-emerald-500" />
+                                        </div>
+                                    </div>
+                                </>
+                            );
+                        })()}
+                    </div>
                 </div>
             )}
 

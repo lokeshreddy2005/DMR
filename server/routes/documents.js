@@ -1554,22 +1554,39 @@ router.get('/search', async (req, res) => {
       ],
     };
 
-    const searchQuery = {
-      $or: [
-        { tags: { $elemMatch: { $regex: regex } } },
-        { fileName: { $regex: regex } },
-        { 'metadata.primaryDomain': { $regex: regex } },
-        { 'metadata.typeTags': { $elemMatch: { $regex: regex } } },
-        { description: { $regex: regex } },
-      ],
-    };
-
-    const documents = await Document.find({ $and: [accessQuery, searchQuery] })
+    // 1. Try $text search first for maximum performance (Ferrari engine)
+    let documents = await Document.find({
+      $and: [
+        accessQuery,
+        { $text: { $search: q.trim() } }
+      ]
+    })
       .select('-shareLogs')
       .populate('uploadedBy', 'name email avatarColor')
       .populate('organization', 'name avatarColor')
-      .sort({ uploadDate: -1 })
+      // Sort by text relevance score
+      .sort({ score: { $meta: 'textScore' } }) 
       .limit(50);
+
+    // 2. Fallback for partial autocomplete matches if no full-word results found (Bicycle mode)
+    if (documents.length === 0) {
+      const searchQuery = {
+        $or: [
+          { tags: { $elemMatch: { $regex: regex } } },
+          { fileName: { $regex: regex } },
+          { 'metadata.primaryDomain': { $regex: regex } },
+          { 'metadata.typeTags': { $elemMatch: { $regex: regex } } },
+          { description: { $regex: regex } },
+        ],
+      };
+
+      documents = await Document.find({ $and: [accessQuery, searchQuery] })
+        .select('-shareLogs')
+        .populate('uploadedBy', 'name email avatarColor')
+        .populate('organization', 'name avatarColor')
+        .sort({ uploadDate: -1 })
+        .limit(50);
+    }
 
     res.json({ documents, query: q });
   } catch (err) {
@@ -2056,7 +2073,18 @@ router.get('/:id/preview', async (req, res) => {
       { upsert: true }
     );
 
-    const previewUrl = await getPreviewUrl(doc.s3Key, doc.mimeType, doc.fileName);
+    const previewToken = crypto.randomBytes(32).toString('hex');
+    previewTokens.set(previewToken, {
+        s3Key: doc.s3Key,
+        fileName: doc.fileName,
+        mimeType: doc.mimeType,
+        isCompressed: doc.isCompressed || false,
+        originalSize: doc.originalSize || 0,
+        documentId: doc._id.toString(),
+        createdAt: Date.now(),
+    });
+    
+    const previewUrl = `${process.env.API_URL || 'http://localhost:5000'}/api/documents/secure-preview/${previewToken}`;
 
     res.json({ previewUrl, fileName: doc.fileName, mimeType: doc.mimeType, fileSize: doc.fileSize });
   } catch (err) {

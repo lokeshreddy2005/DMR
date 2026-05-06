@@ -29,13 +29,14 @@ router.get('/stats', async (req, res) => {
     try {
         const [
             totalUsers, totalAdmins, totalOrgs, totalDocs,
-            storageAgg, vaultCount
+            storageAgg, publicStorageAgg, vaultCount
         ] = await Promise.all([
             User.countDocuments({ role: 'user' }),
             User.countDocuments({ role: 'admin' }),
             Organization.countDocuments(),
             Document.countDocuments({ isDeleted: { $ne: true } }),
             Document.aggregate([{ $match: { isDeleted: { $ne: true } } }, { $group: { _id: null, total: { $sum: '$fileSize' } } }]),
+            Document.aggregate([{ $match: { space: 'public', isDeleted: { $ne: true } } }, { $group: { _id: null, total: { $sum: '$fileSize' } } }]),
             Vault.countDocuments(),
         ]);
 
@@ -45,6 +46,7 @@ router.get('/stats', async (req, res) => {
             totalOrgs,
             totalDocs,
             totalStorageUsed: storageAgg[0]?.total || 0,
+            publicStorageUsed: publicStorageAgg[0]?.total || 0,
             vaultCount,
         });
     } catch (err) {

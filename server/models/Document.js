@@ -283,7 +283,22 @@ documentSchema.index({ 'metadata.vaults.vaultId': 1 });
 
 // Text & Array Indexes
 documentSchema.index({ tags: 1 });
-documentSchema.index({ fileName: 'text', tags: 'text' });
+documentSchema.index({
+  fileName: 'text',
+  tags: 'text',
+  description: 'text',
+  'metadata.primaryDomain': 'text',
+  'metadata.typeTags': 'text'
+}, {
+  weights: {
+    fileName: 10,
+    tags: 8,
+    'metadata.primaryDomain': 5,
+    'metadata.typeTags': 5,
+    description: 1
+  },
+  name: "global_text_index"
+});
 
 // Virtual for formatted file size
 documentSchema.virtual('formattedSize').get(function () {
