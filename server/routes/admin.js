@@ -35,7 +35,7 @@ router.get('/stats', async (req, res) => {
             User.countDocuments({ role: 'admin' }),
             Organization.countDocuments(),
             Document.countDocuments({ isDeleted: { $ne: true } }),
-            User.aggregate([{ $group: { _id: null, total: { $sum: '$storageUsed' } } }]),
+            Document.aggregate([{ $match: { isDeleted: { $ne: true } } }, { $group: { _id: null, total: { $sum: '$fileSize' } } }]),
             Vault.countDocuments(),
         ]);
 
@@ -58,9 +58,53 @@ router.get('/stats', async (req, res) => {
 router.get('/users', async (req, res) => {
     try {
         const users = await User.find().select('-password -apiKeys').sort({ createdAt: -1 });
-        res.json(users);
+        
+        // Calculate real storage used per user (private space)
+        const usersWithStorage = await Promise.all(users.map(async (user) => {
+            const agg = await Document.aggregate([
+                { $match: { space: 'private', uploadedBy: user._id, isDeleted: { $ne: true } } },
+                { $group: { _id: null, total: { $sum: '$fileSize' } } }
+            ]);
+            const userObj = user.toObject();
+            userObj.storageUsed = agg[0]?.total || 0;
+            return userObj;
+        }));
+        
+        res.json(usersWithStorage);
     } catch (err) {
         res.status(500).json({ error: 'Failed to fetch users' });
+    }
+});
+
+// Create a new user manually
+router.post('/users', async (req, res) => {
+    try {
+        const { name, email, password, role, storageLimit } = req.body;
+        if (!name || !email || !password) {
+            return res.status(400).json({ error: 'Name, email, and password are required' });
+        }
+
+        const existingUser = await User.findOne({ email: email.toLowerCase() });
+        if (existingUser) {
+            return res.status(400).json({ error: 'User with this email already exists' });
+        }
+
+        const newUser = new User({
+            name,
+            email: email.toLowerCase(),
+            password, // Mongoose pre-save hook will hash this
+            role: role === 'admin' ? 'admin' : 'user',
+            storageLimit: storageLimit || 5368709120 // Default 5GB
+        });
+
+        await newUser.save();
+        
+        const userObj = newUser.toObject();
+        delete userObj.password;
+        
+        res.status(201).json(userObj);
+    } catch (err) {
+        res.status(500).json({ error: 'Failed to create user' });
     }
 });
 
@@ -130,10 +174,17 @@ router.get('/organizations', async (req, res) => {
         const orgs = await Organization.find()
             .populate('createdBy', 'name email avatarColor')
             .sort({ createdAt: -1 });
-        // Add member count
-        const orgsWithCount = orgs.map(org => ({
-            ...org.toObject(),
-            memberCount: org.members.length,
+        // Add member count and actual storage used
+        const orgsWithCount = await Promise.all(orgs.map(async (org) => {
+            const agg = await Document.aggregate([
+                { $match: { space: 'organization', organization: org._id, isDeleted: { $ne: true } } },
+                { $group: { _id: null, total: { $sum: '$fileSize' } } }
+            ]);
+            return {
+                ...org.toObject(),
+                memberCount: org.members.length,
+                storageUsed: agg[0]?.total || 0,
+            };
         }));
         res.json(orgsWithCount);
     } catch (err) {

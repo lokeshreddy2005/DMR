@@ -9,7 +9,69 @@ import { useNavigate } from 'react-router-dom';
 import API_URL from '../config/api';
 import api from '../utils/api';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Building2, ArrowLeft, FileText, Trash2, Download, Search, Users, ChevronLeft, ChevronRight } from 'lucide-react';
+import { Building2, ArrowLeft, FileText, Trash2, Download, Search, Users, ChevronLeft, ChevronRight, Settings, X } from 'lucide-react';
+
+function ManageSystemOrgModal({ org, onClose, onUpdated }) {
+    const { token } = useAuth();
+    const [limitGB, setLimitGB] = useState(org.settings?.storageLimit ? org.settings.storageLimit / 1073741824 : 10);
+    const [loading, setLoading] = useState(false);
+    const [error, setError] = useState('');
+    const headers = { Authorization: `Bearer ${token || localStorage.getItem('dmr_token')}` };
+
+    const handleUpdate = async () => {
+        setLoading(true); setError('');
+        try {
+            await api.put(`${API_URL}/api/admin/organizations/${org._id}/limit`, { storageLimit: limitGB * 1073741824 }, { headers });
+            onUpdated();
+        } catch (err) {
+            setError(err.response?.data?.error || 'Failed to update organization');
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    const handleDelete = async () => {
+        if (!confirm(`Are you sure you want to permanently delete "${org.name}"? This will delete all its documents.`)) return;
+        setLoading(true); setError('');
+        try {
+            await api.delete(`${API_URL}/api/admin/organizations/${org._id}`, { headers });
+            onUpdated();
+        } catch (err) {
+            setError(err.response?.data?.error || 'Failed to delete organization');
+            setLoading(false);
+        }
+    };
+
+    return (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+            <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} className="bg-white dark:bg-gray-900 rounded-2xl w-full max-w-md shadow-xl overflow-hidden">
+                <div className="flex items-center justify-between p-6 border-b border-gray-100 dark:border-gray-800">
+                    <h2 className="text-xl font-bold text-gray-900 dark:text-white">Manage Organization</h2>
+                    <button onClick={onClose} className="p-2 text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-full transition-colors"><X className="w-5 h-5" /></button>
+                </div>
+                <div className="p-6 space-y-5">
+                    {error && <div className="p-3 bg-red-50 dark:bg-red-500/10 text-red-600 dark:text-red-400 text-sm rounded-xl">{error}</div>}
+                    <div>
+                        <p className="text-sm font-medium text-gray-500 dark:text-gray-400">Organization Name</p>
+                        <p className="text-base font-bold text-gray-900 dark:text-white">{org.name}</p>
+                    </div>
+                    <div>
+                        <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-1">Global Storage Limit (GB)</label>
+                        <input type="number" min="1" value={limitGB} onChange={e => setLimitGB(e.target.value)} className="w-full px-4 py-2 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl outline-none text-gray-900 dark:text-white focus:ring-2 focus:ring-purple-500" />
+                        <p className="text-xs text-gray-500 mt-1">This overrides the organization's maximum allowed storage.</p>
+                    </div>
+                    <div className="pt-4 flex items-center justify-between border-t border-gray-100 dark:border-gray-800">
+                        <button onClick={handleDelete} disabled={loading} className="px-4 py-2 text-sm text-red-600 font-semibold hover:bg-red-50 dark:hover:bg-red-500/10 rounded-xl transition-colors disabled:opacity-50">Delete Org</button>
+                        <div className="flex gap-2">
+                            <button onClick={onClose} className="px-4 py-2 text-sm text-gray-600 dark:text-gray-400 font-semibold hover:bg-gray-100 dark:hover:bg-gray-800 rounded-xl transition-colors">Cancel</button>
+                            <button onClick={handleUpdate} disabled={loading} className="px-4 py-2 text-sm bg-purple-600 text-white font-semibold rounded-xl hover:bg-purple-700 transition-colors shadow-sm disabled:opacity-50">{loading ? 'Saving...' : 'Save Changes'}</button>
+                        </div>
+                    </div>
+                </div>
+            </motion.div>
+        </div>
+    );
+}
 
 const fmt = (b) => {
     if (!b) return '0 B';
@@ -23,12 +85,18 @@ function OrgGrid({ onSelect }) {
     const [orgs, setOrgs] = useState([]);
     const [search, setSearch] = useState('');
     const [loading, setLoading] = useState(true);
+    const [manageOrg, setManageOrg] = useState(null);
 
-    useEffect(() => {
+    const fetchOrgs = useCallback(() => {
+        setLoading(true);
         api.get(`${API_URL}/api/admin/organizations`, {
             headers: { Authorization: `Bearer ${token || localStorage.getItem('dmr_token')}` }
         }).then(r => setOrgs(r.data)).catch(console.error).finally(() => setLoading(false));
     }, [token]);
+
+    useEffect(() => {
+        fetchOrgs();
+    }, [fetchOrgs]);
 
     const filtered = orgs.filter(o =>
         o.name.toLowerCase().includes(search.toLowerCase()) ||
@@ -44,7 +112,7 @@ function OrgGrid({ onSelect }) {
                 <input type="text" placeholder="Search organizations…" value={search} onChange={e => setSearch(e.target.value)}
                     className="w-full pl-9 pr-4 py-2.5 rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 text-sm text-gray-900 dark:text-white outline-none focus:ring-2 focus:ring-purple-500" />
             </div>
-            {loading ? (
+            {loading && orgs.length === 0 ? (
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
                     {[...Array(6)].map((_, i) => <div key={i} className="animate-pulse bg-gray-100 dark:bg-gray-800 rounded-2xl h-36" />)}
                 </div>
@@ -58,28 +126,45 @@ function OrgGrid({ onSelect }) {
                     {filtered.map((org, idx) => {
                         const color = org.avatarColor || COLORS[idx % COLORS.length];
                         return (
-                            <motion.button key={org._id} onClick={() => onSelect(org)}
-                                whileHover={{ y: -3, scale: 1.01 }} whileTap={{ scale: 0.98 }}
-                                className="text-left p-5 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-2xl shadow-sm hover:shadow-md hover:border-purple-300 dark:hover:border-purple-700 transition-all">
+                            <motion.div key={org._id}
+                                whileHover={{ y: -3, scale: 1.01 }}
+                                className="relative p-5 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-2xl shadow-sm hover:shadow-md hover:border-purple-300 dark:hover:border-purple-700 transition-all cursor-pointer group"
+                                onClick={(e) => {
+                                    if (e.target.closest('button.manage-btn')) return;
+                                    onSelect(org);
+                                }}
+                            >
                                 <div className="flex items-center gap-3 mb-3">
                                     <div className="w-12 h-12 rounded-xl flex items-center justify-center text-white text-base font-extrabold flex-shrink-0"
                                         style={{ backgroundColor: color }}>
                                         {org.name.slice(0, 2).toUpperCase()}
                                     </div>
-                                    <div className="min-w-0">
+                                    <div className="min-w-0 flex-1">
                                         <p className="font-bold text-gray-900 dark:text-white truncate">{org.name}</p>
                                         <p className="text-xs text-gray-500 truncate">by {org.createdBy?.name || org.createdBy?.email || 'Unknown'}</p>
                                     </div>
+                                    <button
+                                        onClick={() => setManageOrg(org)}
+                                        className="manage-btn p-1.5 text-gray-400 hover:text-purple-500 hover:bg-purple-50 dark:hover:bg-purple-500/10 rounded-lg transition-colors opacity-0 group-hover:opacity-100"
+                                        title="Manage Organization"
+                                    >
+                                        <Settings className="w-4 h-4" />
+                                    </button>
                                 </div>
                                 <div className="flex items-center justify-between text-xs text-gray-500">
                                     <span className="flex items-center gap-1"><Users className="w-3.5 h-3.5" /> {org.memberCount || org.members?.length || 0} members</span>
-                                    <span>{fmt(org.storageUsed)} used</span>
+                                    <span>{fmt(org.storageUsed)} / {fmt(org.settings?.storageLimit || 10737418240)}</span>
                                 </div>
-                            </motion.button>
+                            </motion.div>
                         );
                     })}
                 </div>
             )}
+            <AnimatePresence>
+                {manageOrg && (
+                    <ManageSystemOrgModal org={manageOrg} onClose={() => setManageOrg(null)} onUpdated={() => { setManageOrg(null); fetchOrgs(); }} />
+                )}
+            </AnimatePresence>
         </div>
     );
 }

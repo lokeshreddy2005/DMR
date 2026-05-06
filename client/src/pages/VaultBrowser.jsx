@@ -3,7 +3,7 @@ import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import api from '../utils/api';
 import API_URL from '../config/api';
 import { useAuth } from '../context/AuthContext';
-import { FileText, ChevronLeft, ChevronRight, ArrowLeft, LayoutGrid, List, X, Download, Maximize2, Plus, Trash2 } from 'lucide-react';
+import { FileText, ChevronLeft, ChevronRight, ArrowLeft, LayoutGrid, List, X, Download, Maximize2, Plus, Trash2, Settings } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Button } from '../components/ui/Button';
 import DocumentPreview, { DocumentThumbnail, FullPreviewModal } from '../components/PreviewModal';
@@ -18,6 +18,62 @@ const formatSize = (bytes) => {
 
 const formatVaultPercent = (score) => `${(score * 100).toFixed(2)}%`;
 
+function EditVaultModal({ vault, onClose, onUpdated }) {
+    const { token } = useAuth();
+    const [formData, setFormData] = useState({
+        label: vault.label || '',
+        description: vault.description || '',
+        keywords: (vault.keywords || []).join(', ')
+    });
+    const [loading, setLoading] = useState(false);
+    const [error, setError] = useState('');
+    const headers = { Authorization: `Bearer ${token || localStorage.getItem('dmr_token')}` };
+
+    const handleSubmit = async (e) => {
+        e.preventDefault();
+        setLoading(true); setError('');
+        try {
+            const payload = { ...formData, keywords: formData.keywords.split(',').map(k => k.trim()).filter(Boolean) };
+            await api.put(`${API_URL}/api/admin/vaults/${vault.id}`, payload, { headers });
+            onUpdated();
+        } catch (err) {
+            setError(err.response?.data?.error || 'Failed to update vault');
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    return (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}>
+            <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} className="bg-white dark:bg-gray-900 rounded-2xl w-full max-w-md shadow-xl overflow-hidden">
+                <div className="flex items-center justify-between p-6 border-b border-gray-100 dark:border-gray-800">
+                    <h2 className="text-xl font-bold text-gray-900 dark:text-white">Edit Vault</h2>
+                    <button onClick={onClose} className="p-2 text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-full transition-colors"><X className="w-5 h-5" /></button>
+                </div>
+                <form onSubmit={handleSubmit} className="p-6 space-y-4">
+                    {error && <div className="p-3 bg-red-50 dark:bg-red-500/10 text-red-600 dark:text-red-400 text-sm rounded-xl">{error}</div>}
+                    <div>
+                        <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-1">Label</label>
+                        <input type="text" required value={formData.label} onChange={e => setFormData({ ...formData, label: e.target.value })} className="w-full px-4 py-2 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none text-gray-900 dark:text-white" />
+                    </div>
+                    <div>
+                        <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-1">Description</label>
+                        <input type="text" value={formData.description} onChange={e => setFormData({ ...formData, description: e.target.value })} className="w-full px-4 py-2 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none text-gray-900 dark:text-white" />
+                    </div>
+                    <div>
+                        <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-1">Keywords (comma-separated)</label>
+                        <input type="text" value={formData.keywords} onChange={e => setFormData({ ...formData, keywords: e.target.value })} className="w-full px-4 py-2 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none text-gray-900 dark:text-white" />
+                    </div>
+                    <div className="pt-4 flex justify-end gap-3">
+                        <button type="button" onClick={onClose} className="px-5 py-2 text-gray-600 dark:text-gray-400 font-semibold hover:bg-gray-100 dark:hover:bg-gray-800 rounded-xl transition-colors">Cancel</button>
+                        <button type="submit" disabled={loading} className="px-5 py-2 bg-blue-600 text-white font-semibold rounded-xl hover:bg-blue-700 transition-colors shadow-sm disabled:opacity-50">{loading ? 'Saving...' : 'Save Changes'}</button>
+                    </div>
+                </form>
+            </motion.div>
+        </div>
+    );
+}
+
 // ─── Vault List View ───────────────────────────────────────────────────────────
 function VaultListView({ onSelectVault }) {
     const { token, user } = useAuth();
@@ -28,6 +84,7 @@ function VaultListView({ onSelectVault }) {
     const [showCreate, setShowCreate] = useState(false);
     const [newVault, setNewVault] = useState({ id: '', label: '', description: '', keywords: '' });
     const [toast, setToast] = useState(null);
+    const [editVault, setEditVault] = useState(null);
     const headers = { Authorization: `Bearer ${token || localStorage.getItem('dmr_token')}` };
 
     const showToastMsg = (msg, type = 'success') => { setToast({ msg, type }); setTimeout(() => setToast(null), 3000); };
@@ -118,21 +175,32 @@ function VaultListView({ onSelectVault }) {
                 const color = VAULT_COLOR;
                 const count = stats[vault.id] || 0;
                 return (
-                    <motion.button
+                    <motion.div
                         key={vault.id}
-                        onClick={() => onSelectVault(vault)}
                         whileHover={{ y: -3, scale: 1.01 }}
-                        whileTap={{ scale: 0.98 }}
-                        className={`text-left p-5 rounded-2xl border ${color.bg} ${color.border} shadow-sm hover:shadow-md transition-all duration-200 flex flex-col gap-3 relative group`}
+                        className={`text-left p-5 rounded-2xl border ${color.bg} ${color.border} shadow-sm hover:shadow-md transition-all duration-200 flex flex-col gap-3 relative group cursor-pointer`}
+                        onClick={(e) => {
+                            if (e.target.closest('button.manage-btn')) return;
+                            onSelectVault(vault);
+                        }}
                     >
                         {isAdmin && (
-                            <button
-                                onClick={e => { e.stopPropagation(); handleDeleteVault(vault.id); }}
-                                className="absolute top-3 right-3 p-1 text-red-400 hover:text-red-600 bg-white/70 dark:bg-gray-900/70 rounded-lg opacity-0 group-hover:opacity-100 transition-opacity"
-                                title="Delete vault"
-                            >
-                                <Trash2 className="w-4 h-4" />
-                            </button>
+                            <div className="absolute top-3 right-3 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                                <button
+                                    onClick={e => { e.stopPropagation(); setEditVault(vault); }}
+                                    className="manage-btn p-1.5 text-gray-400 hover:text-blue-600 bg-white/70 dark:bg-gray-900/70 rounded-lg"
+                                    title="Edit vault"
+                                >
+                                    <Settings className="w-4 h-4" />
+                                </button>
+                                <button
+                                    onClick={e => { e.stopPropagation(); handleDeleteVault(vault.id); }}
+                                    className="manage-btn p-1.5 text-gray-400 hover:text-red-600 bg-white/70 dark:bg-gray-900/70 rounded-lg"
+                                    title="Delete vault"
+                                >
+                                    <Trash2 className="w-4 h-4" />
+                                </button>
+                            </div>
                         )}
                         <div className="flex items-start justify-between">
                             <span className="text-2xl">{VAULT_ICONS[vault.id] || '🗂️'}</span>
@@ -144,10 +212,16 @@ function VaultListView({ onSelectVault }) {
                             <h3 className={`font-bold text-sm ${color.text}`}>{vault.label}</h3>
                             <p className="text-xs text-gray-500 dark:text-gray-400 mt-1 line-clamp-2">{vault.description}</p>
                         </div>
-                    </motion.button>
+                    </motion.div>
                 );
             })}
             </div>
+            
+            <AnimatePresence>
+                {editVault && (
+                    <EditVaultModal vault={editVault} onClose={() => setEditVault(null)} onUpdated={() => { setEditVault(null); fetchVaults(); showToastMsg('Vault updated successfully!'); }} />
+                )}
+            </AnimatePresence>
         </div>
     );
 }

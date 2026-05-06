@@ -4,7 +4,144 @@ import { useNavigate, useParams } from 'react-router-dom';
 import API_URL from '../config/api';
 import api from '../utils/api';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Users, ArrowLeft, FileText, Trash2, Download, Search } from 'lucide-react';
+import { Users, ArrowLeft, FileText, Trash2, Download, Search, Settings, Plus, X } from 'lucide-react';
+
+function CreateUserModal({ onClose, onCreated }) {
+    const { token } = useAuth();
+    const [formData, setFormData] = useState({ name: '', email: '', password: '', role: 'user', storageLimit: 5368709120 });
+    const [loading, setLoading] = useState(false);
+    const [error, setError] = useState('');
+
+    const handleSubmit = async (e) => {
+        e.preventDefault();
+        setLoading(true); setError('');
+        try {
+            await api.post(`${API_URL}/api/admin/users`, formData, {
+                headers: { Authorization: `Bearer ${token || localStorage.getItem('dmr_token')}` }
+            });
+            onCreated();
+        } catch (err) {
+            setError(err.response?.data?.error || 'Failed to create user');
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    return (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+            <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} className="bg-white dark:bg-gray-900 rounded-2xl w-full max-w-md shadow-xl overflow-hidden">
+                <div className="flex items-center justify-between p-6 border-b border-gray-100 dark:border-gray-800">
+                    <h2 className="text-xl font-bold text-gray-900 dark:text-white">Create User</h2>
+                    <button onClick={onClose} className="p-2 text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-full transition-colors"><X className="w-5 h-5" /></button>
+                </div>
+                <form onSubmit={handleSubmit} className="p-6 space-y-4">
+                    {error && <div className="p-3 bg-red-50 dark:bg-red-500/10 text-red-600 dark:text-red-400 text-sm rounded-xl">{error}</div>}
+                    <div>
+                        <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-1">Name</label>
+                        <input type="text" required value={formData.name} onChange={e => setFormData({ ...formData, name: e.target.value })} className="w-full px-4 py-2 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none text-gray-900 dark:text-white" />
+                    </div>
+                    <div>
+                        <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-1">Email</label>
+                        <input type="email" required value={formData.email} onChange={e => setFormData({ ...formData, email: e.target.value })} className="w-full px-4 py-2 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none text-gray-900 dark:text-white" />
+                    </div>
+                    <div>
+                        <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-1">Password</label>
+                        <input type="password" required minLength={6} value={formData.password} onChange={e => setFormData({ ...formData, password: e.target.value })} className="w-full px-4 py-2 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none text-gray-900 dark:text-white" />
+                    </div>
+                    <div className="grid grid-cols-2 gap-4">
+                        <div>
+                            <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-1">Role</label>
+                            <select value={formData.role} onChange={e => setFormData({ ...formData, role: e.target.value })} className="w-full px-4 py-2 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl outline-none text-gray-900 dark:text-white">
+                                <option value="user">User</option>
+                                <option value="admin">Admin</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-1">Quota (GB)</label>
+                            <input type="number" min="1" value={formData.storageLimit / 1073741824} onChange={e => setFormData({ ...formData, storageLimit: e.target.value * 1073741824 })} className="w-full px-4 py-2 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl outline-none text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500" />
+                        </div>
+                    </div>
+                    <div className="pt-4 flex justify-end gap-3">
+                        <button type="button" onClick={onClose} className="px-5 py-2 text-gray-600 dark:text-gray-400 font-semibold hover:bg-gray-100 dark:hover:bg-gray-800 rounded-xl transition-colors">Cancel</button>
+                        <button type="submit" disabled={loading} className="px-5 py-2 bg-blue-600 text-white font-semibold rounded-xl hover:bg-blue-700 transition-colors shadow-sm disabled:opacity-50">{loading ? 'Creating...' : 'Create User'}</button>
+                    </div>
+                </form>
+            </motion.div>
+        </div>
+    );
+}
+
+function ManageUserModal({ user, onClose, onUpdated }) {
+    const { token } = useAuth();
+    const [role, setRole] = useState(user.role);
+    const [limitGB, setLimitGB] = useState(user.storageLimit ? user.storageLimit / 1073741824 : 5);
+    const [loading, setLoading] = useState(false);
+    const [error, setError] = useState('');
+    const headers = { Authorization: `Bearer ${token || localStorage.getItem('dmr_token')}` };
+
+    const handleUpdate = async () => {
+        setLoading(true); setError('');
+        try {
+            if (role !== user.role) await api.put(`${API_URL}/api/admin/users/${user._id}/role`, { role }, { headers });
+            if (limitGB * 1073741824 !== user.storageLimit) await api.put(`${API_URL}/api/admin/users/${user._id}/limit`, { storageLimit: limitGB * 1073741824 }, { headers });
+            onUpdated();
+        } catch (err) {
+            setError(err.response?.data?.error || 'Failed to update user');
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    const handleDelete = async () => {
+        if (!confirm(`Are you sure you want to permanently delete ${user.name}?`)) return;
+        setLoading(true); setError('');
+        try {
+            await api.delete(`${API_URL}/api/admin/users/${user._id}`, { headers });
+            onUpdated();
+        } catch (err) {
+            setError(err.response?.data?.error || 'Failed to delete user');
+            setLoading(false);
+        }
+    };
+
+    return (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+            <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} className="bg-white dark:bg-gray-900 rounded-2xl w-full max-w-md shadow-xl overflow-hidden">
+                <div className="flex items-center justify-between p-6 border-b border-gray-100 dark:border-gray-800">
+                    <h2 className="text-xl font-bold text-gray-900 dark:text-white">Manage User</h2>
+                    <button onClick={onClose} className="p-2 text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-full transition-colors"><X className="w-5 h-5" /></button>
+                </div>
+                <div className="p-6 space-y-5">
+                    {error && <div className="p-3 bg-red-50 dark:bg-red-500/10 text-red-600 dark:text-red-400 text-sm rounded-xl">{error}</div>}
+                    <div>
+                        <p className="text-sm font-medium text-gray-500 dark:text-gray-400">User</p>
+                        <p className="text-base font-bold text-gray-900 dark:text-white">{user.name} ({user.email})</p>
+                    </div>
+                    <div className="grid grid-cols-2 gap-4">
+                        <div>
+                            <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-1">Role</label>
+                            <select value={role} onChange={e => setRole(e.target.value)} className="w-full px-4 py-2 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl outline-none text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500">
+                                <option value="user">User</option>
+                                <option value="admin">Admin</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-1">Quota (GB)</label>
+                            <input type="number" min="1" value={limitGB} onChange={e => setLimitGB(e.target.value)} className="w-full px-4 py-2 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl outline-none text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500" />
+                        </div>
+                    </div>
+                    <div className="pt-4 flex items-center justify-between border-t border-gray-100 dark:border-gray-800">
+                        <button onClick={handleDelete} disabled={loading} className="px-4 py-2 text-sm text-red-600 font-semibold hover:bg-red-50 dark:hover:bg-red-500/10 rounded-xl transition-colors disabled:opacity-50">Delete User</button>
+                        <div className="flex gap-2">
+                            <button onClick={onClose} className="px-4 py-2 text-sm text-gray-600 dark:text-gray-400 font-semibold hover:bg-gray-100 dark:hover:bg-gray-800 rounded-xl transition-colors">Cancel</button>
+                            <button onClick={handleUpdate} disabled={loading} className="px-4 py-2 text-sm bg-blue-600 text-white font-semibold rounded-xl hover:bg-blue-700 transition-colors shadow-sm disabled:opacity-50">{loading ? 'Saving...' : 'Save Changes'}</button>
+                        </div>
+                    </div>
+                </div>
+            </motion.div>
+        </div>
+    );
+}
 
 const fmt = (b) => {
     if (!b) return '0 B';
@@ -19,21 +156,28 @@ function UserList({ onSelect }) {
     const [users, setUsers] = useState([]);
     const [search, setSearch] = useState('');
     const [loading, setLoading] = useState(true);
+    const [showCreate, setShowCreate] = useState(false);
+    const [manageUser, setManageUser] = useState(null);
     const headers = { Authorization: `Bearer ${token || localStorage.getItem('dmr_token')}` };
 
-    useEffect(() => {
+    const fetchUsers = useCallback(() => {
+        setLoading(true);
         api.get(`${API_URL}/api/admin/users`, { headers })
             .then(r => setUsers(r.data))
             .catch(console.error)
             .finally(() => setLoading(false));
-    }, []);
+    }, [headers]);
+
+    useEffect(() => {
+        fetchUsers();
+    }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
     const filtered = users.filter(u =>
         u.name.toLowerCase().includes(search.toLowerCase()) ||
         u.email.toLowerCase().includes(search.toLowerCase())
     );
 
-    if (loading) return (
+    if (loading && users.length === 0) return (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
             {[...Array(6)].map((_, i) => <div key={i} className="animate-pulse bg-gray-100 dark:bg-gray-800 rounded-2xl h-28" />)}
         </div>
@@ -41,44 +185,69 @@ function UserList({ onSelect }) {
 
     return (
         <div className="space-y-6">
-            <div className="relative max-w-sm">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
-                <input
-                    type="text"
-                    placeholder="Search users…"
-                    value={search}
-                    onChange={e => setSearch(e.target.value)}
-                    className="w-full pl-9 pr-4 py-2 rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 text-sm text-gray-900 dark:text-white outline-none focus:ring-2 focus:ring-blue-500"
-                />
+            <div className="flex items-center gap-4">
+                <div className="relative flex-1 max-w-sm">
+                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+                    <input
+                        type="text"
+                        placeholder="Search users…"
+                        value={search}
+                        onChange={e => setSearch(e.target.value)}
+                        className="w-full pl-9 pr-4 py-2.5 rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 text-sm text-gray-900 dark:text-white outline-none focus:ring-2 focus:ring-blue-500"
+                    />
+                </div>
+                <button onClick={() => setShowCreate(true)} className="flex items-center gap-2 px-4 py-2.5 bg-blue-600 text-white font-semibold rounded-xl shadow-sm hover:bg-blue-700 transition-colors">
+                    <Plus className="w-4 h-4" />
+                    <span className="hidden sm:inline">Create User</span>
+                </button>
             </div>
+            
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
                 {filtered.map(u => (
-                    <motion.button
+                    <motion.div
                         key={u._id}
-                        onClick={() => onSelect(u)}
                         whileHover={{ y: -3, scale: 1.01 }}
-                        whileTap={{ scale: 0.98 }}
-                        className="text-left p-5 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-2xl shadow-sm hover:shadow-md hover:border-blue-300 dark:hover:border-blue-700 transition-all"
+                        className="relative flex flex-col p-5 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-2xl shadow-sm hover:shadow-md hover:border-blue-300 dark:hover:border-blue-700 transition-all cursor-pointer group"
+                        onClick={(e) => {
+                            if (e.target.closest('button.manage-btn')) return;
+                            onSelect(u);
+                        }}
                     >
                         <div className="flex items-center gap-3 mb-3">
                             <div className="w-10 h-10 rounded-full flex items-center justify-center text-white text-sm font-bold flex-shrink-0"
                                 style={{ backgroundColor: u.avatarColor || '#3b82f6' }}>
                                 {u.name.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2)}
                             </div>
-                            <div className="min-w-0">
+                            <div className="min-w-0 flex-1">
                                 <p className="font-bold text-gray-900 dark:text-white text-sm truncate">{u.name}</p>
                                 <p className="text-xs text-gray-500 truncate">{u.email}</p>
                             </div>
+                            <button
+                                onClick={() => setManageUser(u)}
+                                className="manage-btn p-1.5 text-gray-400 hover:text-blue-500 hover:bg-blue-50 dark:hover:bg-blue-500/10 rounded-lg transition-colors opacity-0 group-hover:opacity-100"
+                                title="Manage User"
+                            >
+                                <Settings className="w-4 h-4" />
+                            </button>
                         </div>
                         <div className="flex items-center justify-between">
                             <span className={`px-2 py-0.5 rounded-full text-xs font-bold ${u.role === 'admin' ? 'bg-red-100 text-red-600 dark:bg-red-500/20 dark:text-red-400' : 'bg-blue-100 text-blue-600 dark:bg-blue-500/20 dark:text-blue-400'}`}>
                                 {u.role}
                             </span>
-                            <span className="text-xs text-gray-400">{fmt(u.storageUsed)} used</span>
+                            <span className="text-xs text-gray-400">{fmt(u.storageUsed)} / {fmt(u.storageLimit)}</span>
                         </div>
-                    </motion.button>
+                    </motion.div>
                 ))}
             </div>
+
+            <AnimatePresence>
+                {showCreate && (
+                    <CreateUserModal onClose={() => setShowCreate(false)} onCreated={() => { setShowCreate(false); fetchUsers(); }} />
+                )}
+                {manageUser && (
+                    <ManageUserModal user={manageUser} onClose={() => setManageUser(null)} onUpdated={() => { setManageUser(null); fetchUsers(); }} />
+                )}
+            </AnimatePresence>
         </div>
     );
 }
