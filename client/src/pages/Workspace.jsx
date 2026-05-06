@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
-import axios from 'axios';
+import api from '../utils/api';
 import API_URL from '../config/api';
 import { Button } from '../components/ui/Button';
 import { FileText, Download, Trash2, Search, FileUp, MoreVertical, Globe, Lock, Building2, Users, Edit3, Eye, X, LayoutGrid, List, ChevronLeft, ChevronRight, Share2, Clock, UserCheck, Plus, Settings, UserPlus, FileImage, FileSpreadsheet, Presentation, FileCode, FileType2, MessageSquare } from 'lucide-react';
@@ -213,6 +213,9 @@ export function Workspace({ isPublicOnly = false, isSearchPage = false }) {
     };
 
     const canManageDocumentAccess = (doc) => {
+        if (!user) return false;
+        if (user.role === 'admin') return true;
+        
         // If in org space, check org role first natively
         if (doc.space === 'organization' && doc.organization) {
             const orgId = typeof doc.organization === 'object' ? doc.organization._id || doc.organization.id : doc.organization;
@@ -237,6 +240,8 @@ export function Workspace({ isPublicOnly = false, isSearchPage = false }) {
     };
 
     const canViewDocumentLogs = (doc) => {
+        if (!user) return false;
+        if (user.role === 'admin') return true;
         if (doc.space === 'organization' && doc.organization) {
             const orgId = typeof doc.organization === 'object' ? doc.organization._id || doc.organization.id : doc.organization;
             const org = orgs.find(o => (o._id || o.id)?.toString() === orgId?.toString());
@@ -355,6 +360,7 @@ export function Workspace({ isPublicOnly = false, isSearchPage = false }) {
 
     const canUserEdit = (doc) => {
         if (!user) return false;
+        if (user.role === 'admin') return true;
         const uid = user._id || user.id;
         const uploaderId = doc.uploadedBy?._id || doc.uploadedBy?.id || doc.uploadedBy;
         if (uploaderId?.toString() === uid?.toString()) return true;
@@ -367,6 +373,7 @@ export function Workspace({ isPublicOnly = false, isSearchPage = false }) {
 
     const canUserDelete = (doc) => {
         if (!user) return false;
+        if (user.role === 'admin') return true;
         const uid = user._id || user.id;
         const uploaderId = doc.uploadedBy?._id || doc.uploadedBy?.id || doc.uploadedBy;
         if (uploaderId?.toString() === uid?.toString()) return true;
@@ -386,7 +393,8 @@ export function Workspace({ isPublicOnly = false, isSearchPage = false }) {
     };
 
     const canUserMove = (doc) => {
-        if (isPublicOnly || !doc) return false;
+        if (!user || isPublicOnly || !doc) return false;
+        if (user.role === 'admin') return true;
         if (activeSpace === 'shared-to-others') return false;
         // No move for org documents — use Copy instead
         if (doc.space === 'organization') return false;
@@ -395,7 +403,8 @@ export function Workspace({ isPublicOnly = false, isSearchPage = false }) {
     };
 
     const canUserCopy = (doc) => {
-        if (isPublicOnly || !doc) return false;
+        if (!user || isPublicOnly || !doc) return false;
+        if (user.role === 'admin') return true;
         // Copy only available for org documents
         if (doc.space !== 'organization') return false;
         const role = getAccessLevel(doc);
@@ -437,7 +446,7 @@ export function Workspace({ isPublicOnly = false, isSearchPage = false }) {
 
         try {
             const headers = getAuthHeaders();
-            const res = await axios.get(`${API_URL}/api/documents/${doc._id}/permissions`, {
+            const res = await api.get(`${API_URL}/api/documents/${doc._id}/permissions`, {
                 headers,
             });
 
@@ -500,7 +509,7 @@ export function Workspace({ isPublicOnly = false, isSearchPage = false }) {
 
             const url = `${API_URL}${endpoint}${queryStr ? '?' + queryStr : ''}`;
 
-            const res = await axios.get(url, {
+            const res = await api.get(url, {
                 ...(isPublicRequest ? {} : { headers }),
                 signal: abortController?.signal
             });
@@ -510,7 +519,7 @@ export function Workspace({ isPublicOnly = false, isSearchPage = false }) {
             setTotalCount(res.data.totalCount || 0);
 
         } catch (err) {
-            if (axios.isCancel(err)) return;
+            if (api.isCancel(err)) return;
             console.error('fetchDocuments error:', err);
             setError(err.response?.data?.error || 'Failed to load documents.');
             setDocuments([]);
@@ -524,7 +533,7 @@ export function Workspace({ isPublicOnly = false, isSearchPage = false }) {
         if (isPublicOnly || activeSpace !== 'organization') return;
         try {
             const headers = getAuthHeaders();
-            const res = await axios.get(`${API_URL}/api/orgs`, { headers });
+            const res = await api.get(`${API_URL}/api/orgs`, { headers });
             const list = res.data.organizations || [];
             setOrgs(list);
             
@@ -698,7 +707,7 @@ export function Workspace({ isPublicOnly = false, isSearchPage = false }) {
                     ? `${API_URL}/api/public/documents/${selectedDoc._id}`
                     : `${API_URL}/api/documents/${selectedDoc._id}`;
 
-                const res = await axios.get(
+                const res = await api.get(
                     endpoint,
                     usePublicEndpoint
                         ? { signal: controller.signal }
@@ -708,7 +717,7 @@ export function Workspace({ isPublicOnly = false, isSearchPage = false }) {
                 if (!isMounted) return;
                 setSelectedDoc(prev => prev?._id === res.data.document?._id ? mergeDocumentData(prev, res.data.document) : prev);
             } catch (err) {
-                if (axios.isCancel(err)) return;
+                if (api.isCancel(err)) return;
                 console.error('fetchSelectedDocDetails error:', err);
             } finally {
                 if (isMounted) setIsDocDetailsLoading(false);
@@ -755,7 +764,7 @@ export function Workspace({ isPublicOnly = false, isSearchPage = false }) {
             const tokenUrl = useAuth
                 ? `${API_URL}/api/documents/${doc._id}/download`
                 : `${API_URL}/api/public/documents/${doc._id}/download`;
-            const tokenRes = await axios.get(tokenUrl, useAuth ? { headers } : {});
+            const tokenRes = await api.get(tokenUrl, useAuth ? { headers } : {});
 
             const { downloadToken, fileName } = tokenRes.data;
 
@@ -763,7 +772,7 @@ export function Workspace({ isPublicOnly = false, isSearchPage = false }) {
             const streamUrl = useAuth
                 ? `${API_URL}/api/documents/secure-download/${downloadToken}`
                 : `${API_URL}/api/public/secure-download/${downloadToken}`;
-            const blobRes = await axios.get(streamUrl, { responseType: 'blob' });
+            const blobRes = await api.get(streamUrl, { responseType: 'blob' });
 
             // Step 3: Trigger a local file download and open in new tab
             const blob = new Blob([blobRes.data], { type: blobRes.headers['content-type'] || 'application/octet-stream' });
@@ -789,7 +798,7 @@ export function Workspace({ isPublicOnly = false, isSearchPage = false }) {
         if (!confirm('Move this document to Trash?')) return;
         try {
             const headers = getAuthHeaders();
-            const res = await axios.delete(`${API_URL}/api/documents/${docId}`, { headers });
+            const res = await api.delete(`${API_URL}/api/documents/${docId}`, { headers });
             showToast('success', res.data.message || 'Document deleted.');
             fetchDocuments();
             if (selectedDoc?._id === docId) setSelectedDoc(null);
@@ -815,7 +824,7 @@ export function Workspace({ isPublicOnly = false, isSearchPage = false }) {
             const headers = getAuthHeaders();
             const payload = { documentIds: [...selectedDocumentIds] };
             if (activeSharedWithEmail) payload.email = activeSharedWithEmail;
-            const res = await axios.post(
+            const res = await api.post(
                 `${API_URL}/api/documents/permissions/bulk-revoke`,
                 payload,
                 { headers }
@@ -839,7 +848,7 @@ export function Workspace({ isPublicOnly = false, isSearchPage = false }) {
         try {
             const headers = getAuthHeaders();
             const payload = { targetSpace: moveSpace, organizationId: moveOrg, autoTag: moveAutoTag };
-            const res = await axios.put(`${API_URL}/api/documents/${selectedDoc._id}/change-space`, payload, { headers });
+            const res = await api.put(`${API_URL}/api/documents/${selectedDoc._id}/change-space`, payload, { headers });
             showToast('success', res.data.message || 'Document moved successfully!');
             fetchDocuments();
             setSelectedDoc(null);
@@ -851,7 +860,7 @@ export function Workspace({ isPublicOnly = false, isSearchPage = false }) {
         if (!copySpace) return;
         try {
             const headers = getAuthHeaders();
-            const res = await axios.post(`${API_URL}/api/documents/${selectedDoc._id}/copy`, { targetSpace: copySpace }, { headers });
+            const res = await api.post(`${API_URL}/api/documents/${selectedDoc._id}/copy`, { targetSpace: copySpace }, { headers });
             showToast('success', res.data.message || 'Document copied successfully!');
             fetchDocuments();
             setSelectedDoc(null);
@@ -868,7 +877,7 @@ export function Workspace({ isPublicOnly = false, isSearchPage = false }) {
         try {
             const newTags = [...currentTags, newTag];
             const headers = getAuthHeaders();
-            const res = await axios.put(`${API_URL}/api/documents/${selectedDoc._id}/tags`, { tags: newTags }, { headers });
+            const res = await api.put(`${API_URL}/api/documents/${selectedDoc._id}/tags`, { tags: newTags }, { headers });
             setSelectedDoc(prev => mergeDocumentData(prev, res.data.document));
             setDocuments(docs => docs.map(d => d._id === res.data.document._id ? res.data.document : d));
             setTagInput('');
@@ -880,7 +889,7 @@ export function Workspace({ isPublicOnly = false, isSearchPage = false }) {
         try {
             const newTags = selectedDoc.tags.filter(t => t !== tagToRemove);
             const headers = getAuthHeaders();
-            const res = await axios.put(`${API_URL}/api/documents/${selectedDoc._id}/tags`, { tags: newTags }, { headers });
+            const res = await api.put(`${API_URL}/api/documents/${selectedDoc._id}/tags`, { tags: newTags }, { headers });
             setSelectedDoc(prev => mergeDocumentData(prev, res.data.document));
             setDocuments(docs => docs.map(d => d._id === res.data.document._id ? res.data.document : d));
         } catch (err) { showToast('error', 'Failed to remove tag.'); }
@@ -891,7 +900,7 @@ export function Workspace({ isPublicOnly = false, isSearchPage = false }) {
         setIsTaggingAI(true);
         try {
             const headers = getAuthHeaders();
-            const res = await axios.post(`${API_URL}/api/documents/${selectedDoc._id}/tags/ai`, {}, { headers });
+            const res = await api.post(`${API_URL}/api/documents/${selectedDoc._id}/tags/ai`, {}, { headers });
             setSelectedDoc(prev => mergeDocumentData(prev, res.data.document));
             setDocuments(docs => docs.map(d => d._id === res.data.document._id ? res.data.document : d));
             showToast('success', 'AI Auto-tagging complete!');

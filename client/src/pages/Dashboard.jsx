@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { Link, useNavigate } from 'react-router-dom';
 import API_URL from '../config/api';
-import axios from 'axios';
+import api from '../utils/api';
 import { motion } from 'framer-motion';
 import { CircularProgress, getStorageHeaderColor, getWarningMessage } from '../components/ui/CircularProgress';
 import { Button } from '../components/ui/Button';
@@ -32,9 +32,9 @@ export function Dashboard() {
             const headers = { Authorization: `Bearer ${token}` };
 
             const [statsRes, storageRes, recentRes] = await Promise.all([
-                axios.get(`${API_URL}/api/documents/stats`, { headers }),
-                axios.get(`${API_URL}/api/documents/storage`, { headers }),
-                axios.get(`${API_URL}/api/documents/recent`, { headers }).catch(() => ({ data: { documents: [] } }))
+                api.get(`${API_URL}/api/documents/stats`, { headers }),
+                api.get(`${API_URL}/api/documents/storage`, { headers }),
+                api.get(`${API_URL}/api/documents/recent`, { headers }).catch(() => ({ data: { documents: [] } }))
             ]);
 
             setStats(statsRes.data.stats || {});

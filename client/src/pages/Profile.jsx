@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import axios from 'axios';
+import api from '../utils/api';
 import API_URL from '../config/api';
 import { useAuth } from '../context/AuthContext';
 import { Button } from '../components/ui/Button';
@@ -224,7 +224,7 @@ function DeveloperSettings({ showToast }) {
 
     const fetchApiKeys = async () => {
         try {
-            const res = await axios.get(`${API_URL}/api/api-keys`);
+            const res = await api.get(`${API_URL}/api/api-keys`);
             setApiKeys(res.data.apiKeys);
         } catch (err) {
             console.error('Failed to fetch API keys', err);
@@ -240,7 +240,7 @@ function DeveloperSettings({ showToast }) {
         if (!newKeyName.trim()) return;
         setLoading(true);
         try {
-            const res = await axios.post(`${API_URL}/api/api-keys`, { name: newKeyName });
+            const res = await api.post(`${API_URL}/api/api-keys`, { name: newKeyName });
             setApiKeys([...apiKeys, res.data.apiKey]);
             setNewKeyName('');
             showToast('success', 'API Key generated successfully. Please copy it now!');
@@ -254,7 +254,7 @@ function DeveloperSettings({ showToast }) {
     const handleDeleteKey = async (id) => {
         if (!window.confirm('Are you sure you want to revoke this API Key?')) return;
         try {
-            await axios.delete(`${API_URL}/api/api-keys/${id}`);
+            await api.delete(`${API_URL}/api/api-keys/${id}`);
             setApiKeys(apiKeys.filter((k) => k._id !== id));
             showToast('success', 'API Key revoked.');
         } catch (err) {

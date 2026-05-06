@@ -7,7 +7,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { useNavigate } from 'react-router-dom';
 import API_URL from '../config/api';
-import axios from 'axios';
+import api from '../utils/api';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Building2, ArrowLeft, FileText, Trash2, Download, Search, Users, ChevronLeft, ChevronRight } from 'lucide-react';
 
@@ -25,7 +25,7 @@ function OrgGrid({ onSelect }) {
     const [loading, setLoading] = useState(true);
 
     useEffect(() => {
-        axios.get(`${API_URL}/api/admin/organizations`, {
+        api.get(`${API_URL}/api/admin/organizations`, {
             headers: { Authorization: `Bearer ${token || localStorage.getItem('dmr_token')}` }
         }).then(r => setOrgs(r.data)).catch(console.error).finally(() => setLoading(false));
     }, [token]);
@@ -99,7 +99,7 @@ function OrgDocuments({ org, onBack }) {
     const fetchDocs = useCallback(() => {
         setLoading(true);
         const params = new URLSearchParams({ space: 'organization', organizationId: org._id, page });
-        axios.get(`${API_URL}/api/documents?${params}`, { headers })
+        api.get(`${API_URL}/api/documents?${params}`, { headers })
             .then(r => { setDocs(r.data.documents || []); setTotalPages(r.data.totalPages || 1); setTotalCount(r.data.totalCount || 0); })
             .catch(console.error).finally(() => setLoading(false));
     }, [org._id, page]);
@@ -109,7 +109,7 @@ function OrgDocuments({ org, onBack }) {
     const handleDelete = async (docId, docName) => {
         if (!confirm(`Permanently delete "${docName}"?`)) return;
         try {
-            await axios.delete(`${API_URL}/api/admin/documents/${docId}`, { headers });
+            await api.delete(`${API_URL}/api/admin/documents/${docId}`, { headers });
             showToast('Document deleted');
             fetchDocs();
         } catch (e) { showToast(e.response?.data?.error || 'Delete failed', 'error'); }
@@ -117,9 +117,9 @@ function OrgDocuments({ org, onBack }) {
 
     const handleDownload = async (doc) => {
         try {
-            const r = await axios.get(`${API_URL}/api/documents/${doc._id}/download`, { headers });
+            const r = await api.get(`${API_URL}/api/documents/${doc._id}/download`, { headers });
             const { downloadToken, fileName } = r.data;
-            const blobRes = await axios.get(`${API_URL}/api/documents/secure-download/${downloadToken}`, { responseType: 'blob' });
+            const blobRes = await api.get(`${API_URL}/api/documents/secure-download/${downloadToken}`, { responseType: 'blob' });
             const blob = new Blob([blobRes.data], { type: blobRes.headers['content-type'] || 'application/octet-stream' });
             const url = window.URL.createObjectURL(blob);
             const link = document.createElement('a'); link.href = url; link.download = fileName || 'download';

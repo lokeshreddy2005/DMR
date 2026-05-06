@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { X, Users, UserPlus, Trash2, Shield, ChevronDown, Copy, Check, Loader2, Clock, Settings, Link2, Globe, Building2 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
-import axios from 'axios';
+import api from '../utils/api';
 import { useAuth } from '../context/AuthContext';
 import API_URL from '../config/api';
 
@@ -52,7 +52,7 @@ export default function ShareModal({ isOpen, onClose, document, onUpdate }) {
         setIsLoading(true);
         try {
             const headers = getAuthHeaders();
-            const res = await axios.get(`${API_URL}/api/documents/${document._id}/permissions`, { headers });
+            const res = await api.get(`${API_URL}/api/documents/${document._id}/permissions`, { headers });
             setPermissions(res.data.permissions || []);
         } catch (err) {
             // If user can't manage access, just show permissions from the document
@@ -99,7 +99,7 @@ export default function ShareModal({ isOpen, onClose, document, onUpdate }) {
             } else if (expiresIn !== '0') {
                 actualExpiresIn = expiresIn;
             }
-            const res = await axios.post(
+            const res = await api.post(
                 `${API_URL}/api/documents/${document._id}/permissions`,
                 { email: email.trim(), role: selectedRole, expiresIn: actualExpiresIn, message: message.trim() },
                 { headers }
@@ -122,7 +122,7 @@ export default function ShareModal({ isOpen, onClose, document, onUpdate }) {
         if (!confirm('Revoke this user\'s access?')) return;
         try {
             const headers = getAuthHeaders();
-            const res = await axios.delete(
+            const res = await api.delete(
                 `${API_URL}/api/documents/${document._id}/permissions/${userId}`,
                 { headers }
             );
@@ -145,7 +145,7 @@ export default function ShareModal({ isOpen, onClose, document, onUpdate }) {
 
         try {
             const headers = getAuthHeaders();
-            const res = await axios.post(
+            const res = await api.post(
                 `${API_URL}/api/documents/${document._id}/permissions`,
                 { email: userEmail, role: newRole },
                 { headers }
@@ -189,7 +189,7 @@ export default function ShareModal({ isOpen, onClose, document, onUpdate }) {
         setSuccess('');
         try {
             const headers = getAuthHeaders();
-            const linkRes = await axios.put(
+            const linkRes = await api.put(
                 `${API_URL}/api/documents/${document._id}/link-sharing`,
                 linkSharing,
                 { headers }

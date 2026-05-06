@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import axios from 'axios';
+import api from '../utils/api';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Building2, X } from 'lucide-react';
 import { Button } from './ui/Button';
@@ -21,7 +21,7 @@ export default function CreateOrgModal({ isOpen, onClose, onSuccess }) {
         try {
             const token = localStorage.getItem('dmr_token');
             const headers = { Authorization: `Bearer ${token}` };
-            const res = await axios.post(`${API_URL}/api/orgs`, { name, description }, { headers });
+            const res = await api.post(`${API_URL}/api/orgs`, { name, description }, { headers });
             
             setName('');
             setDescription('');

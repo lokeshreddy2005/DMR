@@ -329,7 +329,7 @@ router.post('/upload', upload.single('document'), async (req, res) => {
         return res.status(400).json({ error: 'Organization ID is required for organization uploads.' });
       }
       uploadOrg = await Organization.findById(organizationId);
-      if (!uploadOrg || !uploadOrg.isMember(req.user._id)) {
+      if (!uploadOrg || (!uploadOrg.isMember(req.user._id) && req.user.role !== 'admin')) {
         cleanupFile(req.file.path);
         return res.status(403).json({ error: 'You are not a member of this organization.' });
       }
@@ -505,7 +505,7 @@ router.put('/:id/change-space', async (req, res) => {
 
     // Check move access: owner, doc-level collaborator, or org admin/collaborator
     let hasMoveAccess = false;
-    if (doc.isOwner(req.user._id)) {
+    if (doc.isOwner(req.user._id) || req.user.role === 'admin') {
       hasMoveAccess = true;
     } else {
       // Check org-level role
@@ -554,7 +554,7 @@ router.put('/:id/change-space', async (req, res) => {
         return res.status(400).json({ error: 'Organization ID is required.' });
       }
       const org = await Organization.findById(organizationId);
-      if (!org || !org.isMember(req.user._id)) {
+      if (!org || (!org.isMember(req.user._id) && req.user.role !== 'admin')) {
         return res.status(403).json({ error: 'You are not a member of this organization.' });
       }
       const orgRole = org.getMemberRole(req.user._id);
@@ -648,7 +648,7 @@ router.post('/:id/copy', async (req, res) => {
 
     // Check copy access: owner, doc-level collaborator, or org admin/collaborator
     let hasCopyAccess = false;
-    if (doc.isOwner(req.user._id)) {
+    if (doc.isOwner(req.user._id) || req.user.role === 'admin') {
       hasCopyAccess = true;
     } else if (doc.space === 'organization' && doc.organization) {
       const orgId = doc.organization._id || doc.organization;
@@ -720,7 +720,7 @@ router.put('/:id/tags', async (req, res) => {
     const doc = await Document.findById(req.params.id);
     if (!doc) return res.status(404).json({ error: 'Document not found.' });
 
-    if (!doc.canEdit(req.user._id)) {
+    if (req.user.role !== 'admin' && !doc.canEdit(req.user._id)) {
       return res.status(403).json({ error: 'You do not have edit access to this document.' });
     }
 
@@ -778,7 +778,7 @@ router.post('/:id/tags/ai', async (req, res) => {
     const doc = await Document.findById(req.params.id);
     if (!doc) return res.status(404).json({ error: 'Document not found.' });
 
-    if (!doc.canEdit(req.user._id)) {
+    if (req.user.role !== 'admin' && !doc.canEdit(req.user._id)) {
       return res.status(403).json({ error: 'You do not have edit access to this document.' });
     }
 
@@ -834,7 +834,7 @@ router.post('/:id/vault-route', async (req, res) => {
     const doc = await Document.findById(req.params.id);
     if (!doc) return res.status(404).json({ error: 'Document not found.' });
 
-    if (!doc.canEdit(req.user._id)) {
+    if (req.user.role !== 'admin' && !doc.canEdit(req.user._id)) {
       return res.status(403).json({ error: 'You do not have edit access to this document.' });
     }
 
@@ -928,7 +928,7 @@ router.get('/', async (req, res) => {
       };
     } else if (space === 'organization' && organizationId) {
       const org = await Organization.findById(organizationId);
-      if (!org || !org.isMember(req.user._id)) {
+      if (!org || (!org.isMember(req.user._id) && req.user.role !== 'admin')) {
         return res.status(403).json({ error: 'Not a member of this organization.' });
       }
       accessQuery = { space: 'organization', organization: organizationId };
@@ -1889,7 +1889,7 @@ router.put('/:id', async (req, res) => {
     const doc = await Document.findById(req.params.id);
     if (!doc) return res.status(404).json({ error: 'Document not found.' });
 
-    if (!doc.canEdit(req.user._id)) {
+    if (req.user.role !== 'admin' && !doc.canEdit(req.user._id)) {
       return res.status(403).json({ error: 'You do not have edit access.' });
     }
 
@@ -1920,7 +1920,7 @@ router.delete('/:id', async (req, res) => {
     if (!doc) return res.status(404).json({ error: 'Document not found.' });
 
     // Allow deletion for: uploader (owner), org admins, and org collaborators
-    let canDelete = doc.canDeleteDoc(req.user._id);
+    let canDelete = doc.canDeleteDoc(req.user._id) || req.user.role === 'admin';
     if (!canDelete && (doc.space === 'organization') && doc.organization) {
       const orgId = (doc.organization._id || doc.organization).toString();
       console.log('[DELETE] Checking org role for user:', req.user._id.toString(), 'orgId:', orgId);
@@ -1988,7 +1988,7 @@ router.put('/:id/recover', async (req, res) => {
     if (!doc) return res.status(404).json({ error: 'Document not found.' });
 
     // Ensure the user has access to recover it (owner or org admin)
-    let canRecover = doc.canDeleteDoc(req.user._id);
+    let canRecover = doc.canDeleteDoc(req.user._id) || req.user.role === 'admin';
     if (!canRecover && (doc.space === 'organization') && doc.organization) {
       const orgId = (doc.organization._id || doc.organization).toString();
       const org = await Organization.findById(orgId);
@@ -2080,7 +2080,7 @@ router.get('/:id/download', async (req, res) => {
     }
 
     // For non-public docs, check canDownload flag
-    if (doc.space !== 'public' && !doc.canDownload(req.user._id)) {
+    if (req.user.role !== 'admin' && doc.space !== 'public' && !doc.canDownload(req.user._id)) {
       // Also allow if user is an org member viewing org docs
       if (!(doc.space === 'organization' && doc.organization)) {
         return res.status(403).json({ error: 'You do not have download permission for this document.' });
@@ -2400,6 +2400,8 @@ router.get('/:id/permissions', async (req, res) => {
 // --- Helpers --- //
 
 async function checkDocAccess(doc, userId) {
+  const user = await User.findById(userId);
+  if (user && user.role === 'admin') return true;
   if (doc.space === 'public') return true;
   if (doc.uploadedBy.toString() === userId.toString() ||
     doc.uploadedBy._id?.toString() === userId.toString()) return true;
@@ -2423,6 +2425,8 @@ async function checkDocAccess(doc, userId) {
 
 async function checkDocManageAccess(doc, userId) {
   console.log(`[checkDocManageAccess] Checking doc ${doc._id} for user ${userId}`);
+  const user = await User.findById(userId);
+  if (user && user.role === 'admin') return true;
   if (doc.space === 'public') return false; // Usually true owners or managers only, but handled via permissions
   
   if (doc.uploadedBy.toString() === userId.toString() ||

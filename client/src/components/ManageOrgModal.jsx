@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import axios from 'axios';
+import api from '../utils/api';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Settings, X, UserPlus, Trash2, User, ShieldAlert, MoreVertical } from 'lucide-react';
 import { Button } from './ui/Button';
@@ -27,7 +27,7 @@ export default function ManageOrgModal({ isOpen, onClose, orgId, onUpdate, onDel
             try {
                 const token = localStorage.getItem('dmr_token');
                 const headers = { Authorization: `Bearer ${token}` };
-                const res = await axios.get(`${API_URL}/api/orgs/${orgId}`, { headers });
+                const res = await api.get(`${API_URL}/api/orgs/${orgId}`, { headers });
                 if (isMounted) setOrg(res.data.organization);
             } catch (err) {
                 if (isMounted) setError(err.response?.data?.error || 'Failed to fetch organization details.');
@@ -57,7 +57,7 @@ export default function ManageOrgModal({ isOpen, onClose, orgId, onUpdate, onDel
         try {
             const token = localStorage.getItem('dmr_token');
             const headers = { Authorization: `Bearer ${token}` };
-            const res = await axios.post(`${API_URL}/api/orgs/${orgId}/members`, { email: newMemberEmail, role: newMemberRole }, { headers });
+            const res = await api.post(`${API_URL}/api/orgs/${orgId}/members`, { email: newMemberEmail, role: newMemberRole }, { headers });
             
             setOrg(res.data.organization);
             setNewMemberEmail('');
@@ -75,7 +75,7 @@ export default function ManageOrgModal({ isOpen, onClose, orgId, onUpdate, onDel
         try {
             const token = localStorage.getItem('dmr_token');
             const headers = { Authorization: `Bearer ${token}` };
-            const res = await axios.put(`${API_URL}/api/orgs/${orgId}/members/${userId}`, { role }, { headers });
+            const res = await api.put(`${API_URL}/api/orgs/${orgId}/members/${userId}`, { role }, { headers });
             setOrg(res.data.organization);
             if (onUpdate) onUpdate();
         } catch (err) {
@@ -91,7 +91,7 @@ export default function ManageOrgModal({ isOpen, onClose, orgId, onUpdate, onDel
         try {
             const token = localStorage.getItem('dmr_token');
             const headers = { Authorization: `Bearer ${token}` };
-            const res = await axios.delete(`${API_URL}/api/orgs/${orgId}/members/${userId}`, { headers });
+            const res = await api.delete(`${API_URL}/api/orgs/${orgId}/members/${userId}`, { headers });
             setOrg(res.data.organization);
             if (onUpdate) onUpdate();
         } catch (err) {
@@ -107,7 +107,7 @@ export default function ManageOrgModal({ isOpen, onClose, orgId, onUpdate, onDel
         try {
             const token = localStorage.getItem('dmr_token');
             const headers = { Authorization: `Bearer ${token}` };
-            await axios.delete(`${API_URL}/api/orgs/${orgId}`, { headers });
+            await api.delete(`${API_URL}/api/orgs/${orgId}`, { headers });
             if (onDelete) onDelete();
         } catch (err) {
             setError(err.response?.data?.error || 'Failed to delete organization.');

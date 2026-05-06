@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import axios from 'axios';
+import api from '../utils/api';
 import { SlidersHorizontal, X, Search, Calendar, HardDrive, Tag, User, FilterX } from 'lucide-react';
 import { useSearchParams } from 'react-router-dom';
 import API_URL from '../config/api';
@@ -169,12 +169,12 @@ export default function AdvancedSearchPopover({ activeSpace, isPublicOnly, apply
       setIsTagging(true);
       try {
         if (isPublicOnly || activeSpace === 'public') {
-          const res = await axios.get(`${API_URL}/api/public/documents/tags`);
+          const res = await api.get(`${API_URL}/api/public/documents/tags`);
           if (ignore) return;
           setTagSuggestions((res.data.tags || []).filter(t => t.tag.toLowerCase().includes(tagInput.toLowerCase())).slice(0, 15));
         } else {
           const headers = token ? { Authorization: `Bearer ${token}` } : {};
-          const res = await axios.get(`${API_URL}/api/documents/tags/search?q=${encodeURIComponent(tagInput)}`, { headers });
+          const res = await api.get(`${API_URL}/api/documents/tags/search?q=${encodeURIComponent(tagInput)}`, { headers });
           if (ignore) return;
           setTagSuggestions(res.data.tags || []);
         }
@@ -197,7 +197,7 @@ export default function AdvancedSearchPopover({ activeSpace, isPublicOnly, apply
         const endpoint = activeSpace === 'shared-to-others'
           ? `${API_URL}/api/documents/users/search?q=${encodeURIComponent(userInput)}&scope=shared-with`
           : `${API_URL}/api/documents/users/search?q=${encodeURIComponent(userInput)}`;
-        const res = await axios.get(endpoint, { headers });
+        const res = await api.get(endpoint, { headers });
         if (ignore) return;
         setUserSuggestions(res.data.users || []);
       } catch (err) {

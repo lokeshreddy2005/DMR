@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useAuth } from '../context/AuthContext';
-import axios from 'axios';
+import api from '../utils/api';
 import API_URL from '../config/api';
 import { Button } from '../components/ui/Button';
 import { FileText, Trash2, RotateCcw, AlertTriangle } from 'lucide-react';
@@ -22,7 +22,7 @@ export function Trash() {
         try {
             const headers = getAuthHeaders();
             // Fetch trashed documents across all accessible spaces
-            const res = await axios.get(`${API_URL}/api/documents?trashed=true`, { headers });
+            const res = await api.get(`${API_URL}/api/documents?trashed=true`, { headers });
             setDocuments(res.data.documents || []);
         } catch (err) {
             console.error('Fetch trash error:', err);
@@ -39,7 +39,7 @@ export function Trash() {
     const handleRecover = async (docId) => {
         try {
             const headers = getAuthHeaders();
-            const res = await axios.put(`${API_URL}/api/documents/${docId}/recover`, {}, { headers });
+            const res = await api.put(`${API_URL}/api/documents/${docId}/recover`, {}, { headers });
             alert(res.data.message || 'Document recovered successfully.');
             fetchTrash();
         } catch (err) {
@@ -52,7 +52,7 @@ export function Trash() {
         try {
             const headers = getAuthHeaders();
             // Passing force=true will permanently delete it
-            await axios.delete(`${API_URL}/api/documents/${docId}?force=true`, { headers });
+            await api.delete(`${API_URL}/api/documents/${docId}?force=true`, { headers });
             fetchTrash();
         } catch (err) {
             alert(err.response?.data?.error || 'Failed to permanently delete document.');

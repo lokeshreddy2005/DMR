@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { X, Loader2, FileText, Download, Maximize2, Minimize2, AlertTriangle, Eye } from 'lucide-react';
-import axios from 'axios';
+import api from '../utils/api';
 import API_URL from '../config/api';
 import { useAuth } from '../context/AuthContext';
 
@@ -88,7 +88,7 @@ function DocumentThumbnail({ document: doc, isPublic = false }) {
                 const url = useAuth
                     ? `${API_URL}/api/documents/${doc._id}/preview`
                     : `${API_URL}/api/public/documents/${doc._id}/preview`;
-                const res = await axios.get(url, { ...(useAuth ? { headers } : {}), signal: controller.signal });
+                const res = await api.get(url, { ...(useAuth ? { headers } : {}), signal: controller.signal });
                 if (mountedRef.current) {
                     thumbnailCache.set(doc._id, res.data.previewUrl);
                     setPreviewUrl(res.data.previewUrl);
@@ -234,7 +234,7 @@ function DocumentPreview({ document: doc, isPublic = false }) {
                 const url = useAuth
                     ? `${API_URL}/api/documents/${doc._id}/preview`
                     : `${API_URL}/api/public/documents/${doc._id}/preview`;
-                const res = await axios.get(url, { ...(useAuth ? { headers } : {}), signal: controller.signal });
+                const res = await api.get(url, { ...(useAuth ? { headers } : {}), signal: controller.signal });
                 setPreviewUrl(res.data.previewUrl);
                 if (category === 'text' && res.data.previewUrl) {
                     try {
@@ -244,7 +244,7 @@ function DocumentPreview({ document: doc, isPublic = false }) {
                         setTextContent(lines.join('\n') + (text.split('\n').length > 30 ? '\n…' : ''));
                     } catch { /* ignore */ }
                 }
-            } catch (err) { if (!axios.isCancel(err)) setError('Preview unavailable.'); }
+            } catch (err) { if (!api.isCancel(err)) setError('Preview unavailable.'); }
             finally { setLoading(false); }
         };
         fetch_();
@@ -325,7 +325,7 @@ function FullPreviewModal({ isOpen, onClose, document: doc, isPublic = false, on
                 const url = useAuth
                     ? `${API_URL}/api/documents/${doc._id}/preview`
                     : `${API_URL}/api/public/documents/${doc._id}/preview`;
-                const res = await axios.get(url, { ...(useAuth ? { headers } : {}), signal: controller.signal });
+                const res = await api.get(url, { ...(useAuth ? { headers } : {}), signal: controller.signal });
                 setPreviewUrl(res.data.previewUrl);
                 if (category === 'text' && res.data.previewUrl) {
                     try {
@@ -334,7 +334,7 @@ function FullPreviewModal({ isOpen, onClose, document: doc, isPublic = false, on
                         setTextContent(txt);
                     } catch { /* ignore */ }
                 }
-            } catch (err) { if (!axios.isCancel(err)) setError(err.response?.data?.error || 'Preview unavailable.'); }
+            } catch (err) { if (!api.isCancel(err)) setError(err.response?.data?.error || 'Preview unavailable.'); }
             finally { setLoading(false); }
         };
         fetch_();

@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { useAuth } from '../context/AuthContext';
-import axios from 'axios';
+import api from '../utils/api';
 import API_URL from '../config/api';
 
 function UploadModal({ isOpen, onClose, onUploadSuccess, defaultSpace, defaultOrgId }) {
@@ -38,7 +38,7 @@ function UploadModal({ isOpen, onClose, onUploadSuccess, defaultSpace, defaultOr
         try {
             const t = token || localStorage.getItem('dmr_token');
             const headers = t ? { Authorization: `Bearer ${t}` } : {};
-            const res = await axios.get(`${API_URL}/api/orgs`, { headers });
+            const res = await api.get(`${API_URL}/api/orgs`, { headers });
             setOrgs(res.data.organizations || []);
         } catch { /* ignore */ }
     }
@@ -106,7 +106,7 @@ function UploadModal({ isOpen, onClose, onUploadSuccess, defaultSpace, defaultOr
         const t = token || localStorage.getItem('dmr_token');
 
         try {
-            await axios.post(`${API_URL}/api/documents/upload`, formData, {
+            await api.post(`${API_URL}/api/documents/upload`, formData, {
                 headers: {
                     'Content-Type': 'multipart/form-data',
                     ...(t ? { Authorization: `Bearer ${t}` } : {}),

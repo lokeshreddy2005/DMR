@@ -7,7 +7,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { useNavigate } from 'react-router-dom';
 import API_URL from '../config/api';
-import axios from 'axios';
+import api from '../utils/api';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Users, ArrowLeft, FileText, Trash2, Download, Search, Lock, ChevronLeft, ChevronRight } from 'lucide-react';
 
@@ -25,7 +25,7 @@ function UserGrid({ onSelect }) {
     const [loading, setLoading] = useState(true);
 
     useEffect(() => {
-        axios.get(`${API_URL}/api/admin/users`, {
+        api.get(`${API_URL}/api/admin/users`, {
             headers: { Authorization: `Bearer ${token || localStorage.getItem('dmr_token')}` }
         }).then(r => setUsers(r.data)).catch(console.error).finally(() => setLoading(false));
     }, [token]);
@@ -90,7 +90,7 @@ function UserDocuments({ selectedUser, onBack }) {
 
     const fetchDocs = useCallback(() => {
         setLoading(true);
-        axios.get(`${API_URL}/api/admin/users/${selectedUser._id}/documents?page=${page}`, { headers })
+        api.get(`${API_URL}/api/admin/users/${selectedUser._id}/documents?page=${page}`, { headers })
             .then(r => { setDocs(r.data.documents || []); setTotalPages(r.data.totalPages || 1); setTotalCount(r.data.totalCount || 0); })
             .catch(console.error).finally(() => setLoading(false));
     }, [selectedUser._id, page]);
@@ -100,7 +100,7 @@ function UserDocuments({ selectedUser, onBack }) {
     const handleDelete = async (docId, docName) => {
         if (!confirm(`Permanently delete "${docName}"?`)) return;
         try {
-            await axios.delete(`${API_URL}/api/admin/documents/${docId}`, { headers });
+            await api.delete(`${API_URL}/api/admin/documents/${docId}`, { headers });
             showToast('Document deleted');
             fetchDocs();
         } catch (e) { showToast(e.response?.data?.error || 'Delete failed', 'error'); }
@@ -108,9 +108,9 @@ function UserDocuments({ selectedUser, onBack }) {
 
     const handleDownload = async (doc) => {
         try {
-            const r = await axios.get(`${API_URL}/api/documents/${doc._id}/download`, { headers });
+            const r = await api.get(`${API_URL}/api/documents/${doc._id}/download`, { headers });
             const { downloadToken, fileName } = r.data;
-            const blobRes = await axios.get(`${API_URL}/api/documents/secure-download/${downloadToken}`, { responseType: 'blob' });
+            const blobRes = await api.get(`${API_URL}/api/documents/secure-download/${downloadToken}`, { responseType: 'blob' });
             const blob = new Blob([blobRes.data], { type: blobRes.headers['content-type'] || 'application/octet-stream' });
             const url = window.URL.createObjectURL(blob);
             const link = document.createElement('a'); link.href = url; link.download = fileName || 'download';

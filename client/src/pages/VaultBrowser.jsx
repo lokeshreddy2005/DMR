@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
-import axios from 'axios';
+import api from '../utils/api';
 import API_URL from '../config/api';
 import { useAuth } from '../context/AuthContext';
 import { FileText, ChevronLeft, ChevronRight, ArrowLeft, LayoutGrid, List, X, Download, Maximize2, Plus, Trash2 } from 'lucide-react';
@@ -34,8 +34,8 @@ function VaultListView({ onSelectVault }) {
 
     const fetchVaults = () => {
         Promise.all([
-            axios.get(`${API_URL}/api/documents/vaults/list`, { headers }),
-            axios.get(`${API_URL}/api/documents/vaults/stats`, { headers }),
+            api.get(`${API_URL}/api/documents/vaults/list`, { headers }),
+            api.get(`${API_URL}/api/documents/vaults/stats`, { headers }),
         ]).then(([listRes, statsRes]) => {
             setVaults(listRes.data.vaults || []);
             const statsMap = {};
@@ -51,7 +51,7 @@ function VaultListView({ onSelectVault }) {
         e.preventDefault();
         try {
             const payload = { ...newVault, keywords: newVault.keywords.split(',').map(k => k.trim()).filter(Boolean) };
-            await axios.post(`${API_URL}/api/admin/vaults`, payload, { headers });
+            await api.post(`${API_URL}/api/admin/vaults`, payload, { headers });
             setNewVault({ id: '', label: '', description: '', keywords: '' });
             setShowCreate(false);
             showToastMsg('Vault created!');
@@ -62,7 +62,7 @@ function VaultListView({ onSelectVault }) {
     const handleDeleteVault = async (id) => {
         if (!confirm('Delete this vault?')) return;
         try {
-            await axios.delete(`${API_URL}/api/admin/vaults/${id}`, { headers });
+            await api.delete(`${API_URL}/api/admin/vaults/${id}`, { headers });
             showToastMsg('Vault deleted');
             fetchVaults();
         } catch (e) { showToastMsg('Failed to delete vault', 'error'); }
@@ -180,7 +180,7 @@ function VaultDocumentView({ vault, onBack }) {
         setLoading(true);
         try {
             const headers = getAuthHeaders();
-            const res = await axios.get(
+            const res = await api.get(
                 `${API_URL}/api/documents/vault/${vault.id}?page=${currentPage}&limit=${LIMIT}`,
                 { headers }
             );
@@ -211,9 +211,9 @@ function VaultDocumentView({ vault, onBack }) {
     const handleDownload = async (doc) => {
         try {
             const headers = getAuthHeaders();
-            const tokenRes = await axios.get(`${API_URL}/api/documents/${doc._id}/download`, { headers });
+            const tokenRes = await api.get(`${API_URL}/api/documents/${doc._id}/download`, { headers });
             const { downloadToken, fileName } = tokenRes.data;
-            const blobRes = await axios.get(`${API_URL}/api/documents/secure-download/${downloadToken}`, { responseType: 'blob' });
+            const blobRes = await api.get(`${API_URL}/api/documents/secure-download/${downloadToken}`, { responseType: 'blob' });
             const blob = new Blob([blobRes.data], { type: blobRes.headers['content-type'] || 'application/octet-stream' });
             const url = window.URL.createObjectURL(blob);
 
@@ -546,7 +546,7 @@ export function VaultBrowser() {
     // Pre-load vault list so we can resolve vaultId → vault object
     useEffect(() => {
         const headers = { Authorization: `Bearer ${token || localStorage.getItem('dmr_token')}` };
-        axios.get(`${API_URL}/api/documents/vaults/list`, { headers })
+        api.get(`${API_URL}/api/documents/vaults/list`, { headers })
             .then(res => setVaults(res.data.vaults || []))
             .catch(console.error);
     }, [token]);

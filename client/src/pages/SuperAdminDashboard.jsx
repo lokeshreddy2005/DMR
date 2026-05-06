@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { useNavigate } from 'react-router-dom';
 import API_URL from '../config/api';
-import axios from 'axios';
+import api from '../utils/api';
 import { motion } from 'framer-motion';
 import { Button } from '../components/ui/Button';
 import {
@@ -61,10 +61,10 @@ export function SuperAdminDashboard() {
         setIsLoading(true);
         try {
             const [statsRes, usersRes, orgsRes, vaultsRes] = await Promise.all([
-                axios.get(`${API_URL}/api/admin/stats`, { headers }),
-                axios.get(`${API_URL}/api/admin/users`, { headers }),
-                axios.get(`${API_URL}/api/admin/organizations`, { headers }),
-                axios.get(`${API_URL}/api/admin/vaults`, { headers }),
+                api.get(`${API_URL}/api/admin/stats`, { headers }),
+                api.get(`${API_URL}/api/admin/users`, { headers }),
+                api.get(`${API_URL}/api/admin/organizations`, { headers }),
+                api.get(`${API_URL}/api/admin/vaults`, { headers }),
             ]);
             setStats(statsRes.data);
             setUsers(usersRes.data);
@@ -83,32 +83,32 @@ export function SuperAdminDashboard() {
 
     const saveUserLimit = (id) => {
         if (editingLimits[id] === undefined) return;
-        apiCall(() => axios.put(`${API_URL}/api/admin/users/${id}/limit`, { storageLimit: fromMB(editingLimits[id]) }, { headers }), 'Storage limit updated');
+        apiCall(() => api.put(`${API_URL}/api/admin/users/${id}/limit`, { storageLimit: fromMB(editingLimits[id]) }, { headers }), 'Storage limit updated');
     };
 
     const saveOrgLimit = (id) => {
         if (editingLimits[id] === undefined) return;
-        apiCall(() => axios.put(`${API_URL}/api/admin/organizations/${id}/limit`, { storageLimit: fromMB(editingLimits[id]) }, { headers }), 'Storage limit updated');
+        apiCall(() => api.put(`${API_URL}/api/admin/organizations/${id}/limit`, { storageLimit: fromMB(editingLimits[id]) }, { headers }), 'Storage limit updated');
     };
 
     const changeUserRole = (id, role) => {
-        apiCall(() => axios.put(`${API_URL}/api/admin/users/${id}/role`, { role }, { headers }), `User role changed to ${role}`);
+        apiCall(() => api.put(`${API_URL}/api/admin/users/${id}/role`, { role }, { headers }), `User role changed to ${role}`);
     };
 
     const deleteUser = (id, name) => {
         if (!confirm(`Delete user "${name}"? This cannot be undone.`)) return;
-        apiCall(() => axios.delete(`${API_URL}/api/admin/users/${id}`, { headers }), `User deleted`);
+        apiCall(() => api.delete(`${API_URL}/api/admin/users/${id}`, { headers }), `User deleted`);
     };
 
     const deleteOrg = (id, name) => {
         if (!confirm(`Delete organization "${name}"? This cannot be undone.`)) return;
-        apiCall(() => axios.delete(`${API_URL}/api/admin/organizations/${id}`, { headers }), 'Organization deleted');
+        apiCall(() => api.delete(`${API_URL}/api/admin/organizations/${id}`, { headers }), 'Organization deleted');
     };
 
     const createVault = async (e) => {
         e.preventDefault();
         const payload = { ...newVault, keywords: newVault.keywords.split(',').map(k => k.trim()).filter(Boolean) };
-        await apiCall(() => axios.post(`${API_URL}/api/admin/vaults`, payload, { headers }), 'Vault created');
+        await apiCall(() => api.post(`${API_URL}/api/admin/vaults`, payload, { headers }), 'Vault created');
         setNewVault({ id: '', label: '', description: '', keywords: '' });
     };
 
@@ -116,13 +116,13 @@ export function SuperAdminDashboard() {
         if (!editingVault) return;
         const { id, label, description, keywords } = editingVault;
         const kws = typeof keywords === 'string' ? keywords.split(',').map(k => k.trim()).filter(Boolean) : keywords;
-        apiCall(() => axios.put(`${API_URL}/api/admin/vaults/${id}`, { label, description, keywords: kws }, { headers }), 'Vault updated');
+        apiCall(() => api.put(`${API_URL}/api/admin/vaults/${id}`, { label, description, keywords: kws }, { headers }), 'Vault updated');
         setEditingVault(null);
     };
 
     const deleteVault = (id) => {
         if (!confirm('Delete this vault?')) return;
-        apiCall(() => axios.delete(`${API_URL}/api/admin/vaults/${id}`, { headers }), 'Vault deleted');
+        apiCall(() => api.delete(`${API_URL}/api/admin/vaults/${id}`, { headers }), 'Vault deleted');
     };
 
     const inputCls = "bg-gray-50 dark:bg-gray-900 border border-gray-300 dark:border-gray-700 text-gray-900 dark:text-white text-sm rounded-lg p-2 w-full focus:ring-2 focus:ring-blue-500 outline-none";
